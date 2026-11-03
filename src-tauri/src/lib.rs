@@ -1,9 +1,13 @@
 //! TG Studio core: finds agent CLIs on this machine, runs them as child
 //! processes and streams their output (and token usage) to the UI.
 
+#[allow(dead_code)]
+mod acp;
 mod adapters;
 mod detect;
 mod env;
+#[allow(dead_code)]
+mod policy;
 mod runner;
 mod store;
 mod usage;
