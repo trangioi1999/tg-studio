@@ -14,6 +14,7 @@ use tokio::sync::oneshot;
 
 use crate::adapters::AgentKind;
 use crate::env;
+use crate::store::{NewRun, Store};
 use crate::usage::{self, Usage};
 
 const EVENT: &str = "agent-event";
@@ -37,10 +38,7 @@ pub struct AgentEvent {
 
 impl AgentEvent {
     fn new(run_id: &str, agent: AgentKind, kind: &'static str) -> Self {
-        let at_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+        let at_ms = now_ms();
         Self {
             run_id: run_id.to_string(),
             agent,
@@ -51,6 +49,44 @@ impl AgentEvent {
             at_ms,
         }
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Writes an event to the run history. "exit" is saved through `finish_run`.
+fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
+    match (ev.kind, &ev.line, &ev.usage) {
+        ("started" | "log" | "stderr", Some(line), _) => {
+            store.append_line(&ev.run_id, ev.kind, line, ev.at_ms)
+        }
+        ("usage", _, Some(u)) => store.add_usage(&ev.run_id, ev.at_ms, u),
+        _ => Ok(()),
+    }
+}
+
+fn final_status(stopped: bool, code: Option<i32>) -> &'static str {
+    match (stopped, code) {
+        (true, _) => "stopped",
+        (false, Some(0)) => "done",
+        (false, _) => "failed",
+    }
+}
+
+/// History is a convenience: a storage error must never break a run.
+fn log_store_error(result: rusqlite::Result<()>) {
+    if let Err(e) = result {
+        eprintln!("Không ghi được lịch sử lượt chạy: {e}");
+    }
+}
+
+fn publish(app: &AppHandle, ev: AgentEvent) {
+    log_store_error(save_event(&app.state::<Store>(), &ev));
+    let _ = app.emit(EVENT, ev);
 }
 
 #[tauri::command]
@@ -95,9 +131,17 @@ pub async fn start_agent(
         .map_err(|e| e.to_string())?
         .insert(run_id.clone(), stop_tx);
 
+    log_store_error(app.state::<Store>().insert_run(&NewRun {
+        id: &run_id,
+        agent,
+        prompt: &prompt,
+        cwd: &cwd,
+        started_at: now_ms(),
+    }));
+
     let mut started = AgentEvent::new(&run_id, agent, "started");
     started.line = Some(format!("{} · {}", bin.display(), cwd));
-    let _ = app.emit(EVENT, started);
+    publish(&app, started);
 
     {
         let app = app.clone();
@@ -108,11 +152,11 @@ pub async fn start_agent(
                 if let Some(u) = usage::parse_line(agent, &line) {
                     let mut ev = AgentEvent::new(&id, agent, "usage");
                     ev.usage = Some(u);
-                    let _ = app.emit(EVENT, ev);
+                    publish(&app, ev);
                 }
                 let mut ev = AgentEvent::new(&id, agent, "log");
                 ev.line = Some(line);
-                let _ = app.emit(EVENT, ev);
+                publish(&app, ev);
             }
         });
     }
@@ -124,7 +168,7 @@ pub async fn start_agent(
             while let Ok(Some(line)) = lines.next_line().await {
                 let mut ev = AgentEvent::new(&id, agent, "stderr");
                 ev.line = Some(line);
-                let _ = app.emit(EVENT, ev);
+                publish(&app, ev);
             }
         });
     }
@@ -136,6 +180,7 @@ pub async fn start_agent(
                 status = child.wait() => Some(status),
                 _ = stop_rx => None,
             };
+            let stopped = finished.is_none();
             let code = match finished {
                 Some(status) => status.ok().and_then(|s| s.code()),
                 None => {
@@ -148,6 +193,12 @@ pub async fn start_agent(
             }
             let mut ev = AgentEvent::new(&id, agent, "exit");
             ev.code = code;
+            log_store_error(app.state::<Store>().finish_run(
+                &id,
+                final_status(stopped, code),
+                code,
+                ev.at_ms,
+            ));
             let _ = app.emit(EVENT, ev);
         });
     }
@@ -164,5 +215,61 @@ pub fn stop_agent(runs: State<'_, Runs>, run_id: String) -> Result<(), String> {
             Ok(())
         }
         None => Err("Lượt chạy này đã kết thúc.".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn store_with_run() -> Store {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .insert_run(&NewRun {
+                id: "r",
+                agent: AgentKind::Codex,
+                prompt: "p",
+                cwd: "/tmp",
+                started_at: 1,
+            })
+            .unwrap();
+        store
+    }
+
+    fn event(kind: &'static str, line: Option<&str>) -> AgentEvent {
+        let mut ev = AgentEvent::new("r", AgentKind::Codex, kind);
+        ev.line = line.map(str::to_string);
+        ev
+    }
+
+    #[test]
+    fn saves_lines_and_usage_but_not_exit() {
+        let store = store_with_run();
+        save_event(&store, &event("started", Some("s"))).unwrap();
+        save_event(&store, &event("log", Some("l"))).unwrap();
+        save_event(&store, &event("stderr", Some("e"))).unwrap();
+        save_event(&store, &event("exit", None)).unwrap();
+        let mut with_usage = event("usage", None);
+        with_usage.usage = Some(Usage {
+            input_tokens: 7,
+            source: "tokens",
+            ..Default::default()
+        });
+        save_event(&store, &with_usage).unwrap();
+
+        let run = store.list_runs(1).unwrap().remove(0);
+        let kinds: Vec<_> = run.lines.iter().map(|l| l.kind.as_str()).collect();
+        assert_eq!(kinds, ["started", "log", "stderr"]);
+        assert_eq!(run.usage.unwrap().input_tokens, 7);
+        assert_eq!(run.status, "running");
+    }
+
+    #[test]
+    fn status_follows_stop_then_exit_code() {
+        assert_eq!(final_status(true, None), "stopped");
+        assert_eq!(final_status(true, Some(0)), "stopped");
+        assert_eq!(final_status(false, Some(0)), "done");
+        assert_eq!(final_status(false, Some(2)), "failed");
+        assert_eq!(final_status(false, None), "failed");
     }
 }

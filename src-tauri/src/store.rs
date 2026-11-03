@@ -7,8 +7,11 @@ use std::{
 
 use rusqlite::{params, types::Type, Connection, Error, Result};
 use serde::Serialize;
+use tauri::State;
 
 use crate::{adapters::AgentKind, usage::Usage};
+
+const RESTORED_RUNS: usize = 100;
 
 pub struct Store(Mutex<Connection>);
 
@@ -195,6 +198,11 @@ impl Store {
         tx.commit()?;
         Ok(runs)
     }
+}
+
+#[tauri::command]
+pub async fn list_runs(store: State<'_, Store>) -> std::result::Result<Vec<StoredRun>, String> {
+    store.list_runs(RESTORED_RUNS).map_err(|e| e.to_string())
 }
 
 // SQLite INTEGER is signed; reject out-of-range values instead of truncating.
