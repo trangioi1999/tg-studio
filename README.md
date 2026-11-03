@@ -3,7 +3,7 @@
 Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
 Giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **Giai đoạn 0** — dò agent trên máy, chạy agent ở chế độ headless, xem log và token/chi phí theo từng agent.
+> Trạng thái: **Giai đoạn 0** — dò agent trên máy, chạy agent ở chế độ headless, xem log, token/chi phí theo từng agent, và lưu lịch sử lượt chạy.
 
 ## Cài môi trường (làm 1 lần trên macOS)
 
@@ -59,6 +59,7 @@ src-tauri/src/
   runner.rs       chạy tiến trình con, stream stdout/stderr → event "agent-event"
   usage.rs        chuẩn hóa token/chi phí của từng CLI (+ unit test)
   env.rs          lấy PATH từ login shell
+  store.rs        lịch sử lượt chạy (SQLite)
 docs/ARCHITECTURE.md
 ```
 
