@@ -23,7 +23,7 @@ Repo chưa cấu hình lint. Prettier có `.prettierrc` nhưng không có script
 
 ## Kiến trúc
 
-Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, `codex`, `gemini`, `kiro-cli`) thành tiến trình con. Sơ đồ, hợp đồng `agent-event` và nguồn usage của từng agent nằm trong `docs/ARCHITECTURE.md`.
+Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, `codex`, `gemini`, `kiro-cli`) thành tiến trình con. Sơ đồ, hợp đồng `agent-event` và nguồn usage của từng agent nằm trong `docs/ARCHITECTURE.md`; đặc tả sản phẩm và tích hợp nằm trong `docs/01`–`07`.
 
 **Luồng một lượt chạy**
 
@@ -41,9 +41,13 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Trạng thái dừng:** `stop_agent` kill tiến trình và event `exit` có `code` là null. UI phân biệt `stopped` với `failed` bằng tập `stopping` trong `RunsService`, không phải bằng dữ liệu từ lõi.
 - **PATH:** mọi tiến trình con phải dùng `env::which` và `.env("PATH", env::login_path())`, nếu không app mở từ Finder sẽ không thấy CLI cài qua nvm hoặc Homebrew.
 - **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.
+- **Lịch sử:** `runner.rs` ghi event vào SQLite (`store.rs`) trước khi phát lên UI, và lỗi ghi không được làm hỏng lượt chạy. Lượt nạp lại có `restored: true`, nên logic usage của phiên phải dùng `sessionRuns`, không dùng `runs`.
+- **Test Rust cần frontend đã build:** `generate_context!` đọc `frontendDist` lúc biên dịch, nên chạy `npm run build` trước `cargo test` trên bản clone mới.
 
-**Thêm agent mới:** làm theo `docs/ARCHITECTURE.md`, và cập nhật thêm những chỗ tài liệu đó chưa nêu: `AgentKind::ALL`, `AGENT_IDS`, `PRICES`, `MockBackend.detectAgents`.
+**Thêm agent mới:** làm theo `docs/ARCHITECTURE.md`.
+
+**Giao việc cho Codex:** phân công và cách chạy `codex exec` trong worktree nằm ở `docs/superpowers/plans/2026-11-03-roadmap-master.md`.
 
 **Giao diện:** component trong `src/app/shell/` không có style riêng; toàn bộ CSS nằm trong `src/styles.scss`. Chuỗi hiển thị cho người dùng, kể cả lỗi trả về từ Rust, viết bằng tiếng Việt.
 
-Trạng thái hiện tại là giai đoạn 0. Lộ trình các giai đoạn nằm trong `README.md`; chưa có ACP, thẻ duyệt quyền hay lưu trữ usage bền vững.
+Trạng thái hiện tại là giai đoạn 0. Lộ trình nằm trong `docs/02-roadmap.md`; chưa có ACP hay thẻ duyệt quyền.
