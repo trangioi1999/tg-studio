@@ -2,13 +2,14 @@
 
 ```
 Angular UI (signals)
-   │  invoke('start_agent' | 'stop_agent' | 'detect_agents' | 'home_dir')
+   │  invoke('start_agent' | 'stop_agent' | 'detect_agents' | 'home_dir' | 'list_runs')
    │  listen('agent-event')
    ▼
 Rust core (Tauri 2)
    ├─ detect.rs   tìm CLI trên login PATH
    ├─ runner.rs   1 tiến trình con / lượt chạy, stream từng dòng
    ├─ usage.rs    dòng JSON → Usage chuẩn hóa
+   ├─ store.rs    lịch sử lượt chạy (SQLite)
    └─ adapters.rs tham số chạy của từng agent
    │  spawn (stdio)
    ▼
@@ -46,7 +47,12 @@ Nguồn số liệu từng agent:
 
 1. Thêm biến thể vào `AgentKind` (`adapters.rs`): tên, binary, tham số headless.
 2. Thêm hàm `parse_*` trong `usage.rs` + test.
-3. Thêm vào `AgentId` và `AGENT_META` (`src/app/core/protocol.ts`), và nhánh trong `describe-line.ts`.
+3. Thêm vào `AgentId`, `AGENT_META` và `AGENT_IDS` (`src/app/core/protocol.ts`), `PRICES` (`pricing.ts`), `MockBackend.detectAgents`, và nhánh trong `describe-line.ts`. Thêm vào `AgentKind::ALL` ở bước 1.
+4. Ghi output thật của CLI vào `src-tauri/tests/fixtures/<agent>/<version>/` và thêm contract test.
+
+## Lịch sử lượt chạy
+
+`runner.rs` ghi mọi event vào `tg-studio.db` trong thư mục dữ liệu của app, trước khi phát lên UI. Khi khởi động: lượt còn `running` chuyển thành `interrupted`, và nếu không mở được file thì app dùng DB trong bộ nhớ, chỉ mất lịch sử. UI nạp lại 100 lượt gần nhất qua `list_runs`; các lượt này có `restored: true` nên không tính vào usage của phiên hiện tại.
 
 ## Đổi frontend sau này
 

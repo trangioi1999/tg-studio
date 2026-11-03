@@ -22,7 +22,6 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
-      # Build the frontend first: Tauri's generate_context! reads frontendDist at compile time.
       - run: npm run build
       - run: npm test -- --watch=false
       - run: cargo test

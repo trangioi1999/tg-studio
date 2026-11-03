@@ -36,6 +36,27 @@ export interface AgentEvent {
   atMs: number;
 }
 
+/** Stored state of a run, returned by the core's `list_runs`. Keep in sync with store.rs. */
+export type RunStatus = 'running' | 'done' | 'failed' | 'stopped' | 'interrupted';
+
+export interface StoredLine {
+  kind: 'started' | 'log' | 'stderr';
+  line: string;
+}
+
+export interface StoredRun {
+  id: string;
+  agent: AgentId;
+  prompt: string;
+  cwd: string;
+  startedAt: number;
+  endedAt: number | null;
+  status: RunStatus;
+  exitCode: number | null;
+  usage: Usage | null;
+  lines: StoredLine[];
+}
+
 export interface AgentMeta {
   name: string;
   mono: string;
