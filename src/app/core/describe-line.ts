@@ -28,6 +28,8 @@ export function describeLine(agent: AgentId, raw: string): ConsoleLine | null {
   const type = str(v['type']) ?? '';
 
   if (agent === 'claude') {
+    if (type === 'rate_limit_event') return null;
+    if (type === 'system' && (v['subtype'] === 'hook_started' || v['subtype'] === 'hook_response')) return null;
     if (type === 'assistant') {
       const content = obj(v['message'])?.['content'];
       if (Array.isArray(content)) {
