@@ -5,12 +5,16 @@
 mod acp;
 mod adapters;
 mod detect;
+#[allow(dead_code)]
+mod diff;
 mod env;
 #[allow(dead_code)]
 mod policy;
 mod runner;
 mod store;
 mod usage;
+#[allow(dead_code)]
+mod worktree;
 
 use std::path::PathBuf;
 
