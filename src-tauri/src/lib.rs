@@ -35,6 +35,14 @@ pub fn run() {
     });
 
     tauri::Builder::default()
+        // Must stay first. The run history has one owner: a second instance would mark
+        // runs of the first as interrupted, so it hands over to the open window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(runner::Runs::default())
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));

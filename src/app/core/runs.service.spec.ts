@@ -125,6 +125,66 @@ describe('RunsService history', () => {
     expect(service.selectedId()).toBe('live');
   });
 
+  it('reattaches a run already in progress when the UI reloads', async () => {
+    let resolve: (runs: StoredRun[]) => void = () => {};
+    const { backend, service } = setup(new Promise<StoredRun[]>((r) => (resolve = r)));
+
+    backend.handler(liveEvent({ line: 'dòng 2' }));
+    backend.handler(liveEvent({ line: 'dòng 3' }));
+    resolve([
+      stored({
+        id: 'live',
+        agent: 'codex',
+        prompt: 'việc đang làm',
+        cwd: '/repo',
+        status: 'running',
+        endedAt: null,
+        exitCode: null,
+        usage: null,
+        lines: [
+          { kind: 'log', line: 'dòng 1' },
+          { kind: 'log', line: 'dòng 2' },
+        ],
+      }),
+    ]);
+    await flush();
+
+    const run = service.runs()[0];
+    expect(run.prompt).toBe('việc đang làm');
+    expect(run.cwd).toBe('/repo');
+    expect(run.startedAt).toBe(1000);
+    expect(run.lines.map((l) => l.text)).toEqual(['dòng 1', 'dòng 2', 'dòng 3']);
+    expect(run.status).toBe('running');
+    expect(run.restored).toBe(false);
+  });
+
+  it('takes the final status from history when exit happened before the UI listened', async () => {
+    let resolve: (runs: StoredRun[]) => void = () => {};
+    const { backend, service } = setup(new Promise<StoredRun[]>((r) => (resolve = r)));
+
+    backend.handler(liveEvent({ line: 'dòng cuối' }));
+    resolve([stored({ id: 'live', agent: 'codex', status: 'failed', exitCode: 2, endedAt: 2500, usage })]);
+    await flush();
+
+    const run = service.runs()[0];
+    expect(run.status).toBe('failed');
+    expect(run.exitCode).toBe(2);
+    expect(run.endedAt).toBe(2500);
+    expect(run.usage).toEqual(usage);
+  });
+
+  it('keeps tracking a stored running run with no live event yet', async () => {
+    const { backend, service } = setup([
+      stored({ id: 'live', agent: 'codex', status: 'running', endedAt: null, exitCode: null, usage }),
+    ]);
+    await flush();
+    expect(service.running()).toHaveLength(1);
+    expect(service.sessionRuns()).toHaveLength(1);
+
+    backend.handler(liveEvent({ kind: 'exit', code: 0 }));
+    expect(service.runs()[0].status).toBe('done');
+  });
+
   it('does not count an interrupted run as running', async () => {
     const { service } = setup([stored({ status: 'interrupted', endedAt: null })]);
     await flush();
