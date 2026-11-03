@@ -118,6 +118,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn claude_fixture_usage() {
+        let fixture = include_str!("../tests/fixtures/claude/2.1.317/readonly.jsonl");
+        let events: Vec<_> = fixture.lines()
+            .filter_map(|line| parse_line(AgentKind::Claude, line))
+            .collect();
+        // The fixture has one result: 4 input + 15379 cache creation,
+        // 33208 cache reads, 84 output, and a reported cost of $0.1313696.
+        assert_eq!(events, vec![Usage {
+            input_tokens: 15_383,
+            cached_input_tokens: 33_208,
+            output_tokens: 84,
+            cost_usd: Some(0.1313696),
+            source: "reported",
+            cumulative: true,
+        }]);
+    }
+
+    #[test]
+    fn codex_fixture_usage() {
+        let fixture = include_str!("../tests/fixtures/codex/0.166.0/readonly.jsonl");
+        let events: Vec<_> = fixture.lines()
+            .filter_map(|line| parse_line(AgentKind::Codex, line))
+            .collect();
+        // The fixture has one turn.completed: 31731 total input, including
+        // 28800 cached tokens, and 51 output tokens; no reported cost.
+        assert_eq!(events, vec![Usage {
+            input_tokens: 2_931,
+            cached_input_tokens: 28_800,
+            output_tokens: 51,
+            cost_usd: None,
+            source: "tokens",
+            cumulative: false,
+        }]);
+    }
+
+    #[test]
     fn claude_result_line() {
         let line = r#"{"type":"result","subtype":"success","total_cost_usd":0.0123,"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":42}}"#;
         let u = parse_line(AgentKind::Claude, line).unwrap();
