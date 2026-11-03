@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AgentEvent, AgentId, DetectedAgent } from './protocol';
+import { AgentEvent, AgentId, DetectedAgent, StoredRun } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -11,6 +11,8 @@ export abstract class AgentBackend {
   abstract homeDir(): Promise<string | null>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
   abstract stop(runId: string): Promise<void>;
+  /** Run history saved by earlier app sessions, newest first. */
+  abstract listRuns(): Promise<StoredRun[]>;
   abstract onEvent(handler: (event: AgentEvent) => void): Promise<Unlisten>;
 }
 
@@ -30,6 +32,9 @@ export class TauriBackend extends AgentBackend {
   }
   stop(runId: string) {
     return invoke<void>('stop_agent', { runId });
+  }
+  listRuns() {
+    return invoke<StoredRun[]>('list_runs');
   }
   onEvent(handler: (event: AgentEvent) => void) {
     return listen<AgentEvent>('agent-event', (e) => handler(e.payload));

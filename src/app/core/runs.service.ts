@@ -2,9 +2,9 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AgentEvent, AgentId, Usage } from './protocol';
+import { AGENT_IDS, AgentEvent, AgentId, RunStatus, StoredRun, Usage } from './protocol';
 
-export type RunStatus = 'running' | 'done' | 'failed' | 'stopped';
+export type { RunStatus };
 
 export interface Run {
   id: string;
@@ -17,6 +17,8 @@ export interface Run {
   lines: ConsoleLine[];
   usage: Usage | null;
   exitCode: number | null;
+  /** Loaded from an earlier app session: shown, but not part of this session's usage. */
+  restored: boolean;
 }
 
 export interface AgentUsage {
@@ -41,10 +43,11 @@ export class RunsService {
   readonly selectedId = signal<string | null>(null);
   readonly selected = computed(() => this.runs().find((r) => r.id === this.selectedId()) ?? null);
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
+  readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
 
   readonly usageByAgent = computed<AgentUsage[]>(() =>
     AGENT_IDS.map((agent) => {
-      const runs = this.runs().filter((r) => r.agent === agent);
+      const runs = this.sessionRuns().filter((r) => r.agent === agent);
       const acc: AgentUsage = { agent, runs: runs.length, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: null, costSource: 'none' };
       for (const r of runs) {
         if (!r.usage) continue;
@@ -73,6 +76,23 @@ export class RunsService {
 
   constructor() {
     void this.backend.onEvent((e) => this.apply(e));
+    void this.hydrate();
+  }
+
+  /** Loads saved runs. History is a convenience, so a failure must not block the UI. */
+  private async hydrate(): Promise<void> {
+    let stored: StoredRun[];
+    try {
+      stored = await this.backend.listRuns();
+    } catch (e) {
+      console.warn('Không đọc được lịch sử lượt chạy', e);
+      return;
+    }
+    this.runs.update((live) => {
+      const liveIds = new Set(live.map((r) => r.id));
+      return [...live, ...stored.filter((s) => !liveIds.has(s.id)).map(restoreRun)];
+    });
+    if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
 
   async start(agent: AgentId, prompt: string, cwd: string): Promise<void> {
@@ -90,13 +110,11 @@ export class RunsService {
     this.upsert(e.runId, e.agent, (run) => {
       switch (e.kind) {
         case 'started':
-          return { ...run, lines: [...run.lines, { text: e.line ?? 'started', tone: 'muted' }] };
-        case 'log': {
-          const line = e.line ? describeLine(run.agent, e.line) : null;
+        case 'log':
+        case 'stderr': {
+          const line = toConsoleLine(run.agent, e.kind, e.line);
           return line ? { ...run, lines: [...run.lines, line].slice(-MAX_LINES) } : run;
         }
-        case 'stderr':
-          return e.line ? { ...run, lines: [...run.lines, { text: e.line, tone: 'error' as const }].slice(-MAX_LINES) } : run;
         case 'usage':
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
         case 'exit': {
@@ -114,12 +132,25 @@ export class RunsService {
       const existing = list.find((r) => r.id === id);
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
-        status: 'running', lines: [], usage: null, exitCode: null,
+        status: 'running', lines: [], usage: null, exitCode: null, restored: false,
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
     });
   }
+}
+
+function toConsoleLine(agent: AgentId, kind: 'started' | 'log' | 'stderr', line: string | null): ConsoleLine | null {
+  if (kind === 'started') return { text: line ?? 'started', tone: 'muted' };
+  if (!line) return null;
+  return kind === 'log' ? describeLine(agent, line) : { text: line, tone: 'error' };
+}
+
+function restoreRun(s: StoredRun): Run {
+  const lines = s.lines
+    .map((l) => toConsoleLine(s.agent, l.kind, l.line))
+    .filter((l): l is ConsoleLine => l !== null);
+  return { ...s, lines, restored: true };
 }
 
 function mergeUsage(prev: Usage | null, next: Usage | null): Usage | null {
