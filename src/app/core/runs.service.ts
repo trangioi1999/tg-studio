@@ -89,8 +89,13 @@ export class RunsService {
       return;
     }
     this.runs.update((live) => {
-      const liveIds = new Set(live.map((r) => r.id));
-      return [...live, ...stored.filter((s) => !liveIds.has(s.id)).map(restoreRun)];
+      const liveById = new Map(live.map((r) => [r.id, r]));
+      const storedIds = new Set(stored.map((s) => s.id));
+      const merged = stored.map((s) => {
+        const run = liveById.get(s.id);
+        return run ? reattach(restoreRun(s), run) : restoreRun(s);
+      });
+      return [...live.filter((r) => !storedIds.has(r.id)), ...merged];
     });
     if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
@@ -150,7 +155,36 @@ function restoreRun(s: StoredRun): Run {
   const lines = s.lines
     .map((l) => toConsoleLine(s.agent, l.kind, l.line))
     .filter((l): l is ConsoleLine => l !== null);
-  return { ...s, lines, restored: true };
+  // A run still marked running belongs to this app session: the UI was only reloaded.
+  return { ...s, lines, restored: s.status !== 'running' };
+}
+
+/**
+ * Joins a saved run with events that reached the UI before history loaded. A line is
+ * saved before it is emitted, so the end of the snapshot may repeat the first live lines.
+ */
+function reattach(saved: Run, live: Run): Run {
+  const ended = saved.status === 'done' || saved.status === 'failed' || saved.status === 'stopped';
+  const final = live.status !== 'running' ? live : ended ? saved : live;
+  return {
+    ...saved,
+    status: final.status,
+    exitCode: final.exitCode,
+    endedAt: final.endedAt,
+    usage: live.usage?.cumulative ? live.usage : (saved.usage ?? live.usage),
+    lines: joinLines(saved.lines, live.lines).slice(-MAX_LINES),
+    restored: false,
+  };
+}
+
+function joinLines(saved: ConsoleLine[], live: ConsoleLine[]): ConsoleLine[] {
+  for (let overlap = Math.min(saved.length, live.length); overlap > 0; overlap--) {
+    const tail = saved.slice(-overlap);
+    if (tail.every((l, i) => l.text === live[i].text && l.tone === live[i].tone)) {
+      return [...saved, ...live.slice(overlap)];
+    }
+  }
+  return [...saved, ...live];
 }
 
 function mergeUsage(prev: Usage | null, next: Usage | null): Usage | null {
