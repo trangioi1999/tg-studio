@@ -1,0 +1,371 @@
+//! SQLite run history. Callers handle storage errors without stopping a run.
+
+use std::{
+    path::Path,
+    sync::{Mutex, MutexGuard},
+};
+
+use rusqlite::{params, types::Type, Connection, Error, Result};
+use serde::Serialize;
+
+use crate::{adapters::AgentKind, usage::Usage};
+
+pub struct Store(Mutex<Connection>);
+
+pub struct NewRun<'a> {
+    pub id: &'a str,
+    pub agent: AgentKind,
+    pub prompt: &'a str,
+    pub cwd: &'a str,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredLine {
+    pub kind: String,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredRun {
+    pub id: String,
+    pub agent: AgentKind,
+    pub prompt: String,
+    pub cwd: String,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub status: String,
+    pub exit_code: Option<i32>,
+    pub usage: Option<Usage>,
+    pub lines: Vec<StoredLine>,
+}
+
+impl Store {
+    pub fn open(path: &Path) -> Result<Store> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent).map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))?;
+        }
+        Self::initialize(Connection::open(path)?)
+    }
+
+    pub fn open_in_memory() -> Result<Store> {
+        Self::initialize(Connection::open_in_memory()?)
+    }
+
+    fn initialize(mut conn: Connection) -> Result<Store> {
+        conn.pragma_update(None, "foreign_keys", true)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        let tx = conn.transaction()?;
+        let version: u32 = tx.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        match version {
+            0 => tx.execute_batch("
+                CREATE TABLE runs (
+                    id TEXT PRIMARY KEY, agent TEXT NOT NULL, prompt TEXT NOT NULL,
+                    cwd TEXT NOT NULL, status TEXT NOT NULL, exit_code INTEGER,
+                    started_at INTEGER NOT NULL, ended_at INTEGER,
+                    model TEXT, step TEXT, worktree TEXT, task_id TEXT
+                );
+                CREATE TABLE usage_events (
+                    id INTEGER PRIMARY KEY, run_id TEXT REFERENCES runs(id), at INTEGER NOT NULL,
+                    input_tokens INTEGER NOT NULL, cached_input_tokens INTEGER NOT NULL,
+                    output_tokens INTEGER NOT NULL, cost_usd REAL,
+                    cumulative INTEGER NOT NULL, source TEXT NOT NULL, raw TEXT
+                );
+                CREATE TABLE run_lines (
+                    id INTEGER PRIMARY KEY, run_id TEXT REFERENCES runs(id),
+                    kind TEXT NOT NULL, line TEXT NOT NULL, at INTEGER NOT NULL
+                );
+                CREATE INDEX run_lines_run_id ON run_lines(run_id);
+                CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
+                PRAGMA user_version = 1;
+            ")?,
+            1 => {},
+            _ => return Err(Error::InvalidQuery),
+        }
+        tx.commit()?;
+        Ok(Store(Mutex::new(conn)))
+    }
+
+    fn connection(&self) -> Result<MutexGuard<'_, Connection>> {
+        self.0.lock().map_err(|_| Error::InvalidQuery)
+    }
+
+    pub fn insert_run(&self, run: &NewRun<'_>) -> Result<()> {
+        let agent = serde_json::to_value(run.agent)
+            .map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))?;
+        self.connection()?.execute(
+            "INSERT INTO runs (id, agent, prompt, cwd, started_at, status) VALUES (?1, ?2, ?3, ?4, ?5, 'running')",
+            params![run.id, agent.as_str(), run.prompt, run.cwd, sql_integer(run.started_at)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn append_line(&self, run_id: &str, kind: &str, line: &str, at: u64) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO run_lines (run_id, kind, line, at) VALUES (?1, ?2, ?3, ?4)",
+            params![run_id, kind, line, sql_integer(at)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn add_usage(&self, run_id: &str, at: u64, usage: &Usage) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO usage_events (run_id, at, input_tokens, cached_input_tokens, output_tokens, cost_usd, cumulative, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![run_id, sql_integer(at)?, sql_integer(usage.input_tokens)?, sql_integer(usage.cached_input_tokens)?, sql_integer(usage.output_tokens)?,
+                usage.cost_usd, usage.cumulative, usage.source],
+        )?;
+        Ok(())
+    }
+
+    pub fn finish_run(&self, run_id: &str, status: &str, code: Option<i32>, at: u64) -> Result<()> {
+        self.connection()?.execute(
+            "UPDATE runs SET status = ?2, exit_code = ?3, ended_at = ?4 WHERE id = ?1",
+            params![run_id, status, code, sql_integer(at)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_interrupted(&self) -> Result<usize> {
+        self.connection()?.execute("UPDATE runs SET status = 'interrupted' WHERE status = 'running'", [])
+    }
+
+    pub fn list_runs(&self, limit: usize) -> Result<Vec<StoredRun>> {
+        let mut conn = self.connection()?;
+        // Read the run and its events from a single snapshot, including across connections.
+        let tx = conn.transaction()?;
+        let mut runs = {
+            let mut stmt = tx.prepare(
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code
+                 FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
+            )?;
+            let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+                let agent: String = row.get(1)?;
+                let agent = serde_json::from_value(serde_json::Value::String(agent))
+                    .map_err(|e| Error::FromSqlConversionFailure(1, Type::Text, Box::new(e)))?;
+                Ok(StoredRun {
+                    id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
+                    started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(),
+                })
+            })?;
+            rows.collect::<Result<Vec<_>>>()?
+        };
+        {
+            let mut lines = tx.prepare(
+                "SELECT kind, line FROM (SELECT id, kind, line FROM run_lines
+                 WHERE run_id = ?1 ORDER BY id DESC LIMIT 2000) ORDER BY id ASC",
+            )?;
+            let mut events = tx.prepare(
+                "SELECT input_tokens, cached_input_tokens, output_tokens, cost_usd, source, cumulative
+                 FROM usage_events WHERE run_id = ?1 ORDER BY at ASC, id ASC",
+            )?;
+            for run in &mut runs {
+                run.lines = lines.query_map([&run.id], |row| {
+                    Ok(StoredLine { kind: row.get(0)?, line: row.get(1)? })
+                })?.collect::<Result<Vec<_>>>()?;
+                let usage = events.query_map([&run.id], |row| {
+                    let source: String = row.get(4)?;
+                    Ok(Usage {
+                        input_tokens: unsigned(row.get(0)?, 0)?, cached_input_tokens: unsigned(row.get(1)?, 1)?,
+                        output_tokens: unsigned(row.get(2)?, 2)?, cost_usd: row.get(3)?,
+                        source: if source == "reported" { "reported" } else { "tokens" },
+                        cumulative: row.get(5)?,
+                    })
+                })?;
+                for next in usage {
+                    let mut next = next?;
+                    if !next.cumulative {
+                        if let Some(prev) = &run.usage {
+                            next.input_tokens += prev.input_tokens;
+                            next.cached_input_tokens += prev.cached_input_tokens;
+                            next.output_tokens += prev.output_tokens;
+                            next.cost_usd = match (prev.cost_usd, next.cost_usd) {
+                                (None, None) => None,
+                                (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+                            };
+                        }
+                    }
+                    run.usage = Some(next);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(runs)
+    }
+}
+
+// SQLite INTEGER is signed; reject out-of-range values instead of truncating.
+fn sql_integer(value: u64) -> Result<i64> {
+    i64::try_from(value).map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))
+}
+
+fn unsigned(value: i64, column: usize) -> Result<u64> {
+    u64::try_from(value)
+        .map_err(|e| Error::FromSqlConversionFailure(column, Type::Integer, Box::new(e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn insert(store: &Store, id: &str, started_at: u64) {
+        store.insert_run(&NewRun { id, agent: AgentKind::Codex, prompt: "Giải thích ✓", cwd: "/tmp/thư mục có dấu cách", started_at }).unwrap();
+    }
+
+    fn usage(input: u64, cached: u64, output: u64) -> Usage {
+        Usage { input_tokens: input, cached_input_tokens: cached, output_tokens: output, source: "tokens", ..Default::default() }
+    }
+
+    #[test]
+    fn schema_and_foreign_keys_are_initialized() {
+        let store = Store::open_in_memory().unwrap();
+        {
+            let conn = store.connection().unwrap();
+            let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+            let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
+            assert_eq!(version, 1);
+            assert!(foreign_keys);
+            conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
+            conn.prepare("SELECT raw FROM usage_events").unwrap();
+        }
+        assert!(store.append_line("missing", "log", "orphan", 1).is_err());
+        assert!(store.add_usage("missing", 1, &usage(1, 0, 0)).is_err());
+    }
+
+    #[test]
+    fn usage_replays_by_time_then_id_and_normalizes_source() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        store.add_usage("a", 3, &Usage { source: "unknown", ..usage(5, 0, 0) }).unwrap();
+        store.add_usage("a", 2, &Usage { cumulative: true, ..usage(10, 0, 0) }).unwrap();
+        store.add_usage("a", 3, &usage(2, 0, 0)).unwrap();
+        assert_eq!(store.list_runs(1).unwrap()[0].usage, Some(usage(17, 0, 0)));
+    }
+
+    #[test]
+    fn out_of_range_integers_return_errors_without_writing() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        assert!(store.append_line("a", "log", "invalid", u64::MAX).is_err());
+        assert!(store.add_usage("a", 2, &usage(u64::MAX, 0, 0)).is_err());
+        let run = store.list_runs(1).unwrap().remove(0);
+        assert!(run.lines.is_empty());
+        assert_eq!(run.usage, None);
+    }
+
+    #[test]
+    fn reopen_keeps_runs() {
+        let dir = std::env::temp_dir().join(format!("tg-store-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("nested/history.db");
+        let expected = {
+            let store = Store::open(&path).unwrap();
+            let mode: String = store.connection().unwrap()
+                .pragma_query_value(None, "journal_mode", |r| r.get(0)).unwrap();
+            assert_eq!(mode, "wal");
+            insert(&store, "a", 123);
+            store.append_line("a", "log", "hello", 124).unwrap();
+            store.add_usage("a", 125, &usage(10, 1, 2)).unwrap();
+            store.finish_run("a", "done", Some(0), 126).unwrap();
+            store.list_runs(10).unwrap()
+        };
+        {
+            let store = Store::open(&path).unwrap();
+            assert_eq!(store.list_runs(10).unwrap(), expected);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn usage_replays_cumulative_and_incremental() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        store.add_usage("a", 2, &usage(10, 1, 2)).unwrap();
+        store.add_usage("a", 3, &usage(5, 1, 1)).unwrap();
+        assert_eq!(store.list_runs(1).unwrap()[0].usage, Some(usage(15, 2, 3)));
+        let total = Usage { cumulative: true, cost_usd: Some(0.5), source: "reported", ..usage(100, 0, 9) };
+        store.add_usage("a", 4, &total).unwrap();
+        assert_eq!(store.list_runs(1).unwrap()[0].usage, Some(total));
+        store.add_usage("a", 5, &usage(1, 2, 3)).unwrap();
+        assert_eq!(store.list_runs(1).unwrap()[0].usage, Some(Usage { cost_usd: Some(0.5), ..usage(101, 2, 12) }));
+    }
+
+    #[test]
+    fn incremental_cost_stays_none() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        store.add_usage("a", 2, &usage(10, 1, 2)).unwrap();
+        store.add_usage("a", 3, &usage(5, 1, 1)).unwrap();
+        let u = store.list_runs(1).unwrap().remove(0).usage.unwrap();
+        assert_eq!(u.cost_usd, None);
+        assert_eq!(u.source, "tokens");
+    }
+
+    #[test]
+    fn lines_after_finish_are_kept() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        store.finish_run("a", "done", Some(0), 2).unwrap();
+        store.append_line("a", "stderr", "late", 3).unwrap();
+        store.add_usage("a", 4, &usage(10, 1, 2)).unwrap();
+        let run = store.list_runs(1).unwrap().remove(0);
+        assert_eq!(run.status, "done");
+        assert_eq!(run.exit_code, Some(0));
+        assert_eq!(run.ended_at, Some(2));
+        assert_eq!(run.lines, vec![StoredLine { kind: "stderr".into(), line: "late".into() }]);
+        assert_eq!(run.usage, Some(usage(10, 1, 2)));
+    }
+
+    #[test]
+    fn only_last_2000_lines_in_order() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        for i in 0..2005 {
+            store.append_line("a", "log", &format!("line-{i}"), 2).unwrap();
+        }
+        let run = store.list_runs(1).unwrap().remove(0);
+        let expected: Vec<_> = (5..2005).map(|i| StoredLine { kind: "log".into(), line: format!("line-{i}") }).collect();
+        assert_eq!(run.lines, expected);
+    }
+
+    #[test]
+    fn mark_interrupted_only_touches_running() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "done", 1);
+        store.finish_run("done", "done", Some(0), 2).unwrap();
+        let done = store.list_runs(1).unwrap().remove(0);
+        insert(&store, "running", 3);
+        assert_eq!(store.mark_interrupted().unwrap(), 1);
+        let runs = store.list_runs(10).unwrap();
+        assert_eq!(runs[0].status, "interrupted");
+        assert_eq!(runs[1], done);
+        assert_eq!(store.mark_interrupted().unwrap(), 0);
+    }
+
+    #[test]
+    fn list_is_newest_first_and_limited() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "middle", 20);
+        insert(&store, "newest", 30);
+        insert(&store, "oldest", 10);
+        let runs = store.list_runs(2).unwrap();
+        assert_eq!(runs.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec!["newest", "middle"]);
+        assert!(store.list_runs(0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn unicode_round_trip() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        let run = store.list_runs(1).unwrap().remove(0);
+        assert_eq!(run.prompt, "Giải thích ✓");
+        assert_eq!(run.cwd, "/tmp/thư mục có dấu cách");
+        assert_eq!(run.agent, AgentKind::Codex);
+        assert_eq!(run.status, "running");
+        assert_eq!(run.ended_at, None);
+        assert_eq!(run.exit_code, None);
+        assert_eq!(run.usage, None);
+    }
+}
