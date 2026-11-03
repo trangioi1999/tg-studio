@@ -67,7 +67,7 @@ fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
             store.append_line(&ev.run_id, ev.kind, line, ev.at_ms)
         }
         ("message", _, _) => match ev.data.as_ref().and_then(|v| v["text"].as_str()) {
-            Some(text) => store.append_line(&ev.run_id, "log", text, ev.at_ms),
+            Some(text) => store.append_line(&ev.run_id, "message", text, ev.at_ms),
             None => Ok(()),
         },
         ("usage", _, Some(u)) => store.add_usage(&ev.run_id, ev.at_ms, u),
@@ -271,13 +271,13 @@ mod tests {
     }
 
     #[test]
-    fn acp_messages_are_persisted_as_compatible_log_lines() {
+    fn acp_messages_are_persisted_as_message_lines() {
         let store = store_with_run();
         let mut message = event("message", None);
         message.data = Some(serde_json::json!({"text":"Đang sửa file\n"}));
         save_event(&store, &message).unwrap();
         let run = store.list_runs(1).unwrap().remove(0);
-        assert_eq!(run.lines, vec![crate::store::StoredLine { kind: "log".into(), line: "Đang sửa file\n".into() }]);
+        assert_eq!(run.lines, vec![crate::store::StoredLine { kind: "message".into(), line: "Đang sửa file\n".into() }]);
     }
 
     #[test]

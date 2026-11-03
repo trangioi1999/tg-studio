@@ -4,6 +4,9 @@ export type LineTone = 'text' | 'tool' | 'muted' | 'error' | 'ok';
 export interface ConsoleLine {
   text: string;
   tone: LineTone;
+  /** Identifies a line that later events update in place. */
+  key?: string;
+  label?: string;
 }
 
 type Json = Record<string, unknown>;

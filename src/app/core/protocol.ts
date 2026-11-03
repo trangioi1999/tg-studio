@@ -44,7 +44,7 @@ export interface AgentEvent {
 export type RunStatus = 'running' | 'done' | 'failed' | 'stopped' | 'interrupted';
 
 export interface StoredLine {
-  kind: 'started' | 'log' | 'stderr';
+  kind: 'started' | 'log' | 'stderr' | 'message';
   line: string;
 }
 
@@ -59,6 +59,22 @@ export interface StoredRun {
   exitCode: number | null;
   usage: Usage | null;
   lines: StoredLine[];
+  /** Set for code tasks that still have a worktree to review. */
+  worktree: string | null;
+}
+
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
+}
+
+export interface PermissionRequest {
+  requestId: string;
+  toolCall: { title?: string; kind?: string; rawInput?: { command?: string | string[] } };
+  options: PermissionOption[];
+  /** What "Always allow" would save. null: this tool cannot be always allowed. */
+  rule: string | null;
 }
 
 export interface AgentMeta {

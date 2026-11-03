@@ -213,7 +213,8 @@ pub fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run
         return Err("Hãy dừng lượt chạy trước khi xóa worktree.".into());
     }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
-    worktree::remove(&repo, &wt, true)
+    worktree::remove(&repo, &wt, true)?;
+    store.clear_run_worktree(&run_id).map_err(|e| format!("Đã xóa worktree nhưng không cập nhật được lịch sử: {e}"))
 }
 
 #[cfg(test)]

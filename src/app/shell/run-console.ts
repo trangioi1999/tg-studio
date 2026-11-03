@@ -5,10 +5,12 @@ import { fmtDuration, fmtTokens } from '../core/format';
 import { AGENT_META, AgentId } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
+import { DiffViewer } from './diff-viewer';
+import { PermissionCard } from './permission-card';
 
 @Component({
   selector: 'tg-run-console',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, DiffViewer, PermissionCard],
   template: `
     <section class="composer">
       <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
@@ -19,8 +21,15 @@ import { AgentAvatar } from './agent-avatar';
         <label class="field">
           <span>Agent</span>
           <select [value]="agent()" (change)="chosen.set($any($event.target).value)">
-            @for (a of agents.runnable(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
-            @if (!agents.runnable().length) { <option value="">Chưa có agent nào chạy được</option> }
+            @for (a of choices(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
+            @if (!choices().length) { <option value="">Chưa có agent nào chạy được</option> }
+          </select>
+        </label>
+        <label class="field">
+          <span>Chế độ</span>
+          <select [value]="mode()" (change)="mode.set($any($event.target).value)">
+            <option value="task">Sửa code</option>
+            <option value="read">Chỉ đọc</option>
           </select>
         </label>
         <label class="field grow">
@@ -53,15 +62,26 @@ import { AgentAvatar } from './agent-avatar';
             <span class="dim mono">{{ tok(r.usage.inputTokens + r.usage.cachedInputTokens + r.usage.outputTokens) }} tok</span>
           }
           <span class="dim">{{ dur(r) }}</span>
+          @if (r.task) {
+            <div class="segmented" role="group" aria-label="Chế độ xem">
+              <button [class.active]="view() === 'log'" [attr.aria-pressed]="view() === 'log'" (click)="view.set('log')">Log</button>
+              <button [class.active]="view() === 'changes'" [attr.aria-pressed]="view() === 'changes'" (click)="view.set('changes')">Thay đổi</button>
+            </div>
+          }
           @if (r.status === 'running') { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
         </div>
-        <div class="console-body mono">
-          @for (l of r.lines; track $index) { <div class="line" [attr.data-tone]="l.tone">{{ l.text }}</div> }
-        </div>
+        @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
+        @if (r.task && view() === 'changes') {
+          <tg-diff-viewer [runId]="r.id" [agent]="r.agent" [running]="r.status === 'running'" [suggestion]="r.lastMessage" />
+        } @else {
+          <div class="console-body mono">
+            @for (l of r.lines; track $index) { <div class="line" [attr.data-tone]="l.tone">{{ l.text }}</div> }
+          </div>
+        }
       } @else {
         <div class="empty">
           <p>Chưa có lượt chạy nào.</p>
-          <p class="dim">Chọn agent, nhập yêu cầu và bấm Chạy. Mỗi lượt chạy được ghi lại token và chi phí ở cột bên phải.</p>
+          <p class="dim">Chọn agent, nhập yêu cầu và bấm Chạy. Chế độ Sửa code làm trong một worktree riêng, nên repo của bạn chỉ đổi khi bạn chấp nhận từng thay đổi.</p>
         </div>
       }
     </section>
@@ -73,12 +93,18 @@ export class RunConsole implements OnInit {
   private readonly backend = inject(AgentBackend);
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly mode = signal<'task' | 'read'>('task');
+  protected readonly view = signal<'log' | 'changes'>('log');
+  /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */
+  protected readonly choices = computed(() =>
+    this.mode() === 'task' ? this.agents.agents().filter((a) => a.path) : this.agents.runnable(),
+  );
 
   protected readonly prompt = signal('');
   protected readonly cwd = signal('');
   protected readonly chosen = signal<AgentId | ''>('');
   protected readonly error = signal<string | null>(null);
-  protected readonly agent = computed<AgentId | ''>(() => this.chosen() || this.agents.runnable()[0]?.id || '');
+  protected readonly agent = computed<AgentId | ''>(() => this.chosen() || this.choices()[0]?.id || '');
   protected readonly canRun = computed(() => !!this.agent() && !!this.prompt().trim() && !!this.cwd().trim());
 
   async ngOnInit() {
@@ -90,7 +116,9 @@ export class RunConsole implements OnInit {
     if (!agent || !this.canRun()) return;
     this.error.set(null);
     try {
-      await this.runs.start(agent, this.prompt().trim(), this.cwd().trim());
+      const start = this.mode() === 'task' ? this.runs.startTask : this.runs.start;
+      await start.call(this.runs, agent, this.prompt().trim(), this.cwd().trim());
+      this.view.set('log');
       this.prompt.set('');
     } catch (e) {
       this.error.set(String(e));

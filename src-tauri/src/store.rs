@@ -43,6 +43,7 @@ pub struct StoredRun {
     pub exit_code: Option<i32>,
     pub usage: Option<Usage>,
     pub lines: Vec<StoredLine>,
+    pub worktree: Option<String>,
 }
 
 impl Store {
@@ -132,6 +133,7 @@ impl Store {
         rows.collect()
     }
 
+    #[cfg(test)]
     pub fn set_run_worktree(&self, run_id: &str, repo: &str, wt: &Worktree) -> Result<()> {
         write_worktree(&*self.connection()?, run_id, repo, wt)
     }
@@ -146,6 +148,14 @@ impl Store {
         )?;
         write_worktree(&tx, run.id, repo, wt)?;
         tx.commit()
+    }
+
+    pub fn clear_run_worktree(&self, run_id: &str) -> Result<()> {
+        self.connection()?.execute(
+            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL WHERE id = ?1",
+            params![run_id],
+        )?;
+        Ok(())
     }
 
     pub fn run_worktree(&self, run_id: &str) -> Result<(PathBuf, Worktree)> {
@@ -195,7 +205,7 @@ impl Store {
         let tx = conn.transaction()?;
         let mut runs = {
             let mut stmt = tx.prepare(
-                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree
                  FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
@@ -205,7 +215,7 @@ impl Store {
                 Ok(StoredRun {
                     id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
                     started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
-                    exit_code: row.get(7)?, usage: None, lines: Vec::new(),
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>>>()?
