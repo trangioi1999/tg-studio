@@ -26,3 +26,19 @@ describe('Tauri task commands', () => {
     expect(invoke).toHaveBeenLastCalledWith('discard_worktree', { runId: 'run' });
   });
 });
+
+describe('Mock task contract', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('cancels scheduled events and preserves agent identity on stop', async () => {
+    vi.useFakeTimers();
+    const backend = new MockBackend();
+    const events: AgentEvent[] = [];
+    await backend.onEvent(e => events.push(e));
+    const id = await backend.startTask('kiro', 'change', '/repo');
+    await backend.stop(id);
+    await vi.runAllTimersAsync();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ runId: id, agent: 'kiro', kind: 'exit', code: null, data: null });
+  });
+});
