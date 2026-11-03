@@ -63,7 +63,8 @@ fn io_error(e: std::io::Error) -> String { format!("Không truy cập được d
 fn root(repo: &Path) -> Result<PathBuf, String> {
     let path = git(repo, &["rev-parse", "--show-toplevel"], None)
         .map_err(|e| format!("Thư mục không phải kho Git có working tree. {e}"))?;
-    fs::canonicalize(path.trim()).map_err(io_error)
+    // Not fs::canonicalize: git rejects the \\?\ paths it returns on Windows.
+    dunce::canonicalize(path.trim()).map_err(io_error)
 }
 
 fn valid_segment(value: &str) -> bool {

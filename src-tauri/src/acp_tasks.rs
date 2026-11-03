@@ -117,7 +117,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     // Normalize the repository identity, including callers selecting a subdirectory.
     let root = worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)
         .map_err(|e| format!("Thư mục không phải kho Git. {e}"))?;
-    let repo = std::fs::canonicalize(root.trim()).map_err(|e| format!("Không mở được kho Git: {e}"))?;
+    let repo = dunce::canonicalize(root.trim()).map_err(|e| format!("Không mở được kho Git: {e}"))?;
     let command = agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {} hoặc npx trong PATH.", agent.display_name()))?;
     let (wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command).await?;
     let id = wt.run_id.clone();
