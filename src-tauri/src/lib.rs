@@ -5,6 +5,8 @@ mod adapters;
 mod detect;
 mod env;
 mod runner;
+#[allow(dead_code)]
+mod store;
 mod usage;
 
 pub fn run() {
