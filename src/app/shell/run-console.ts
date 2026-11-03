@@ -72,7 +72,7 @@ export class RunConsole implements OnInit {
   protected readonly runs = inject(RunsService);
   private readonly backend = inject(AgentBackend);
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng' };
+  protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
 
   protected readonly prompt = signal('');
   protected readonly cwd = signal('');

@@ -10,9 +10,10 @@ Ký hiệu: `[x]` xong · `[ ]` chưa · **XK** = tiêu chí "xong khi".
 - [x] Chạy agent headless, stream log (`runner.rs`)
 - [x] Chuẩn hóa usage Claude/Codex/Gemini + unit test (`usage.rs`)
 - [x] Usage theo agent ở cột phải, mock mode cho UI
-- [ ] `git init`, CI chạy `npm test` + `cargo test` trên macOS & Windows (GitHub Actions)
+- [x] `git init`, CI chạy `npm test` + `cargo test` trên macOS & Windows (GitHub Actions)
 - [ ] Chạy thử thật trên Windows (kiểm tra shim `.cmd`, đường dẫn có dấu cách)
-- [ ] Lưu runs vào SQLite để mở lại app không mất lịch sử
+- [x] Lưu runs vào SQLite để mở lại app không mất lịch sử
+- [x] Contract test parser bằng output thật của Claude Code và Codex (`src-tauri/tests/fixtures`)
 
 **XK:** mở app, thấy agent đã cài, chạy 1 yêu cầu chỉ-đọc với Claude/Codex/Gemini, thấy token & chi phí.
 

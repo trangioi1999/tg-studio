@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AgentEvent, AgentId, DetectedAgent, Usage } from './protocol';
+import { AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
 
 /**
  * Used when the UI runs in a normal browser (`npm start`), so you can build
@@ -45,6 +45,10 @@ export class MockBackend extends AgentBackend {
 
   async stop(runId: string) {
     this.emit({ runId, agent: 'claude', kind: 'exit', line: null, usage: null, code: null, atMs: Date.now() });
+  }
+
+  async listRuns(): Promise<StoredRun[]> {
+    return [];
   }
 
   async onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {
