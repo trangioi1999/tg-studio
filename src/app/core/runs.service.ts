@@ -114,6 +114,13 @@ export class RunsService {
   private apply(e: AgentEvent): void {
     this.upsert(e.runId, e.agent, (run) => {
       switch (e.kind) {
+        // Structured ACP rendering is added with the task UI.
+        case 'message':
+        case 'tool':
+        case 'plan':
+        case 'permission':
+        case 'permission_resolved':
+          return run;
         case 'started':
         case 'log':
         case 'stderr': {
@@ -124,7 +131,10 @@ export class RunsService {
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
         case 'exit': {
           const stopped = this.stopping.delete(run.id);
-          const status: RunStatus = stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
+          const reported = e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data)
+            ? e.data['status'] : null;
+          const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
+            ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
           return { ...run, status, exitCode: e.code, endedAt: e.atMs };
         }
       }

@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
+import { AgentEvent, AgentId, DetectedAgent, FileDiff, StoredRun, Usage } from './protocol';
 
 /**
  * Used when the UI runs in a normal browser (`npm start`), so you can build
@@ -7,6 +7,8 @@ import { AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol
  */
 export class MockBackend extends AgentBackend {
   readonly mode = 'mock' as const;
+  private runs = new Map<string, { agent: AgentId; timers: ReturnType<typeof setTimeout>[]; active: boolean }>();
+  private tasks = new Set<string>();
   private handlers: ((e: AgentEvent) => void)[] = [];
 
   async detectAgents(): Promise<DetectedAgent[]> {
@@ -18,14 +20,20 @@ export class MockBackend extends AgentBackend {
     ];
   }
 
-  async homeDir() {
+  async homeDir(): Promise<string | null> {
     return '/Users/you/projects/demo';
   }
 
-  async start(agent: AgentId, prompt: string): Promise<string> {
+  async start(agent: AgentId, prompt: string, _cwd?: string): Promise<string> {
     const runId = crypto.randomUUID();
-    const emit = (partial: Partial<AgentEvent>, delay: number) =>
-      setTimeout(() => this.emit({ runId, agent, kind: 'log', line: null, usage: null, code: null, atMs: Date.now(), ...partial }), delay);
+    const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
+    this.runs.set(runId, run);
+    const emit = (partial: Partial<AgentEvent>, delay: number) => {
+      run.timers.push(setTimeout(() => {
+        if (partial.kind === 'exit') run.active = false;
+        this.emit({ runId, agent, kind: 'log', line: null, usage: null, code: null, data: null, atMs: Date.now(), ...partial });
+      }, delay));
+    };
     const usage: Usage = {
       inputTokens: 1800 + Math.round(Math.random() * 4000),
       cachedInputTokens: 12000,
@@ -43,8 +51,47 @@ export class MockBackend extends AgentBackend {
     return runId;
   }
 
+  async startTask(agent: AgentId, prompt: string, repo: string): Promise<string> {
+    const runId = await this.start(agent, prompt, repo);
+    this.tasks.add(runId);
+    return runId;
+  }
+
+  // Browser tasks simulate output only: no files, approvals, or Git commits exist.
+  async respondPermission(_runId: string, _requestId: string, _optionId: string, _always: boolean): Promise<void> {
+    throw new Error('Không có yêu cầu quyền đang chờ trong mô phỏng.');
+  }
+
+  async getDiff(runId: string): Promise<FileDiff[]> {
+    if (!this.tasks.has(runId)) throw new Error('Không tìm thấy worktree mô phỏng.');
+    return [];
+  }
+
+  async acceptHunk(_runId: string, _path: string, _hunkId: string): Promise<void> {
+    throw new Error('Không có hunk trong mô phỏng.');
+  }
+
+  async rejectHunk(_runId: string, _path: string, _hunkId: string): Promise<void> {
+    throw new Error('Không có hunk trong mô phỏng.');
+  }
+
+  async commitAccepted(_runId: string, _message: string): Promise<string> {
+    throw new Error('Không có thay đổi đã duyệt để commit trong mô phỏng.');
+  }
+
+  async discardWorktree(runId: string): Promise<void> {
+    if (!this.tasks.has(runId)) throw new Error('Không tìm thấy worktree mô phỏng.');
+    await this.stop(runId);
+    this.tasks.delete(runId);
+    this.runs.delete(runId);
+  }
+
   async stop(runId: string) {
-    this.emit({ runId, agent: 'claude', kind: 'exit', line: null, usage: null, code: null, atMs: Date.now() });
+    const run = this.runs.get(runId);
+    if (!run || !run.active) return;
+    run.timers.forEach(clearTimeout);
+    run.active = false;
+    this.emit({ runId, agent: run.agent, kind: 'exit', line: null, usage: null, code: null, data: null, atMs: Date.now() });
   }
 
   async listRuns(): Promise<StoredRun[]> {

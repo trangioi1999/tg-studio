@@ -1,19 +1,17 @@
 //! TG Studio core: finds agent CLIs on this machine, runs them as child
 //! processes and streams their output (and token usage) to the UI.
 
-#[allow(dead_code)]
 mod acp;
+mod acp_runner;
 mod adapters;
+mod acp_tasks;
 mod detect;
-#[allow(dead_code)]
 mod diff;
 mod env;
-#[allow(dead_code)]
 mod policy;
 mod runner;
 mod store;
 mod usage;
-#[allow(dead_code)]
 mod worktree;
 
 use std::path::PathBuf;
@@ -52,6 +50,7 @@ pub fn run() {
             }
         }))
         .manage(runner::Runs::default())
+        .manage(acp_tasks::TaskRuns::default())
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
             app.manage(open_store(path));
@@ -62,7 +61,14 @@ pub fn run() {
             detect::home_dir,
             runner::start_agent,
             runner::stop_agent,
-            store::list_runs
+            store::list_runs,
+            acp_tasks::start_task,
+            acp_tasks::respond_permission,
+            acp_tasks::get_diff,
+            acp_tasks::accept_hunk,
+            acp_tasks::reject_hunk,
+            acp_tasks::commit_accepted,
+            acp_tasks::discard_worktree
         ])
         .run(tauri::generate_context!())
         .expect("error while running TG Studio");
