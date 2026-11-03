@@ -47,9 +47,8 @@ describe('describeLine CLI contracts', () => {
       agent: 'codex',
       path: 'codex/0.166.0',
       expected: [
-        // Current fallback behavior: these events are displayed, not hidden.
-        { text: '[thread.started]', tone: 'muted' },
-        { text: '[turn.started]', tone: 'muted' },
+        null, // thread.started
+        null, // turn.started
         { text: 'Tôi sẽ đọc tệp `a.txt`.\n', tone: 'text' },
         null, // item.started
         { text: "› $ /bin/zsh -lc 'cat a.txt'", tone: 'tool' },

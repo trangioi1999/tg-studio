@@ -59,7 +59,7 @@ export function describeLine(agent: AgentId, raw: string): ConsoleLine | null {
       if (itemType === 'file_change') return { text: '› file change', tone: 'tool' };
       return { text: `› ${itemType ?? 'item'}`, tone: 'tool' };
     }
-    if (type === 'item.started' || type === 'item.updated') return null;
+    if (type === 'thread.started' || type === 'turn.started' || type === 'item.started' || type === 'item.updated') return null;
     if (type === 'turn.failed' || type === 'error') return { text: `✕ ${str(v['message']) ?? type}`, tone: 'error' };
     if (type === 'turn.completed') return { text: '✓ turn completed', tone: 'ok' };
   }
