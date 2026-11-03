@@ -26,37 +26,3 @@ describe('Tauri task commands', () => {
     expect(invoke).toHaveBeenLastCalledWith('discard_worktree', { runId: 'run' });
   });
 });
-
-describe('Mock task contract', () => {
-  afterEach(() => vi.useRealTimers());
-
-  it('simulates a task with empty diff and explicitly rejects unavailable mutations', async () => {
-    vi.useFakeTimers();
-    const backend = new MockBackend();
-    const events: AgentEvent[] = [];
-    await backend.onEvent(e => events.push(e));
-    const id = await backend.startTask('codex', 'change', '/repo');
-    expect(await backend.getDiff(id)).toEqual([]);
-    await expect(backend.acceptHunk(id, 'file', 'hunk')).rejects.toThrow();
-    await expect(backend.rejectHunk(id, 'file', 'hunk')).rejects.toThrow();
-    await expect(backend.commitAccepted(id, 'message')).rejects.toThrow();
-    await expect(backend.respondPermission(id, 'request', 'allow', false)).rejects.toThrow();
-    await vi.runAllTimersAsync();
-    expect(events.at(-1)?.kind).toBe('exit');
-    expect(events.every(e => e.data === null)).toBe(true);
-    await backend.discardWorktree(id);
-    await expect(backend.getDiff(id)).rejects.toThrow();
-  });
-
-  it('cancels scheduled events and preserves agent identity on stop', async () => {
-    vi.useFakeTimers();
-    const backend = new MockBackend();
-    const events: AgentEvent[] = [];
-    await backend.onEvent(e => events.push(e));
-    const id = await backend.startTask('kiro', 'change', '/repo');
-    await backend.stop(id);
-    await vi.runAllTimersAsync();
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ runId: id, agent: 'kiro', kind: 'exit', code: null, data: null });
-  });
-});

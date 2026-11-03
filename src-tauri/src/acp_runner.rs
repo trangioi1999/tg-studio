@@ -99,18 +99,32 @@ impl TaskSession {
         let options = params["options"].as_array().cloned().unwrap_or_default();
         let verdict = policy::evaluate(&policy::tool_info(&tool), &self.rules.rules().unwrap_or_default());
         let automatic = match verdict { Verdict::Allow => Some("allow_once"), Verdict::Deny => Some("reject_once"), Verdict::Ask => None };
+        if verdict == Verdict::Deny {
+            let mut note = AgentEvent::new(&self.run_id,self.agent,"stderr");
+            note.line = Some(format!("Đã tự động từ chối lệnh bị cấm: {}", policy::tool_info(&tool).command.unwrap_or_default()));
+            self.queue(note);
+        }
         if let Some(kind) = automatic {
             if let Some(id) = options.iter().find(|o|o["kind"] == kind).and_then(|o|o["optionId"].as_str()) {
                 let result = selected(id);
+                drop(permissions);
+                self.flush_events();
                 return Box::pin(async move {Ok(result)});
             }
             // Forbidden commands cannot fall back to an approval card.
-            if verdict == Verdict::Deny { return Box::pin(async {Ok(cancelled())}); }
+            if verdict == Verdict::Deny {
+                drop(permissions);
+                self.flush_events();
+                return Box::pin(async {Ok(cancelled())});
+            }
         }
         let id = uuid::Uuid::new_v4().to_string();
         let (reply, receiver) = oneshot::channel();
         permissions.pending.insert(id.clone(), Pending {reply,tool:tool.clone(),options:options.clone()});
-        self.queue_data("permission",json!({"requestId":id,"toolCall":tool,"options":options}));
+        // Shown on the card, so "Always allow" says exactly what it will allow.
+        let info = policy::tool_info(&tool);
+        let rule = if info.kind == "execute" { info.command.as_deref().and_then(policy::rule_for) } else { None };
+        self.queue_data("permission",json!({"requestId":id,"toolCall":tool,"options":options,"rule":rule}));
         drop(permissions);
         self.flush_events();
         Box::pin(async move {Ok(receiver.await.unwrap_or_else(|_|cancelled()))})
@@ -222,7 +236,17 @@ mod tests {
             let (client,session,sink,log) = fixture(vec![Step::AskPermissionFor(permission(command)["toolCall"].clone()),Step::WaitForPermissionReply,Step::End("end_turn")],vec!["npm test *".into(),"git *".into()]).await;
             assert_eq!(prompt(client).await.unwrap(),"end_turn");
             assert!(log.lock().unwrap().iter().any(|v|v["result"] == selected(option)));
-            assert!(sink.0.lock().unwrap().is_empty());
+            {
+                let events = sink.0.lock().unwrap();
+                if option == "allow" {
+                    assert!(events.is_empty());
+                } else {
+                    // A silent denial would leave the user guessing why the agent stopped.
+                    assert_eq!(events.len(), 1);
+                    assert_eq!(events[0].kind, "stderr");
+                    assert!(events[0].line.as_deref().unwrap().contains("git push"));
+                }
+            }
             session.finish().await;
         }
     }

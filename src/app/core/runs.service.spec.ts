@@ -24,6 +24,7 @@ const stored = (over: Partial<StoredRun> = {}): StoredRun => ({
   exitCode: 0,
   usage,
   lines: [],
+  worktree: null,
   ...over,
 });
 
@@ -71,6 +72,80 @@ const liveEvent = (over: Partial<AgentEvent>): AgentEvent => ({
   atMs: 3000,
   data: null,
   ...over,
+});
+
+describe('RunsService ACP events', () => {
+  const event = (kind: AgentEvent['kind'], data: AgentEvent['data']) => liveEvent({ kind, data });
+  const request = {
+    requestId: 'q1',
+    toolCall: { title: 'npm test', kind: 'execute', rawInput: { command: 'npm test' } },
+    options: [{ optionId: 'a', name: 'Allow', kind: 'allow_once' }],
+    rule: 'npm test *',
+  };
+
+  it('joins message chunks into one line until something interrupts them', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(event('message', { text: 'Xin ' }));
+    backend.handler(event('message', { text: 'chào' }));
+    backend.handler(event('tool', { toolCallId: 't1', title: 'Đọc', status: 'pending' }));
+    backend.handler(event('message', { text: 'Xong' }));
+    const run = service.runs()[0];
+    expect(run.lines.map((l) => l.text)).toEqual(['Xin chào', '› Đọc', 'Xong']);
+    expect(run.lastMessage).toBe('Xong');
+    expect(run.task).toBe(true);
+  });
+
+  it('updates a tool line in place and keeps its title', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(event('tool', { toolCallId: 't1', title: 'Chạy test', status: 'pending' }));
+    backend.handler(event('tool', { toolCallId: 't1', status: 'completed' }));
+    backend.handler(event('tool', { toolCallId: 't2', title: 'Sửa file', status: 'failed' }));
+    expect(service.runs()[0].lines).toEqual([
+      { key: 'tool:t1', label: 'Chạy test', text: '› Chạy test ✓', tone: 'tool' },
+      { key: 'tool:t2', label: 'Sửa file', text: '› Sửa file ✕', tone: 'error' },
+    ]);
+  });
+
+  it('replaces the plan block when the agent revises it', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(event('plan', { entries: [{ content: 'A', status: 'pending' }] }));
+    backend.handler(event('plan', { entries: [{ content: 'A', status: 'completed' }, { content: 'B', status: 'in_progress' }] }));
+    expect(service.runs()[0].lines.map((l) => l.text)).toEqual(['[x] A\n[~] B']);
+  });
+
+  it('adds and removes permission cards, and clears them when the run ends', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(event('permission', request));
+    backend.handler(event('permission', { ...request, requestId: 'q2' }));
+    expect(service.runs()[0].permissions.map((p) => p.requestId)).toEqual(['q1', 'q2']);
+    backend.handler(event('permission_resolved', { requestId: 'q1' }));
+    expect(service.runs()[0].permissions.map((p) => p.requestId)).toEqual(['q2']);
+    backend.handler(liveEvent({ kind: 'exit', code: null, data: { status: 'failed' } }));
+    expect(service.runs()[0].permissions).toEqual([]);
+    expect(service.runs()[0].status).toBe('failed');
+  });
+
+  it('restores saved chunks as one message and marks worktree runs as tasks', async () => {
+    const { service } = setup([
+      stored({
+        worktree: '/repo/.tg/worktrees/old',
+        lines: [
+          { kind: 'message', line: 'Đã ' },
+          { kind: 'message', line: 'sửa xong' },
+        ],
+      }),
+    ]);
+    await flush();
+    const run = service.runs()[0];
+    expect(run.lines.map((l) => l.text)).toEqual(['Đã sửa xong']);
+    expect(run.lastMessage).toBe('Đã sửa xong');
+    expect(run.task).toBe(true);
+    expect('worktree' in run).toBe(false);
+  });
 });
 
 describe('RunsService history', () => {
@@ -227,4 +302,37 @@ describe('RunsService exit status', () => {
       expect(service.runs().find(r => r.id === 'stopped')?.status).toBe('stopped');
     });
   }
+});
+
+describe('MockBackend task flow', () => {
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('goes from approval through review to commit', async () => {
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
+    const service = TestBed.inject(RunsService);
+    await service.startTask('claude', 'sửa lỗi', '/repo');
+    await wait(300);
+    const pending = service.selected();
+    expect(pending?.permissions).toHaveLength(1);
+    expect(pending?.task).toBe(true);
+    expect(pending?.status).toBe('running');
+
+    await service.respondPermission(pending!.id, pending!.permissions[0].requestId, 'allow', false);
+    await wait(300);
+    const run = service.selected()!;
+    expect(run.status).toBe('done');
+    expect(run.permissions).toEqual([]);
+    expect(run.lastMessage).toBe('fix: sửa lỗi theo yêu cầu');
+
+    const files = await service.getDiff(run.id);
+    expect(files.map((f) => f.path)).toEqual(['src/app/app.ts', 'docs/ghi chú mới.md']);
+    await expect(service.commitAccepted(run.id, 'x')).rejects.toThrow('Chưa có thay đổi');
+    await service.acceptHunk(run.id, files[0].path, files[0].hunks[0].id);
+    await service.rejectHunk(run.id, files[1].path, files[1].hunks[0].id);
+    expect((await service.getDiff(run.id)).map((f) => f.hunks.length)).toEqual([1]);
+    expect(await service.commitAccepted(run.id, 'fix')).toMatch(/^[0-9a-f]+$/);
+
+    await service.discardWorktree(run.id);
+    expect(service.selected()?.task).toBe(false);
+  });
 });
