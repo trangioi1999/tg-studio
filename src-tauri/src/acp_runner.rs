@@ -297,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn fake_fs_escape_and_unknown_method_return_errors() {
         use crate::acp::fake::Step;
-        let (client,session,_,log) = fixture(vec![Step::Call("fs/read_text_file",json!({"path":"/not-in-worktree/secret"})),Step::WaitForAnyReply,Step::Request("unknown/method"),Step::WaitForAnyReply,Step::End("end_turn")],vec![]).await;
+        let (client,session,_,log) = fixture(vec![Step::Call("fs/read_text_file",json!({"path":if cfg!(windows) {"C:\\not-in-worktree\\secret"} else {"/not-in-worktree/secret"}})),Step::WaitForAnyReply,Step::Request("unknown/method"),Step::WaitForAnyReply,Step::End("end_turn")],vec![]).await;
         prompt(client).await.unwrap();
         for code in [-32000,-32601] {assert!(log.lock().unwrap().iter().any(|v|v["error"]["code"]==code));}
         session.finish().await;

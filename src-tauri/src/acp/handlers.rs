@@ -24,7 +24,7 @@ fn number(params: &Value, key: &str, default: usize) -> Result<usize, RpcError> 
 pub struct Sandbox { root: PathBuf }
 impl Sandbox {
     pub fn new(root: &Path) -> Result<Self, String> {
-        let root = root.canonicalize().map_err(|e| format!("Không mở được worktree: {e}"))?;
+        let root = dunce::canonicalize(root).map_err(|e| format!("Không mở được worktree: {e}"))?;
         if !root.is_dir() { return Err("Worktree phải là thư mục".into()); }
         Ok(Self { root })
     }
@@ -40,8 +40,10 @@ impl Sandbox {
                 Component::ParentDir => { resolved.pop(); }
                 _ => resolved.push(part.as_os_str()),
             }
+            // A bare Windows drive prefix ("C:") is not a path that can be checked.
+            if matches!(part, Component::Prefix(_)) { continue; }
             match fs::symlink_metadata(&resolved) {
-                Ok(_) => resolved = resolved.canonicalize().map_err(|e| failed(format!("Không xác minh được đường dẫn: {e}")))?,
+                Ok(_) => resolved = dunce::canonicalize(&resolved).map_err(|e| failed(format!("Không xác minh được đường dẫn: {e}")))?,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(failed(format!("Không xác minh được đường dẫn: {e}"))),
             }
@@ -114,7 +116,8 @@ impl Terminals {
     pub async fn create(&self, params: &Value) -> Result<Value, RpcError> {
         let command = string(params, "command")?;
         if command.is_empty() { return Err(invalid("Lệnh không được để trống")); }
-        let mut cmd = Command::new(command);
+        // Windows only finds .exe by itself, and CLIs installed through npm are .cmd shims.
+        let mut cmd = Command::new(crate::env::which(command).unwrap_or_else(|| command.into()));
         if let Some(args) = params.get("args") {
             for arg in args.as_array().ok_or_else(|| invalid("args phải là mảng"))? {
                 cmd.arg(arg.as_str().filter(|s| !s.contains('\0')).ok_or_else(|| invalid("Mỗi argument phải là chuỗi hợp lệ"))?);
@@ -260,7 +263,7 @@ mod tests {
         fn new() -> Self {
             let path = std::env::temp_dir().join(format!("tg thư mục {}", uuid::Uuid::new_v4()));
             fs::create_dir_all(&path).unwrap();
-            Self(path.canonicalize().unwrap())
+            Self(dunce::canonicalize(path).unwrap())
         }
         fn sandbox(&self) -> Sandbox { Sandbox::new(&self.0).unwrap() }
         fn path(&self, name: &str) -> String { self.0.join(name).to_str().unwrap().into() }
