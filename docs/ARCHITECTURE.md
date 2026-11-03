@@ -10,6 +10,11 @@ Rust core (Tauri 2)
    ├─ runner.rs   1 tiến trình con / lượt chạy, stream từng dòng
    ├─ usage.rs    dòng JSON → Usage chuẩn hóa
    ├─ store.rs    lịch sử lượt chạy (SQLite)
+   ├─ acp/        JSON-RPC, phiên ACP, fs + terminal trong worktree
+   ├─ acp_runner.rs  định tuyến yêu cầu của agent, xin duyệt theo policy
+   ├─ acp_tasks.rs   vòng đời tiến trình adapter, lệnh Tauri của task
+   ├─ policy.rs   lệnh nào tự cho phép, tự từ chối, hay hỏi người dùng
+   ├─ worktree.rs, diff.rs  worktree theo run, duyệt và commit theo hunk
    └─ adapters.rs tham số chạy của từng agent
    │  spawn (stdio)
    ▼
@@ -49,6 +54,12 @@ Nguồn số liệu từng agent:
 2. Thêm hàm `parse_*` trong `usage.rs` + test.
 3. Thêm vào `AgentId`, `AGENT_META` và `AGENT_IDS` (`src/app/core/protocol.ts`), `PRICES` (`pricing.ts`), `MockBackend.detectAgents`, và nhánh trong `describe-line.ts`. Thêm vào `AgentKind::ALL` ở bước 1.
 4. Ghi output thật của CLI vào `src-tauri/tests/fixtures/<agent>/<version>/` và thêm contract test.
+
+## Task sửa code (ACP)
+
+Mỗi task có một git worktree riêng trong `<repo>/.tg/worktrees/<run-id>` và một tiến trình adapter ACP. Hàng chờ duyệt là `git diff` trong worktree: accept một hunk sẽ áp nó vào repo người dùng và stage nó trong worktree, nên hunk đó tự rời hàng chờ. Reject bỏ hunk khỏi worktree.
+
+Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh khớp rule "Always allow" được tự cho phép; lệnh ghép và các lệnh chạy được mã tùy ý (`bash`, `python`, `npx`…) không bao giờ có rule. UI không gửi option `allow_always` của agent, vì agent mới quyết định option đó bao trùm những gì.
 
 ## Lịch sử lượt chạy
 
