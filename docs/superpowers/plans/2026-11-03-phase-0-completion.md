@@ -39,7 +39,7 @@
 
 - [ ] **Step 1:** `git init -b main`, commit toàn bộ mã hiện có. Kiểm tra `git status --ignored` không chứa `dist`, `node_modules`, `target`, `.angular`, `.DS_Store`.
 - [ ] **Step 2:** Thêm `rusqlite = { version = "*bản mới nhất*", features = ["bundled"] }`, chạy `cargo fetch`.
-- [ ] **Step 3:** Viết `ci.yml`: push + pull_request, matrix `macos-latest` và `windows-latest`; Node 24, Rust stable; theo thứ tự `npm ci`, `npm run build`, `npm test -- --watch=false`, `cargo test` trong `src-tauri`. Build frontend phải chạy trước `cargo test` vì `generate_context!` đọc `frontendDist`.
+- [ ] **Step 3:** Viết `ci.yml`: push + pull_request, matrix `macos-latest` và `windows-latest`; Node 24, Rust stable; theo thứ tự `npm ci`, `npm run build`, `npm test -- --watch=false`, `cargo test` trong `src-tauri`.
 - [ ] **Step 4:** Xác minh: `npx --yes js-yaml .github/workflows/ci.yml` parse được. Expected: in ra cấu trúc, không lỗi.
 - [ ] **Step 5:** Commit `chore: add CI and rusqlite dependency`.
 

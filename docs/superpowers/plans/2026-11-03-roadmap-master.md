@@ -26,7 +26,6 @@ Quy tắc chung:
 T=<task-id>                     # ví dụ t2-store
 WT=../tg-studio-wt/$T
 git worktree add -b codex/$T "$WT" main
-cp -R dist "$WT/dist"           # generate_context! của Tauri cần frontendDist
 ln -s "$PWD/node_modules" "$WT/node_modules"
 codex exec -C "$WT" -s workspace-write --json \
   "Đọc AGENTS.md, rồi làm đúng Task N trong docs/superpowers/plans/<plan>.md. Chỉ sửa file task liệt kê. Build bằng cargo --offline. Không commit. Cuối cùng báo: file đã đổi, lệnh test đã chạy và kết quả." \
