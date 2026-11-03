@@ -31,6 +31,8 @@ pub struct AcpClient {
 }
 
 impl AcpClient {
+    pub fn close(&self) { self.transport.close(); }
+
     pub fn start<R, W>(reader: R, writer: W, handler: Arc<dyn ClientHandler>) -> AcpClient
     where
         R: AsyncRead + Unpin + Send + 'static,
@@ -288,5 +290,18 @@ mod tests {
         let client = AcpClient::start(reader, writer, Arc::new(Handler(recorder)));
         let error = client.initialize().await.unwrap_err();
         assert!(error.contains("phiên bản ACP"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn explicit_close_ends_prompt_and_notifies_handler() {
+        let (client,recorder,_log)=start(vec![Step::WaitForCancel]);
+        client.initialize().await.unwrap();
+        let session=client.new_session(Path::new("/tmp"),json!([])).await.unwrap();
+        let clone=client.clone();let turn=tokio::spawn(async move {clone.prompt(&session,"task").await});
+        client.close();
+        assert!(tokio::time::timeout(Duration::from_secs(1),turn).await.unwrap().unwrap().is_err());
+        tokio::time::timeout(Duration::from_secs(1),async {
+            while !*recorder.was_closed.lock().unwrap() {tokio::task::yield_now().await;}
+        }).await.unwrap();
     }
 }

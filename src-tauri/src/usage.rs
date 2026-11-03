@@ -24,6 +24,14 @@ pub struct Usage {
     pub cumulative: bool,
 }
 
+/// ACP usage_update reports context occupancy, not input/output token counts.
+/// Only a reported USD cost can be normalized; never guess token usage from `used`.
+pub fn parse_acp(update: &Value) -> Option<Usage> {
+    if update["sessionUpdate"] != "usage_update" || update["cost"]["currency"] != "USD" { return None; }
+    let cost = update["cost"]["amount"].as_f64().filter(|v| v.is_finite() && *v >= 0.0)?;
+    Some(Usage {cost_usd:Some(cost),source:"reported",cumulative:true,..Default::default()})
+}
+
 pub fn parse_line(agent: AgentKind, line: &str) -> Option<Usage> {
     let line = line.trim();
     if !line.starts_with('{') {
@@ -116,6 +124,17 @@ fn parse_gemini(v: &Value) -> Option<Usage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acp_cost_only_never_invents_tokens_from_context() {
+        use serde_json::json;
+        let u = parse_acp(&json!({"sessionUpdate":"usage_update","used":100,"size":200,"cost":{"amount":0.25,"currency":"USD"}})).unwrap();
+        assert_eq!((u.input_tokens,u.cached_input_tokens,u.output_tokens), (0,0,0));
+        assert_eq!(u.cost_usd,Some(0.25)); assert_eq!(u.source,"reported"); assert!(u.cumulative);
+        for v in [json!({"used":100}),json!({"cost":{"currency":"EUR","amount":1}}),json!({"cost":{"currency":"USD","amount":-1}})] {
+            let mut v=v; v["sessionUpdate"]=json!("usage_update"); assert!(parse_acp(&v).is_none());
+        }
+    }
 
     #[test]
     fn claude_fixture_usage() {

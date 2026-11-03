@@ -21,23 +21,24 @@ const EVENT: &str = "agent-event";
 
 /// Running agents, keyed by run id. The sender stops the run.
 #[derive(Default)]
-pub struct Runs(Mutex<HashMap<String, oneshot::Sender<()>>>);
+pub struct Runs(pub(crate) Mutex<HashMap<String, oneshot::Sender<()>>>);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
-    run_id: String,
-    agent: AgentKind,
+    pub(crate) run_id: String,
+    pub(crate) agent: AgentKind,
     /// "started" | "log" | "stderr" | "usage" | "exit"
-    kind: &'static str,
-    line: Option<String>,
-    usage: Option<Usage>,
-    code: Option<i32>,
-    at_ms: u64,
+    pub(crate) kind: &'static str,
+    pub(crate) line: Option<String>,
+    pub(crate) usage: Option<Usage>,
+    pub(crate) code: Option<i32>,
+    pub(crate) data: Option<serde_json::Value>,
+    pub(crate) at_ms: u64,
 }
 
 impl AgentEvent {
-    fn new(run_id: &str, agent: AgentKind, kind: &'static str) -> Self {
+    pub(crate) fn new(run_id: &str, agent: AgentKind, kind: &'static str) -> Self {
         let at_ms = now_ms();
         Self {
             run_id: run_id.to_string(),
@@ -47,11 +48,12 @@ impl AgentEvent {
             usage: None,
             code: None,
             at_ms,
+            data: None,
         }
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -64,6 +66,10 @@ fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
         ("started" | "log" | "stderr", Some(line), _) => {
             store.append_line(&ev.run_id, ev.kind, line, ev.at_ms)
         }
+        ("message", _, _) => match ev.data.as_ref().and_then(|v| v["text"].as_str()) {
+            Some(text) => store.append_line(&ev.run_id, "log", text, ev.at_ms),
+            None => Ok(()),
+        },
         ("usage", _, Some(u)) => store.add_usage(&ev.run_id, ev.at_ms, u),
         _ => Ok(()),
     }
@@ -84,7 +90,7 @@ fn log_store_error(result: rusqlite::Result<()>) {
     }
 }
 
-fn publish(app: &AppHandle, ev: AgentEvent) {
+pub(crate) fn publish(app: &AppHandle, ev: AgentEvent) {
     log_store_error(save_event(&app.state::<Store>(), &ev));
     let _ = app.emit(EVENT, ev);
 }
@@ -262,6 +268,16 @@ mod tests {
         assert_eq!(kinds, ["started", "log", "stderr"]);
         assert_eq!(run.usage.unwrap().input_tokens, 7);
         assert_eq!(run.status, "running");
+    }
+
+    #[test]
+    fn acp_messages_are_persisted_as_compatible_log_lines() {
+        let store = store_with_run();
+        let mut message = event("message", None);
+        message.data = Some(serde_json::json!({"text":"Đang sửa file\n"}));
+        save_event(&store, &message).unwrap();
+        let run = store.list_runs(1).unwrap().remove(0);
+        assert_eq!(run.lines, vec![crate::store::StoredLine { kind: "log".into(), line: "Đang sửa file\n".into() }]);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
 import { AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
 import { RunsService } from './runs.service';
@@ -26,26 +27,26 @@ const stored = (over: Partial<StoredRun> = {}): StoredRun => ({
   ...over,
 });
 
-class FakeBackend extends AgentBackend {
-  readonly mode = 'mock' as const;
+class FakeBackend extends MockBackend {
+  override readonly mode = 'mock' as const;
   handler: (e: AgentEvent) => void = () => {};
   history: Promise<StoredRun[]> = Promise.resolve([]);
-  detectAgents(): Promise<DetectedAgent[]> {
+  override detectAgents(): Promise<DetectedAgent[]> {
     return Promise.resolve([]);
   }
-  homeDir() {
+  override homeDir() {
     return Promise.resolve(null);
   }
-  start(_agent: AgentId, _prompt: string, _cwd: string) {
+  override start(_agent: AgentId, _prompt: string, _cwd: string) {
     return Promise.resolve('new');
   }
-  stop() {
+  override stop() {
     return Promise.resolve();
   }
-  listRuns() {
+  override listRuns() {
     return this.history;
   }
-  onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {
+  override onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {
     this.handler = handler;
     return Promise.resolve(() => {});
   }
@@ -68,6 +69,7 @@ const liveEvent = (over: Partial<AgentEvent>): AgentEvent => ({
   usage: null,
   code: null,
   atMs: 3000,
+  data: null,
   ...over,
 });
 
@@ -198,4 +200,31 @@ describe('RunsService history', () => {
     backend.handler(liveEvent({ line: 'vẫn chạy' }));
     expect(service.runs()).toHaveLength(1);
   });
+});
+
+describe('RunsService exit status', () => {
+  for (const status of ['done', 'failed', 'stopped'] as const) {
+    it(`honors explicit ACP ${status} status over local exit inference`, async () => {
+      const { backend, service } = setup([]);
+      await flush();
+      if (status !== 'stopped') await service.stop('live');
+      backend.handler(liveEvent({ kind: 'exit', code: status === 'done' ? null : 0, data: { status } }));
+      expect(service.runs()[0].status).toBe(status);
+      expect(service.runs()[0].endedAt).toBe(3000);
+    });
+  }
+
+  for (const data of [null, 'stopped', [], { status: 'running' }, { status: 1 }]) {
+    it(`falls back to headless exit codes for ${JSON.stringify(data)}`, async () => {
+      const { backend, service } = setup([]);
+      await flush();
+      backend.handler(liveEvent({ kind: 'exit', code: 0, data }));
+      expect(service.runs()[0].status).toBe('done');
+      backend.handler(liveEvent({ runId: 'failed', kind: 'exit', code: null, data }));
+      expect(service.runs().find(r => r.id === 'failed')?.status).toBe('failed');
+      await service.stop('stopped');
+      backend.handler(liveEvent({ runId: 'stopped', kind: 'exit', code: 0, data }));
+      expect(service.runs().find(r => r.id === 'stopped')?.status).toBe('stopped');
+    });
+  }
 });

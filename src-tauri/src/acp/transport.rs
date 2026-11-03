@@ -144,6 +144,10 @@ impl Drop for PendingRequest {
 }
 
 impl Transport {
+    /// Closes both I/O tasks even when another process retains the pipe handles.
+    /// All pending RPCs fail immediately; clones cannot send further messages.
+    pub fn close(&self) { self.shared.lock().unwrap().close(TransportError::Closed); }
+
     pub fn spawn<R, W>(reader: R, mut writer: W) -> (Self, mpsc::UnboundedReceiver<Incoming>)
     where
         R: AsyncRead + Unpin + Send + 'static,
@@ -411,5 +415,18 @@ mod tests {
         assert_eq!(msg["params"], payload);
         send(&mut writer, json!({"jsonrpc":"2.0","id":msg["id"],"result":msg["params"]})).await;
         assert_eq!(pending.await.unwrap(), Ok(payload));
+    }
+
+    #[tokio::test]
+    async fn explicit_close_fails_pending_and_releases_open_streams() {
+        let (transport,mut incoming,mut reader,mut writer)=pair();
+        let pending=request(&transport,"waiting");read(&mut reader).await;
+        transport.close();transport.close();
+        assert_eq!(pending.await.unwrap(),Err(TransportError::Closed));
+        assert_eq!(incoming.recv().await,None);
+        let mut line=String::new();
+        assert_eq!(timeout(Duration::from_secs(1),reader.read_line(&mut line)).await.unwrap().unwrap(),0);
+        assert!(writer.write_all(b"still open\n").await.is_err());
+        assert_eq!(transport.notify("late",Value::Null),Err(TransportError::Closed));
     }
 }
