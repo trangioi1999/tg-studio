@@ -300,7 +300,8 @@ export class AgentPanel {
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
   });
-  protected readonly canRun = computed(() => !this.blocked() && !!this.text());
+  protected readonly sending = signal(false);
+  protected readonly canRun = computed(() => !this.blocked() && !!this.text() && !this.sending());
 
   // Pipeline steps, remembered for the next task.
   protected readonly editSteps = signal(false);
@@ -369,7 +370,7 @@ export class AgentPanel {
   }
 
   protected duration(r: Run): string {
-    return fmtDuration((r.endedAt ?? Date.now()) - r.startedAt);
+    return fmtDuration(Math.max(0, (r.endedAt ?? this.runs.now()) - r.startedAt));
   }
 
   protected toggle(id: AgentId): void {
@@ -383,9 +384,15 @@ export class AgentPanel {
     const text = this.text();
     const cwd = this.workspace.folder();
     this.error.set(null);
+    this.sending.set(true);
     try {
       if (this.mode() === 'pipeline') {
-        await this.pipelines.start(text, cwd, this.steps());
+        const started = await this.pipelines.start(text, cwd, this.steps());
+        // No run exists yet to show this in the thread, and the prompt must not be lost.
+        if (started.status === 'failed') {
+          this.error.set(started.error);
+          return;
+        }
       } else if (this.mode() === 'parallel') {
         const failed = await this.runs.startParallel(this.picked(), text, cwd);
         if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
@@ -397,6 +404,8 @@ export class AgentPanel {
       this.tab.set('thread');
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.sending.set(false);
     }
   }
 }

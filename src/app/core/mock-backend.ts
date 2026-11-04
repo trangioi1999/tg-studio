@@ -13,6 +13,8 @@ interface MockTask {
   /** Mock worktree path, so tool locations look like a real adapter's. */
   root: string;
   accepted: number;
+  /** Paths accepted but not committed yet. */
+  staged: Set<string>;
   pending: boolean;
 }
 
@@ -194,8 +196,8 @@ export class MockBackend extends AgentBackend {
     const run: MockRun = { agent, timers: [], active: true };
     this.runs.set(runId, run);
     this.tasks.set(runId, previous
-      ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, pending: true }
-      : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, pending: true });
+      ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, staged: previous.staged, pending: true }
+      : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, staged: new Set<string>(), pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
@@ -261,6 +263,7 @@ export class MockBackend extends AgentBackend {
     const task = this.task(runId);
     this.dropHunk(task, path, hunkId);
     task.accepted += 1;
+    task.staged.add(path);
   }
 
   async acceptAll(runId: string): Promise<number> {
@@ -269,6 +272,7 @@ export class MockBackend extends AgentBackend {
     if (!task.files.length) throw new Error('Không còn thay đổi nào để áp dụng.');
     const count = task.files.length;
     task.accepted += task.files.reduce((n, f) => n + f.hunks.length, 0);
+    for (const f of task.files) task.staged.add(f.path);
     task.files = [];
     return count;
   }
@@ -277,11 +281,16 @@ export class MockBackend extends AgentBackend {
     this.dropHunk(this.task(runId), path, hunkId);
   }
 
+  async stagedFiles(runId: string): Promise<string[]> {
+    return [...this.task(runId).staged].sort();
+  }
+
   async commitAccepted(runId: string, message: string): Promise<string> {
     const task = this.task(runId);
     if (!task.accepted) throw new Error('Chưa có thay đổi nào được chấp nhận để commit.');
     if (!message.trim()) throw new Error('Cần nhập nội dung commit.');
     task.accepted = 0;
+    task.staged.clear();
     return 'abc1234def5678';
   }
 
