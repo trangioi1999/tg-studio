@@ -67,6 +67,7 @@ pub fn run() {
             acp_tasks::respond_permission,
             acp_tasks::get_diff,
             acp_tasks::accept_hunk,
+            acp_tasks::accept_all,
             acp_tasks::reject_hunk,
             acp_tasks::commit_accepted,
             acp_tasks::list_worktree_files,

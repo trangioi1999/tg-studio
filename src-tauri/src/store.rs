@@ -44,6 +44,8 @@ pub struct StoredRun {
     pub usage: Option<Usage>,
     pub lines: Vec<StoredLine>,
     pub worktree: Option<String>,
+    /// Runs started together on one prompt (parallel mode) share this id.
+    pub group: Option<String>,
 }
 
 impl Store {
@@ -138,13 +140,13 @@ impl Store {
         write_worktree(&*self.connection()?, run_id, repo, wt)
     }
 
-    pub fn insert_run_with_worktree(&self, run: &NewRun<'_>, repo: &str, wt: &Worktree) -> Result<()> {
+    pub fn insert_run_with_worktree(&self, run: &NewRun<'_>, repo: &str, wt: &Worktree, group: Option<&str>) -> Result<()> {
         let agent = agent_key(run.agent)?;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT INTO runs (id, agent, prompt, cwd, started_at, status) VALUES (?1, ?2, ?3, ?4, ?5, 'running')",
-            params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?],
+            "INSERT INTO runs (id, agent, prompt, cwd, started_at, status, task_id) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
+            params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?, group],
         )?;
         write_worktree(&tx, run.id, repo, wt)?;
         tx.commit()
@@ -205,7 +207,7 @@ impl Store {
         let tx = conn.transaction()?;
         let mut runs = {
             let mut stmt = tx.prepare(
-                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id
                  FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
@@ -215,7 +217,7 @@ impl Store {
                 Ok(StoredRun {
                     id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
                     started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
-                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?,
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?, group: row.get(9)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>>>()?
@@ -352,12 +354,13 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let run = NewRun { id: "a", agent: AgentKind::Codex, prompt: "task", cwd: "/wt", started_at: 1 };
         let mut wt = crate::worktree::Worktree { run_id: "wrong".into(), path: "/wt".into(), branch: "branch".into(), base: "base".into() };
-        assert!(store.insert_run_with_worktree(&run, "/repo", &wt).is_err());
+        assert!(store.insert_run_with_worktree(&run, "/repo", &wt, None).is_err());
         assert!(store.list_runs(1).unwrap().is_empty());
         wt.run_id = "a".into();
-        store.insert_run_with_worktree(&run, "/repo", &wt).unwrap();
+        store.insert_run_with_worktree(&run, "/repo", &wt, Some("group-1")).unwrap();
         assert_eq!(store.run_worktree("a").unwrap().1, wt);
-        assert!(store.insert_run_with_worktree(&run, "/changed", &wt).is_err());
+        assert_eq!(store.list_runs(1).unwrap()[0].group.as_deref(), Some("group-1"));
+        assert!(store.insert_run_with_worktree(&run, "/changed", &wt, None).is_err());
         assert_eq!(store.run_worktree("a").unwrap().0, std::path::PathBuf::from("/repo"));
     }
 
