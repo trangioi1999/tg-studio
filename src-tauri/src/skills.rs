@@ -71,10 +71,12 @@ pub fn save_in(dir: &Path, content: &str) -> Result<Skill, String> {
 }
 
 fn state(target: &Path, content: &str) -> &'static str {
-    match fs::read_to_string(target) {
-        Ok(existing) if existing == content => "same",
+    // Compare bytes: a file in another encoding is different, and must be backed up.
+    match fs::read(target) {
+        Ok(existing) if existing == content.as_bytes() => "same",
         Ok(_) => "different",
-        Err(_) => "missing",
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "missing",
+        Err(_) => "different",
     }
 }
 
@@ -136,6 +138,18 @@ pub fn install_skill(app: AppHandle, name: String, scope: String, repo: Option<S
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_in_another_encoding_is_backed_up_before_writing() {
+        let root = std::env::temp_dir().join(format!("tg-skill-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("x")).unwrap();
+        let old = [0xFFu8, 0xFE, b'a', 0];
+        std::fs::write(root.join("x/SKILL.md"), old).unwrap();
+        let installed = super::install_into(&root, "x", "mới", 7).unwrap();
+        assert_eq!(std::fs::read(installed.backup.unwrap()).unwrap(), old);
+        assert_eq!(std::fs::read_to_string(root.join("x/SKILL.md")).unwrap(), "mới");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     use super::*;
 
     const SKILL: &str = "---\nname: review-checklist\ndescription: \"Checklist khi review\"\n---\n\n# Review\n- test\n";

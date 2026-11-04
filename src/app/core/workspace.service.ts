@@ -44,6 +44,8 @@ export class WorkspaceService {
   /** Worktree files and pending changes per task run, shared by explorer, editor and tabs. */
   readonly files = signal<Record<string, string[]>>({});
   readonly diffs = signal<Record<string, FileDiff[]>>({});
+  /** Unsaved edits, kept while the editor is closed by moving to another kind of tab. */
+  readonly unsaved = new Map<string, string>();
   private loads: Record<string, number> = {};
 
   /** Settles once the saved folder has been restored or dropped. */
