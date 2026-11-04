@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -188,6 +188,10 @@ export class MockBackend extends AgentBackend {
       task.contents = mockContents(run.agent, true);
       task.files = mockDiff(run.agent);
     });
+    send({ kind: 'bridge', line: '◆ tg-bridge · Sửa tiêu đề (60%)', data: { tool: 'report_progress', step: 'Sửa tiêu đề', pct: 60, note: null } }, 300);
+    if (run.agent === 'claude') {
+      send({ kind: 'bridge', line: '◆ tg-bridge · đề xuất chuyển cho codex: Viết test cho tiêu đề mới', data: { tool: 'handoff_to', id: `handoff-${runId}`, agent: 'codex', task: 'Viết test cho tiêu đề mới', files: ['src/app/app.spec.ts'] } }, 470);
+    }
     send({ kind: 'message', data: { text: 'fix: sửa lỗi theo yêu cầu' } }, 500);
     send({ kind: 'plan', data: { entries: [
       { content: 'Chạy test hiện tại', status: allowed ? 'completed' : 'pending' },
@@ -382,11 +386,16 @@ export class MockBackend extends AgentBackend {
     this.prices = [...this.prices.filter((p) => !(p.agent === price.agent && p.fromMs === price.fromMs)), price];
   }
 
-  async getSetting(key: 'budgets'): Promise<string | null> {
+  async getSetting(key: 'budgets' | 'bridge'): Promise<string | null> {
     return this.settings.get(key) ?? null;
   }
 
-  async setSetting(key: 'budgets', value: string): Promise<void> {
+  async bridgeNotes(runId: string): Promise<BridgeNote[]> {
+    const run = this.runs.get(runId);
+    return run ? [{ topic: 'plan', agent: run.agent, at: Date.now() - 60_000, text: '1. Đọc app.ts\n2. Đổi tiêu đề\n3. Chạy test' }] : [];
+  }
+
+  async setSetting(key: 'budgets' | 'bridge', value: string): Promise<void> {
     JSON.parse(value);
     this.settings.set(key, value);
   }

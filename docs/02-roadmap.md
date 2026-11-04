@@ -56,7 +56,7 @@ Chi tiết: `04-usage-and-cost.md`, `05-mcp-skills-plugins.md`.
 - [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn) — **đã có cho Claude**: cửa sổ 5 giờ / 7 ngày từ `rate_limit_event` của lượt Chỉ đọc, lưu lại qua các lần mở app. Còn thiếu: lượt Sửa code (adapter ACP bỏ event này nếu nó đến trước phản hồi đầu tiên), Codex/Gemini/Kiro chưa có nguồn
 - [x] Registry MCP: thêm server, ma trận bật/tắt theo agent; server được đưa vào mỗi phiên ACP (`session/new`) và Claude headless (`--mcp-config`), không sửa file cấu hình của agent — kiểm chứng với Claude thật (`live_claude_acp_uses_registry_mcp_server`)
 - [x] Skills: thư viện SKILL.md, cài vào Claude Code mức repo hoặc mức máy (sao lưu bản khác trước khi ghi). Codex/Gemini/Kiro: chưa có vị trí chuẩn đã kiểm chứng
-- [ ] MCP `tg-bridge`: báo tiến độ, chuyển việc, ghi chú chung, xin duyệt — chưa làm (cần một kênh IPC từ app tới server MCP)
+- [x] MCP `tg-bridge`: báo tiến độ, chuyển việc, ghi chú chung, xin duyệt, ngữ cảnh task — app tự chạy làm MCP server (`--mcp-bridge`), gọi về app qua 127.0.0.1 với token theo run; kiểm chứng với Claude thật (`live_claude_tg_bridge_notes_and_progress`)
 
 **XK:** biết chính xác mỗi agent tốn bao nhiêu; bật 1 MCP server một lần cho mọi agent.
 

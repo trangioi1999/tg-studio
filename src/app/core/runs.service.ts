@@ -30,6 +30,20 @@ export interface Run {
   waits: { from: number; to: number | null }[];
   /** The agent's latest plan (ACP `plan` update). Live runs only. */
   plan: PlanEntry[];
+  /** Latest tg-bridge `report_progress`. Live runs only. */
+  progress: { step: string; pct: number | null; note: string | null; at: number } | null;
+}
+
+/** A tg-bridge `handoff_to` proposal waiting for the user. */
+export interface Handoff {
+  id: string;
+  /** The run that proposed it. */
+  runId: string;
+  from: AgentId;
+  agent: AgentId;
+  task: string;
+  files: string[];
+  at: number;
 }
 
 /** Where an agent is working right now, from its latest tool call that names a file. */
@@ -85,6 +99,8 @@ export class RunsService {
   readonly checkCommand = signal('');
   /** Latest plan limits per agent (Claude's 5-hour and weekly windows). */
   readonly limits = signal<Partial<Record<AgentId, AccountLimits>>>({});
+  /** Handoffs agents proposed through tg-bridge, until accepted or dismissed. */
+  readonly handoffs = signal<Handoff[]>([]);
   /** Per run: the file the agent touched last. Cleared when the run ends. */
   readonly activity = signal<Record<string, AgentActivity>>({});
   private readonly tools = new Map<string, { path: string | null; line: number | null; editing: boolean }>();
@@ -252,6 +268,30 @@ export class RunsService {
     return hash;
   }
 
+  /**
+   * Accept a tg-bridge handoff: the agent continues in the proposer's worktree when
+   * that run has finished, otherwise it gets a new task in `repo`.
+   */
+  async acceptHandoff(id: string, repo: string): Promise<string> {
+    const h = this.handoffs().find((x) => x.id === id);
+    if (!h) throw new Error('Đề xuất này không còn.');
+    const source = this.runs().find((r) => r.id === h.runId);
+    const files = h.files.length ? `\n\nTệp liên quan: ${h.files.join(', ')}` : '';
+    const prompt = `${h.task}${files}\n\n(Chuyển từ ${AGENT_META[h.from].name} qua tg-bridge.)`;
+    const reuse = source?.task && source.status === 'done' ? source.id : undefined;
+    const runId = await this.startTask(h.agent, prompt, repo, { reuse, title: h.task });
+    this.dismissHandoff(id);
+    return runId;
+  }
+
+  dismissHandoff(id: string): void {
+    this.handoffs.update((h) => h.filter((x) => x.id !== id));
+  }
+
+  bridgeNotes(runId: string) {
+    return this.backend.bridgeNotes(runId);
+  }
+
   acceptAll(runId: string): Promise<number> {
     return this.backend.acceptAll(runId);
   }
@@ -347,6 +387,20 @@ export class RunsService {
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
         case 'limits':
           return run; // handled above: limits belong to the account, not the run
+        case 'bridge': {
+          const d = dataOf(e);
+          const lines = e.line ? addLine(run.lines, { text: e.line, tone: 'tool' }).slice(-MAX_LINES) : run.lines;
+          if (d['tool'] === 'report_progress' && typeof d['step'] === 'string') {
+            const pct = typeof d['pct'] === 'number' ? d['pct'] : null;
+            return { ...run, lines, progress: { step: d['step'], pct, note: typeof d['note'] === 'string' ? d['note'] : null, at: e.atMs } };
+          }
+          if (d['tool'] === 'handoff_to' && typeof d['id'] === 'string' && typeof d['task'] === 'string' && AGENT_IDS.includes(d['agent'] as AgentId)) {
+            const handoff: Handoff = { id: d['id'], runId: run.id, from: run.agent, agent: d['agent'] as AgentId, task: d['task'],
+              files: Array.isArray(d['files']) ? d['files'].filter((f): f is string => typeof f === 'string') : [], at: e.atMs };
+            this.handoffs.update((h) => (h.some((x) => x.id === handoff.id) ? h : [...h, handoff]));
+          }
+          return { ...run, lines };
+        }
         case 'exit': {
           const stopped = this.stopping.delete(run.id);
           const reported = e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data)
@@ -397,7 +451,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '', group: null, waits: [], plan: [],
+        task: false, permissions: [], lastMessage: '', group: null, waits: [], plan: [], progress: null,
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -465,7 +519,7 @@ function restoreRun(s: StoredRun): Run {
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [] };
+  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [], progress: null };
 }
 
 /**
@@ -489,6 +543,7 @@ function reattach(saved: Run, live: Run): Run {
     group: saved.group ?? live.group,
     waits: live.waits,
     plan: live.plan,
+    progress: live.progress,
   };
 }
 

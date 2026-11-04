@@ -71,6 +71,8 @@ fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
             None => Ok(()),
         },
         ("usage", _, Some(u)) => store.add_usage(&ev.run_id, ev.at_ms, u),
+        // tg-bridge activity reads like a log line when history is reopened.
+        ("bridge", Some(line), _) => store.append_line(&ev.run_id, "log", line, ev.at_ms),
         ("limits", _, _) => match ev.data.as_ref().map(|v| serde_json::from_value::<Vec<crate::usage::LimitWindow>>(v["windows"].clone())) {
             Some(Ok(windows)) => store.set_limits(ev.agent, &windows, ev.at_ms),
             _ => Ok(()),
