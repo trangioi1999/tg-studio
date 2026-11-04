@@ -34,10 +34,12 @@ Phụ thuộc: GĐ0. Chi tiết kỹ thuật: `03-agent-integration.md`.
 
 Đã kiểm chứng: lõi Rust với Claude thật (sửa file, thẻ duyệt Edit + lệnh shell, diff, accept, commit) và UI ở mock mode bằng Playwright. Còn lại: bấm thử trọn luồng trong app desktop với Claude thật trên macOS và Windows.
 
-## Giai đoạn 2 — Nhiều agent (tuần 6–8)
+## Giai đoạn 2 — Nhiều agent (tuần 6–8) · *đang làm*
+
+Plan: `docs/superpowers/plans/2026-11-04-phase-2-parallel.md`.
 
 - [ ] Adapter ACP cho Codex, Gemini CLI
-- [ ] Chạy song song N agent, N worktree; màn So sánh
+- [x] Chạy song song N agent, N worktree; màn So sánh với "Dùng bản này" (áp nguyên một run, tất cả hoặc không gì) — kiểm chứng với 2 phiên Claude thật (`live_claude_parallel_group_use_one`)
 - [ ] Pipeline engine: bước, gán agent, truyền output bước trước (plan, diff, test report) sang bước sau
 - [ ] Mission control: timeline, cột agent, merge queue
 - [ ] Cherry-pick hunk từ nhiều worktree; chạy test trên bản ghép

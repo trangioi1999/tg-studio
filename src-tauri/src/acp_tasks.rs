@@ -409,21 +409,12 @@ mod tests {
         })
     }
 
-    /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
-    /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
-    /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
-    async fn live_claude_edit_permission_diff_accept_commit() {
-        if std::env::var("TG_LIVE_ACP").is_err() { return; }
-        let repo = Repo::new();
-        repo.write("hello.txt", "Hello world\n");
-        worktree::git(&repo.0, &["add", "."], None).unwrap();
-        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
-        let store = Store::open_in_memory().unwrap();
+    struct LiveRun { wt: Worktree, status: &'static str, error: Option<String>, events: Vec<AgentEvent>, asked: Vec<serde_json::Value>, traffic: Vec<serde_json::Value> }
+
+    /// Spawns the real Claude adapter for one task and plays the user: every card is allowed once.
+    async fn run_live(store: &Store, repo: &Path, prompt: &str, group: Option<&str>) -> LiveRun {
         let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
-        let prompt = "Edit hello.txt so that its only line reads exactly `Hello ACP` (keep the trailing newline). Then run the shell command `echo checked > checked.txt` with your terminal tool, and finally tell me the exact contents of hello.txt. Do not commit.";
-        let (wt, mut child) = prepare(&store, AgentKind::Claude, prompt, &repo.0, command, None).await.unwrap();
+        let (wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group).await.unwrap();
         let pid = child.id();
         let sink = Arc::new(Recorder::default());
         let session = Arc::new(TaskSession::new(&wt.run_id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
@@ -468,12 +459,34 @@ mod tests {
         terminate_adapter(&mut child, pid).await;
         sink.emit(AgentEvent::new(&wt.run_id, AgentKind::Claude, "exit"));
         let asked = approver.await.unwrap();
+        let events = sink.0.lock().unwrap().clone();
+        let traffic = traffic.lock().unwrap().clone();
+        LiveRun { wt, status, error, events, asked, traffic }
+    }
+
+    fn message_of(events: &[AgentEvent]) -> String {
+        events.iter().filter(|e| e.kind == "message").filter_map(|e| e.data.as_ref()?["text"].as_str().map(String::from)).collect()
+    }
+
+    /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
+    /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
+    /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_edit_permission_diff_accept_commit() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = Repo::new();
+        repo.write("hello.txt", "Hello world\n");
+        worktree::git(&repo.0, &["add", "."], None).unwrap();
+        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let prompt = "Edit hello.txt so that its only line reads exactly `Hello ACP` (keep the trailing newline). Then run the shell command `echo checked > checked.txt` with your terminal tool, and finally tell me the exact contents of hello.txt. Do not commit.";
+        let LiveRun { wt, status, error, events, asked, traffic } = run_live(&store, &repo.0, prompt, None).await;
         if let Ok(path) = std::env::var("TG_ACP_FIXTURE") {
-            let text: String = traffic.lock().unwrap().iter().map(|v| format!("{v}\n")).collect();
+            let text: String = traffic.iter().map(|v| format!("{v}\n")).collect();
             std::fs::write(path, text).unwrap();
         }
-        let events = sink.0.lock().unwrap().clone();
-        let message: String = events.iter().filter(|e| e.kind == "message").filter_map(|e| e.data.as_ref()?["text"].as_str().map(String::from)).collect();
+        let message = message_of(&events);
         eprintln!("status={status} error={error:?}\nmessage={message}\nkinds={:?}", events.iter().map(|e| e.kind).collect::<Vec<_>>());
         assert_eq!(status, "done", "{error:?}");
         assert!(events.iter().any(|e| e.kind == "tool"), "không có tool update");
@@ -494,6 +507,39 @@ mod tests {
         assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello ACP\n");
         assert_eq!(std::fs::read_to_string(repo.0.join("checked.txt")).unwrap().trim(), "checked");
         worktree::remove(&repo.0, &wt, true).unwrap();
+    }
+
+    /// Phase 2: two Claude runs on one prompt at once, in one group. Each works in its own
+    /// worktree; "Use this" takes one whole, and the other no longer applies cleanly.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_parallel_group_use_one() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = Repo::new();
+        repo.write("hello.txt", "Hello world\n");
+        worktree::git(&repo.0, &["add", "."], None).unwrap();
+        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let prompt = |word: &str| format!("Edit hello.txt so that its only line reads exactly `Hello {word}` (keep the trailing newline). Do not run any other command and do not commit.");
+        let (prompt_a, prompt_b) = (prompt("A"), prompt("B"));
+        let (a, b) = tokio::join!(run_live(&store, &repo.0, &prompt_a, Some("group-live")), run_live(&store, &repo.0, &prompt_b, Some("group-live")));
+        for run in [&a, &b] { assert_eq!(run.status, "done", "{:?} {}", run.error, message_of(&run.events)); }
+        assert_ne!(a.wt.path, b.wt.path);
+        assert_ne!(a.wt.branch, b.wt.branch);
+        let runs = store.list_runs(10).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|r| r.group.as_deref() == Some("group-live")));
+        assert_eq!(std::fs::read_to_string(a.wt.path.join("hello.txt")).unwrap(), "Hello A\n");
+        assert_eq!(std::fs::read_to_string(b.wt.path.join("hello.txt")).unwrap(), "Hello B\n");
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello world\n");
+        assert_eq!(diff::accept_all(&repo.0, &b.wt).unwrap(), 1);
+        diff::commit(&repo.0, "Dùng bản B").unwrap();
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello B\n");
+        // The losing run touched the same line, so it cannot be applied on top any more.
+        assert!(diff::accept_all(&repo.0, &a.wt).is_err());
+        assert!(worktree::git(&repo.0, &["status", "--porcelain"], None).unwrap().is_empty());
+        for run in [a, b] { worktree::remove(&repo.0, &run.wt, true).unwrap(); }
+        assert!(worktree::list(&repo.0).unwrap().is_empty());
     }
 
     #[tokio::test]
