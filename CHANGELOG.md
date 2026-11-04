@@ -5,6 +5,7 @@
 ## [Chưa phát hành]
 
 ### Cuộc trò chuyện
+- Chia theo thư mục con: dấu + trên thư mục trong cây tệp mở cuộc trò chuyện làm việc từ thư mục đó, và cột trái nhóm theo thư mục.
 - Hiện cả cuộc trò chuyện khi có nhiều agent nối tiếp. Chỉ hỏi cũng hỏi tiếp được, nối đúng phiên của CLI.
 
 ### An toàn

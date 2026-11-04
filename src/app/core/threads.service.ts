@@ -13,6 +13,8 @@ export const THREAD_STATUS_LABEL: Record<ThreadStatus, string> = {
 export interface Thread {
   id: string;
   project: string;
+  /** The subfolder it is about, if any. */
+  scope: string | null;
   title: string;
   agents: AgentId[];
   status: ThreadStatus;
@@ -24,7 +26,10 @@ export interface Thread {
 export interface ProjectGroup {
   root: string;
   name: string;
+  /** Conversations about the whole project. */
   threads: Thread[];
+  /** Conversations about one subfolder. A project that uses none shows no such level. */
+  scopes: { scope: string; threads: Thread[] }[];
 }
 
 const ORDER: ThreadStatus[] = ['needs_you', 'running', 'failed', 'waiting', 'ended'];
@@ -47,6 +52,7 @@ export function buildThreads(runs: Run[]): Thread[] {
     return {
       id,
       project: sorted.find((r) => r.project)?.project ?? '',
+      scope: sorted[0].scope,
       title: (sorted[0].prompt || 'Cuộc trò chuyện').slice(0, 80),
       agents: [...new Set(sorted.map((r) => r.agent))],
       status: statusOf(sorted, latest),
@@ -64,7 +70,16 @@ function baseName(root: string): string {
 /** Conversations per project. The open folder and recent ones show even with no conversation. */
 export function groupByProject(threads: Thread[], folder: string, recent: string[]): ProjectGroup[] {
   const roots = [...new Set([...(folder ? [folder] : []), ...threads.map((t) => t.project).filter(Boolean), ...recent])];
-  return roots.map((root) => ({ root, name: baseName(root), threads: threads.filter((t) => t.project === root) }));
+  return roots.map((root) => {
+    const mine = threads.filter((t) => t.project === root);
+    const scopes = [...new Set(mine.flatMap((t) => (t.scope ? [t.scope] : [])))].sort();
+    return {
+      root,
+      name: baseName(root),
+      threads: mine.filter((t) => !t.scope),
+      scopes: scopes.map((scope) => ({ scope, threads: mine.filter((t) => t.scope === scope) })),
+    };
+  });
 }
 
 function readRecent(): string[] {
@@ -83,6 +98,8 @@ export class ThreadsService {
   readonly recent = signal<string[]>(readRecent());
   readonly threads = computed(() => buildThreads(this.runs.runs()));
   readonly projects = computed(() => groupByProject(this.threads(), this.workspace.folder(), this.recent()));
+  /** The subfolder the next new conversation is about. */
+  readonly draftScope = signal<string | null>(null);
   readonly selectedId = computed(() => this.runs.selected()?.thread ?? null);
 
   constructor() {
@@ -119,8 +136,9 @@ export class ThreadsService {
   }
 
   /** Empties the composer's target, in the given project. */
-  async newChat(root?: string): Promise<void> {
+  async newChat(root?: string, scope: string | null = null): Promise<void> {
     this.runs.selectedId.set(null);
+    this.draftScope.set(scope);
     if (root && root !== this.workspace.folder()) await this.workspace.setFolder(root);
   }
 }

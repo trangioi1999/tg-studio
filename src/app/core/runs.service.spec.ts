@@ -29,6 +29,7 @@ const stored = (over: Partial<StoredRun> = {}): StoredRun => ({
   group: null,
   thread: null,
   project: '/tmp',
+  scope: null,
   ...over,
 });
 

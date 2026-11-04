@@ -7,7 +7,7 @@ import { WorkspaceService } from './workspace.service';
 
 const run = (over: Partial<Run>): Run => ({
   id: 'r', agent: 'claude', prompt: 'p', cwd: '/a', startedAt: 1, endedAt: 2, status: 'done', lines: [], usage: null, exitCode: 0, restored: false,
-  task: true, permissions: [], lastMessage: '', group: null, thread: 't', project: '/a', waits: [], plan: [], progress: null, ...over,
+  task: true, permissions: [], lastMessage: '', group: null, thread: 't', project: '/a', scope: null, waits: [], plan: [], progress: null, ...over,
 });
 
 describe('buildThreads', () => {
@@ -44,6 +44,18 @@ describe('groupByProject', () => {
     expect(groups[2].threads).toEqual([]);
   });
 
+  it('adds a subfolder level only where a conversation uses one', () => {
+    const threads = buildThreads([
+      run({ id: '1', thread: 'ca-du-an', project: '/repo' }),
+      run({ id: '2', thread: 'api', project: '/repo', scope: 'goi/api' }),
+      run({ id: '3', thread: 'nho', project: '/nho' }),
+    ]);
+    const [repo, small] = groupByProject(threads, '/repo', []);
+    expect(repo.threads.map((t) => t.id)).toEqual(['ca-du-an']);
+    expect(repo.scopes).toEqual([{ scope: 'goi/api', threads: [expect.objectContaining({ id: 'api' })] }]);
+    expect(small.scopes).toEqual([]);
+  });
+
   it('handles Windows paths', () => {
     expect(groupByProject([], String.raw`C:\du an\web`, [])[0].name).toBe('web');
   });
@@ -75,6 +87,14 @@ describe('ThreadsService', () => {
     expect(threads.recent()).toEqual(['/hai', '/mot']);
     threads.forget('/mot');
     expect(JSON.parse(localStorage.getItem('tg.recent')!)).toEqual(['/hai']);
+  });
+
+  it('remembers the subfolder of a new chat', async () => {
+    const threads = TestBed.inject(ThreadsService);
+    await threads.newChat('/ba', 'goi/api');
+    expect(threads.draftScope()).toBe('goi/api');
+    await threads.newChat('/ba');
+    expect(threads.draftScope()).toBeNull();
   });
 
   it('starts a new chat in a given project with nothing selected', async () => {

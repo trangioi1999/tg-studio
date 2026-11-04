@@ -16,7 +16,7 @@ Một câu: *"Bày trận cho các agent, mình làm chỉ huy."*
 
 ## 3. Nguyên tắc sản phẩm
 
-1. **Code là trung tâm.** Agent xuất hiện *trong* editor (con trỏ, vạch màu, hunk) chứ không chỉ trong khung chat.
+1. **Cuộc trò chuyện là trung tâm, code nằm trong tầm tay.** Chat ở giữa; khi cần xem thì agent vẫn hiện *trong* editor (con trỏ, vạch màu, đoạn thay đổi). Xem `docs/superpowers/specs/2026-11-04-chat-first-design.md`.
 2. **Người dùng là cổng cuối.** Mọi thay đổi đi qua merge queue; mỗi agent làm trong git worktree riêng.
 3. **Số liệu trung thực.** Mọi con số usage có nhãn nguồn: *reported* (CLI tự báo), *estimated* (token × bảng giá), *parsed* (đọc từ output lệnh), *chưa có giá*.
 4. **Không khóa vào một hãng.** Nói chuyện với agent qua chuẩn mở (ACP, MCP); agent mới chỉ là một adapter.
@@ -33,6 +33,8 @@ Một câu: *"Bày trận cho các agent, mình làm chỉ huy."*
 Mockup: canvas "Multi-Agent Coding App" (xem `06-design-system.md`).
 
 ### 5.1 Editor + Agent panel (màn chính)
+
+> Bố cục đã đổi theo thiết kế chat-first: chat ở giữa, dự án và cuộc trò chuyện bên trái, các chức năng dưới đây nằm ở panel phải.
 
 | Tính năng | Xong khi |
 |---|---|

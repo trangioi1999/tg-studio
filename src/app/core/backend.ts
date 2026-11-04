@@ -21,12 +21,12 @@ export abstract class AgentBackend {
   abstract gitPlan(root: string): Promise<GitPlan>;
   /** Makes the folder a repository with a first commit, never including secrets. */
   abstract gitPrepare(root: string, name: string | null, email: string | null): Promise<Project>;
-  abstract start(agent: AgentId, prompt: string, cwd: string, thread?: string | null, resumeFrom?: string | null): Promise<string>;
+  abstract start(agent: AgentId, prompt: string, cwd: string, thread?: string | null, resumeFrom?: string | null, scope?: string | null): Promise<string>;
   /**
    * `reuse`: continue in the worktree of this finished run. `singleTurn`: close the session
    * after one turn (a pipeline step). `recap`: sent first unless the session can be reopened.
    */
-  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null): Promise<string>;
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null): Promise<string>;
   /** Continues the run's open session; no new agent process starts. */
   abstract sendMessage(runId: string, prompt: string): Promise<void>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
@@ -110,11 +110,11 @@ export class TauriBackend extends AgentBackend {
   gitPrepare(root: string, name: string | null, email: string | null) {
     return invoke<Project>('git_prepare', { root, name, email });
   }
-  start(agent: AgentId, prompt: string, cwd: string, thread: string | null = null, resumeFrom: string | null = null) {
-    return invoke<string>('start_agent', { agent, prompt, cwd, thread, resumeFrom });
+  start(agent: AgentId, prompt: string, cwd: string, thread: string | null = null, resumeFrom: string | null = null, scope: string | null = null) {
+    return invoke<string>('start_agent', { agent, prompt, cwd, thread, resumeFrom, scope });
   }
-  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null) {
-    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread });
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null) {
+    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope });
   }
   sendMessage(runId: string, prompt: string) {
     return invoke<void>('send_message', { runId, prompt });

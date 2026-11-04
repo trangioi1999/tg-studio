@@ -40,7 +40,20 @@ import { AgentAvatar } from './agent-avatar';
                 <span class="tl-status" [attr.data-status]="t.status">{{ label[t.status] }}</span>
               </button>
             } @empty {
-              @if (p.root === workspace.folder()) { <p class="dim tl-empty">Chưa có cuộc trò chuyện. Gõ yêu cầu ở ô chat để bắt đầu.</p> }
+              @if (p.root === workspace.folder() && !p.scopes.length) { <p class="dim tl-empty">Chưa có cuộc trò chuyện. Gõ yêu cầu ở ô chat để bắt đầu.</p> }
+            }
+            @for (g of p.scopes; track g.scope) {
+              <div class="tl-scope mono ellipsis" [title]="g.scope">{{ g.scope }}/</div>
+              @for (t of g.threads; track t.id) {
+                <button class="tl-thread" [class.active]="t.id === threads.selectedId() && ui.screen() === 'chat'" [title]="t.title" (click)="open(t)">
+                <span class="tl-agents" aria-hidden="true">
+                  @for (a of t.agents; track a) { <tg-agent-avatar [agent]="a" [size]="14" /> }
+                </span>
+                <span class="ellipsis">{{ t.title }}</span>
+                <span class="spacer"></span>
+                <span class="tl-status" [attr.data-status]="t.status">{{ label[t.status] }}</span>
+              </button>
+              }
             }
           }
         </section>
