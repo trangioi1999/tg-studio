@@ -114,9 +114,31 @@ pub fn parse_unified(text: &str) -> Vec<FileDiff> {
     files
 }
 
+fn accepted_path(wt: &Worktree) -> Result<std::path::PathBuf, String> {
+    let path = git(&wt.path, &["rev-parse", "--git-path", "tg-accepted"], None)?;
+    Ok(wt.path.join(path.trim()))
+}
+
+fn save_accepted(wt: &Worktree) -> Result<(), String> {
+    let tree = git(&wt.path, &["write-tree"], None)?;
+    std::fs::write(accepted_path(wt)?, tree)
+        .map_err(|e| format!("Không lưu được phần thay đổi đã nhận: {e}"))
+}
+
 pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
     if git(&wt.path, &["rev-parse", "HEAD"], None)?.trim() != wt.base {
-        git(&wt.path, &["reset", "--mixed", &wt.base], None)?;
+        git(&wt.path, &["reset", "--soft", &wt.base], None)?;
+    }
+    // The agent owns its index too; only this saved tree records user approval.
+    let accepted = match std::fs::read_to_string(accepted_path(wt)?) {
+        Ok(tree) => tree,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound =>
+            git(&wt.path, &["rev-parse", &format!("{}^{{tree}}", wt.base)], None)?,
+        Err(e) => return Err(format!("Không đọc được phần thay đổi đã nhận: {e}")),
+    };
+    if git(&wt.path, &["write-tree"], None)?.trim() != accepted.trim() {
+        // Do not use -u: pending agent edits must remain on disk.
+        git(&wt.path, &["read-tree", accepted.trim()], None)?;
     }
     // Without --ignore-removal, add -N stages deletions before the user approves.
     git(&wt.path, &["add", "-N", "--ignore-removal", "."], None)?;
@@ -147,7 +169,7 @@ pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Res
         }
         return Err(error);
     }
-    Ok(())
+    save_accepted(wt)
 }
 
 /// "Use this" in the compare view: every pending change of the run, binary files
@@ -166,6 +188,7 @@ pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
         }
         return Err(error);
     }
+    save_accepted(wt)?;
     Ok(files.len())
 }
 
@@ -177,6 +200,13 @@ pub fn reject_hunk(wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), Strin
         git(&wt.path, &["--literal-pathspecs", "rm", "--cached", "--", path], None)?;
     }
     Ok(())
+}
+
+pub fn staged(repo: &Path) -> Result<Vec<String>, String> {
+    let names = git(repo, &["diff", "--cached", "--name-only", "--no-renames", "-z"], None)?;
+    let mut files: Vec<String> = names.split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();
+    files.sort();
+    Ok(files)
 }
 
 pub fn commit(repo: &Path, message: &str) -> Result<String, String> {
@@ -193,6 +223,67 @@ mod tests {
         let p = w.path.join("file.txt");
         let s = fs::read_to_string(&p).unwrap().replace("line 2\n", "changed 2\n").replace("line 28\n", "changed 28\n");
         fs::write(p, s).unwrap();
+    }
+
+    #[test] fn agent_staged_changes_stay_pending() {
+        let r = Repo::new(); let w = r.wt(); change(&w);
+        git(&w.path, &["add", "-A"], None).unwrap();
+        let files = pending(&w).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].hunks.len(), 2);
+    }
+
+    fn agent_updates_after_accept(commit_changes: bool) {
+        let r = Repo::new(); let w = r.wt(); change(&w);
+        let files = pending(&w).unwrap();
+        assert_eq!(files[0].hunks.len(), 2);
+        let accepted = files[0].hunks[0].id.clone();
+        let remaining = files[0].hunks[1].id.clone();
+        accept_hunk(&r.0, &w, "file.txt", &accepted).unwrap();
+        fs::write(w.path.join("extra.txt"), "later change\n").unwrap();
+        git(&w.path, &["add", "-A"], None).unwrap();
+        if commit_changes {
+            git(&w.path, &["commit", "-m", "agent changes"], None).unwrap();
+        }
+        let left = pending(&w).unwrap();
+        let file = left.iter().find(|f| f.path == "file.txt").expect("unaccepted hunk stays pending");
+        assert_eq!(file.hunks.len(), 1);
+        assert_eq!(file.hunks[0].id, remaining);
+        assert!(left.iter().flat_map(|f| &f.hunks).all(|h| h.id != accepted));
+        assert!(left.iter().any(|f| f.path == "extra.txt"));
+        assert_eq!(git(&w.path, &["rev-parse", "HEAD"], None).unwrap().trim(), w.base);
+        assert_eq!(pending(&w).unwrap(), left);
+    }
+
+    #[test] fn agent_commit_keeps_accepted_hunks_accepted() {
+        agent_updates_after_accept(true);
+    }
+
+    #[test] fn agent_stage_after_accept_does_not_reopen_accepted() {
+        agent_updates_after_accept(false);
+    }
+
+    #[test] fn accept_all_includes_agent_staged_changes() {
+        let r = Repo::new(); let w = r.wt(); change(&w);
+        fs::write(w.path.join("new.txt"), "new\n").unwrap();
+        git(&w.path, &["add", "-A"], None).unwrap();
+        assert_eq!(accept_all(&r.0, &w).unwrap(), 2);
+        assert_eq!(fs::read(r.0.join("file.txt")).unwrap(), fs::read(w.path.join("file.txt")).unwrap());
+        assert_eq!(fs::read_to_string(r.0.join("new.txt")).unwrap(), "new\n");
+        assert!(pending(&w).unwrap().is_empty());
+    }
+
+    #[test] fn staged_lists_every_staged_file_of_repo() {
+        let r = Repo::new(); let w = r.wt(); change(&w);
+        r.write("a user.txt", "user staged\n");
+        // Windows forbids newlines in filenames; Unix also exercises NUL separation.
+        let special = if cfg!(windows) { "tệp x.txt" } else { "tệp\nx.txt" };
+        r.write(special, "user staged\n");
+        git(&r.0, &["add", "a user.txt", special], None).unwrap();
+        r.write("unstaged.txt", "not staged\n");
+        let files = pending(&w).unwrap();
+        accept_hunk(&r.0, &w, "file.txt", &files[0].hunks[0].id).unwrap();
+        assert_eq!(staged(&r.0).unwrap(), vec!["a user.txt", "file.txt", special]);
     }
 
     #[test] fn accept_all_applies_text_new_deleted_and_binary_files() {
