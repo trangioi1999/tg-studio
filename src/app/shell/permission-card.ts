@@ -24,13 +24,13 @@ import { AgentAvatar } from './agent-avatar';
       @if (command(); as c) { <code>{{ c }}</code> }
       <div class="permission-actions">
         @if (reject(); as o) {
-          <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, false)">Deny<span class="kbd">{{ keys.backspace }}</span></button>
+          <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, false)">Từ chối<span class="kbd">{{ keys.backspace }}</span></button>
         }
         @if (once(); as o) {
           @if (request().rule; as rule) {
-            <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, true)">Always allow <span class="mono">{{ rule }}</span></button>
+            <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, true)">Luôn cho phép <span class="mono">{{ rule }}</span></button>
           }
-          <button class="btn warn sm" [disabled]="busy()" (click)="answer(o, false)">Allow once<span class="kbd">{{ keys.enter }}</span></button>
+          <button class="btn warn sm" [disabled]="busy()" (click)="answer(o, false)">Cho phép lần này<span class="kbd">{{ keys.enter }}</span></button>
         }
       </div>
       @if (error()) { <p class="error-text">{{ error() }}</p> }
