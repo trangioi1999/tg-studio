@@ -424,6 +424,26 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .skill-target { display: inline-flex; align-items: center; gap: 4px; margin: 0 4px; font-size: 11.5px; }
 .skill-target .ok { color: var(--ok); }
 
+/* Onboarding */
+.onb-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.6); }
+.onb { width: min(620px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; border: 1px solid #2a2a30; border-radius: 12px; background: var(--panel); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+.onb-head { display: flex; align-items: center; }
+.onb-head h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.onb-steps { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.onb-steps li { flex: 1; }
+.onb-steps button { width: 100%; padding: 6px 0 0; border: 0; border-top: 3px solid #2a2a30; background: transparent; color: var(--muted); font-size: 12px; text-align: left; cursor: pointer; }
+.onb-steps li.done button { border-top-color: var(--ok); }
+.onb-steps li.active button { border-top-color: var(--text); color: var(--text); font-weight: 600; }
+.onb-body { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.onb-body p { margin: 0; }
+.onb-agents { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.onb-agents li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.onb-agents code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.onb-actions { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
+.onb-folder { display: flex; gap: 6px; }
+.onb-folder input { flex: 1; height: 30px; padding: 0 8px; border: 1px solid #2a2a30; border-radius: 6px; background: var(--bg); color: var(--text); }
+.onb-sample { margin: 0; padding: 10px 12px; border-left: 3px solid var(--line); background: var(--bg); color: var(--text-2); }
+
 /* Usage */
 .usage-table { display: flex; flex-direction: column; }
 .usage-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
