@@ -31,7 +31,11 @@
             ],
             "styles": [
               "src/styles.scss"
-            ]
+            ],
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "loader": {
+              ".ttf": "file"
+            }
           },
           "configurations": {
             "production": {

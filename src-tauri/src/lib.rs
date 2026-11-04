@@ -12,6 +12,7 @@ mod policy;
 mod runner;
 mod store;
 mod usage;
+mod workspace;
 mod worktree;
 
 use std::path::PathBuf;
@@ -68,6 +69,9 @@ pub fn run() {
             acp_tasks::accept_hunk,
             acp_tasks::reject_hunk,
             acp_tasks::commit_accepted,
+            acp_tasks::list_worktree_files,
+            acp_tasks::read_worktree_file,
+            acp_tasks::write_worktree_file,
             acp_tasks::discard_worktree
         ])
         .run(tauri::generate_context!())
