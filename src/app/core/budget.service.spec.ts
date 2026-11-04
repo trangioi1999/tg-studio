@@ -1,3 +1,6 @@
+import { vi } from 'vitest';
+import { SettingKey } from './backend';
+import { AgentEvent, UsageRow } from './protocol';
 import { TestBed } from '@angular/core/testing';
 import { AgentBackend } from './backend';
 import { BudgetService, parseBudgets } from './budget.service';
@@ -83,5 +86,59 @@ describe('usage screen helpers', () => {
     const [head, line] = csv.split('\r\n');
     expect(head).toBe('started_at,agent,status,prompt,input_tokens,cached_input_tokens,output_tokens,cost_usd,cost_source');
     expect(line).toBe('2026-11-04T00:00:00.000Z,claude,done,"Sửa ""lỗi"", rồi\nchạy",1,2,3,0.500000,reported');
+  });
+});
+
+describe('BudgetService over time', () => {
+  class Counting extends MockBackend {
+    reports = 0;
+    rows: UsageRow[] = [];
+    override async usageReport(_since: number) {
+      this.reports += 1;
+      return this.rows;
+    }
+    override async getSetting(key: SettingKey) {
+      return key === 'budgets' ? JSON.stringify({ perTask: null, daily: 1 }) : null;
+    }
+  }
+  const settle = async () => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    TestBed.tick();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('stops blocking at midnight without any new run', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date(2026, 10, 5, 23, 59, 30));
+    const backend = new Counting();
+    const usage = { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1, costUsd: 2, source: 'reported' as const, cumulative: true };
+    backend.rows = [{ id: 'old', agent: 'claude', prompt: 'p', startedAt: Date.now() - 1000, endedAt: Date.now(), status: 'done', group: null, usage }];
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const service = TestBed.inject(BudgetService);
+    await settle();
+    expect(service.blockReason()).toContain('ngân sách ngày');
+    vi.advanceTimersByTime(60_000);
+    await settle();
+    expect(service.todayCost()).toBe(0);
+    expect(service.blockReason()).toBeNull();
+  });
+
+  it('does not reload history for every log line', async () => {
+    const backend = new Counting();
+    let emit!: (e: AgentEvent) => void;
+    backend.onEvent = async (h) => { emit = h; return () => {}; };
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    TestBed.inject(BudgetService);
+    const event = (over: Partial<AgentEvent>): AgentEvent => ({ runId: 'r', agent: 'codex', kind: 'log', line: 'x', usage: null, code: null, atMs: Date.now(), data: null, ...over });
+    await settle();
+    emit(event({ kind: 'started', line: 'bắt đầu' }));
+    await settle();
+    const before = backend.reports;
+    for (let i = 0; i < 20; i++) { emit(event({})); await settle(); }
+    expect(backend.reports).toBe(before);
+    emit(event({ kind: 'exit', code: 0, line: null }));
+    await settle();
+    expect(backend.reports).toBeGreaterThan(before);
   });
 });

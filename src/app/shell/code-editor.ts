@@ -102,7 +102,12 @@ export class CodeEditor implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    for (const b of this.buffers.values()) b.model.dispose();
+    for (const [key, b] of this.buffers) {
+      const text = b.model.getValue();
+      if (text !== b.saved) this.workspace.unsaved.set(key, text);
+      else this.workspace.unsaved.delete(key);
+      b.model.dispose();
+    }
     this.editor?.dispose();
     this.editor = null;
   }
@@ -115,6 +120,7 @@ export class CodeEditor implements OnDestroy {
     const b = this.buffers.get(this.key);
     if (!b) return;
     b.model.setValue(b.saved);
+    this.workspace.unsaved.delete(this.key);
     this.dirty.set(false);
   }
 
@@ -125,6 +131,7 @@ export class CodeEditor implements OnDestroy {
     return this.guard(async () => {
       await this.runs.writeFile(this.runId(), this.path(), text);
       b.saved = text;
+      this.workspace.unsaved.delete(this.key);
       this.dirty.set(b.model.getValue() !== text);
       await this.workspace.refresh(this.runId());
     });
@@ -176,6 +183,9 @@ export class CodeEditor implements OnDestroy {
         const uri = monaco.Uri.from({ scheme: 'tg', path: `/${this.runId()}/${this.path()}` });
         b = { model: monaco.editor.getModel(uri) ?? monaco.editor.createModel(text, undefined, uri), saved: text };
         this.buffers.set(key, b);
+        // Back from the review tab with edits that were never saved.
+        const unsaved = this.workspace.unsaved.get(key);
+        if (unsaved !== undefined) b.model.setValue(unsaved);
       }
       this.editor!.setModel(b.model);
       this.dirty.set(b.model.getValue() !== b.saved);
