@@ -9,7 +9,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use crate::adapters::AgentKind;
@@ -129,7 +128,7 @@ pub async fn start_agent(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Không tìm thấy `{}` trong PATH.", agent.binary()))?;
 
-    let mut child = Command::new(&bin)
+    let mut child = env::command(&bin)
         .args(&args)
         .current_dir(&cwd)
         .env("PATH", env::login_path())
