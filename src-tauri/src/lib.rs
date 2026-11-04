@@ -69,7 +69,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             detect::detect_agents,
-            detect::home_dir,
             runner::start_agent,
             runner::stop_agent,
             store::list_runs,
@@ -90,7 +89,6 @@ pub fn run() {
             skills::delete_skill,
             skills::skill_targets,
             skills::install_skill,
-            worktree::repo_info,
             project::open_project,
             acp_tasks::start_task,
             acp_tasks::respond_permission,

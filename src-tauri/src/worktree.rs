@@ -132,11 +132,6 @@ pub fn info(path: &Path) -> Result<RepoInfo, String> {
     Ok(RepoInfo { root: root.to_string_lossy().into_owned(), name, branch })
 }
 
-#[tauri::command]
-pub async fn repo_info(path: String) -> Result<RepoInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || info(Path::new(&path))).await.map_err(|e| e.to_string())?
-}
-
 pub fn list(repo: &Path) -> Result<Vec<Worktree>, String> {
     let repo = root(repo)?;
     let entries = git(&repo, &["worktree", "list", "--porcelain", "-z"], None)?;
