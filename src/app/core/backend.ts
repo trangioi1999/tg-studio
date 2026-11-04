@@ -10,10 +10,12 @@ export abstract class AgentBackend {
   abstract detectAgents(): Promise<DetectedAgent[]>;
   abstract homeDir(): Promise<string | null>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
-  abstract startTask(agent: AgentId, prompt: string, repo: string): Promise<string>;
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null): Promise<string>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
   abstract getDiff(runId: string): Promise<FileDiff[]>;
   abstract acceptHunk(runId: string, path: string, hunkId: string): Promise<void>;
+  /** Applies every pending change of the run at once; returns the number of files. */
+  abstract acceptAll(runId: string): Promise<number>;
   abstract rejectHunk(runId: string, path: string, hunkId: string): Promise<void>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
@@ -42,8 +44,8 @@ export class TauriBackend extends AgentBackend {
   start(agent: AgentId, prompt: string, cwd: string) {
     return invoke<string>('start_agent', { agent, prompt, cwd });
   }
-  startTask(agent: AgentId, prompt: string, repo: string) {
-    return invoke<string>('start_task', { agent, prompt, repo });
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null) {
+    return invoke<string>('start_task', { agent, prompt, repo, group });
   }
   respondPermission(runId: string, requestId: string, optionId: string, always: boolean) {
     return invoke<void>('respond_permission', { runId, requestId, optionId, always });
@@ -53,6 +55,9 @@ export class TauriBackend extends AgentBackend {
   }
   acceptHunk(runId: string, path: string, hunkId: string) {
     return invoke<void>('accept_hunk', { runId, path, hunkId });
+  }
+  acceptAll(runId: string) {
+    return invoke<number>('accept_all', { runId });
   }
   rejectHunk(runId: string, path: string, hunkId: string) {
     return invoke<void>('reject_hunk', { runId, path, hunkId });

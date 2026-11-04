@@ -25,6 +25,7 @@ const stored = (over: Partial<StoredRun> = {}): StoredRun => ({
   usage,
   lines: [],
   worktree: null,
+  group: null,
   ...over,
 });
 
@@ -334,5 +335,50 @@ describe('MockBackend task flow', () => {
 
     await service.discardWorktree(run.id);
     expect(service.selected()?.task).toBe(false);
+  });
+});
+
+describe('RunsService parallel mode', () => {
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('starts one grouped task per agent and accepts a whole run', async () => {
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
+    const service = TestBed.inject(RunsService);
+    const errors = await service.startParallel(['codex', 'claude'], 'cùng một việc', '/repo');
+    expect(errors).toEqual([]);
+    const group = service.selected()!.group;
+    expect(group).toBeTruthy();
+    const runs = service.groupRuns(group);
+    expect(runs.map((r) => r.agent)).toEqual(['claude', 'codex']);
+    expect(runs.every((r) => r.task && r.prompt === 'cùng một việc' && r.cwd === '/repo')).toBe(true);
+    expect(service.groupRuns(null)).toEqual([]);
+
+    await wait(300);
+    await expect(service.acceptAll(runs[0].id)).rejects.toThrow('đang chạy');
+    for (const r of service.groupRuns(group)) {
+      await service.respondPermission(r.id, r.permissions[0].requestId, 'allow', false);
+    }
+    await wait(300);
+    expect(service.groupRuns(group).map((r) => r.status)).toEqual(['done', 'done']);
+    await expect(service.commitChoice(group!, 'x')).rejects.toThrow('Chưa chọn');
+    await service.useRun(group!, runs[0].id);
+    expect(service.choices()[group!]).toEqual({ runId: runs[0].id, files: 2, commit: null });
+    expect(await service.getDiff(runs[0].id)).toEqual([]);
+    await expect(service.useRun(group!, runs[1].id)).rejects.toThrow('đã chọn');
+    expect(await service.commitChoice(group!, 'dùng bản của Claude')).toMatch(/^[0-9a-f]+$/);
+    expect(service.choices()[group!].commit).toBe('abc1234');
+  });
+
+  it('reports agents that failed to start and throws when none did', async () => {
+    class Flaky extends MockBackend {
+      override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null) {
+        return agent === 'gemini' ? Promise.reject(new Error('không có adapter')) : super.startTask(agent, prompt, repo, group);
+      }
+    }
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: Flaky }] });
+    const service = TestBed.inject(RunsService);
+    expect(await service.startParallel(['claude', 'gemini'], 'p', '/repo')).toEqual(['Gemini CLI: không có adapter']);
+    expect(service.runs()).toHaveLength(1);
+    await expect(service.startParallel(['gemini'], 'p', '/repo')).rejects.toThrow('không có adapter');
   });
 });

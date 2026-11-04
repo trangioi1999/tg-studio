@@ -14,7 +14,8 @@ interface MockTask {
   pending: boolean;
 }
 
-function mockDiff(): FileDiff[] {
+/** Each agent gets a slightly different result, so the compare view has something to compare. */
+function mockDiff(agent: AgentId = 'claude'): FileDiff[] {
   const hunk = (id: string, header: string, lines: string[]) => ({
     id, header, oldStart: 10, oldLines: 3, newStart: 10, newLines: 4, lines,
     added: lines.filter((l) => l.startsWith('+')).length,
@@ -24,14 +25,14 @@ function mockDiff(): FileDiff[] {
     {
       path: 'src/app/app.ts', status: 'M', binary: false, patchHeader: '',
       hunks: [
-        hunk('h1', '@@ -10,3 +10,4 @@ export class App', [' export class App {', '-  title = "cũ";', '+  title = "mới";', '+  ready = true;', ' }']),
+        hunk('h1', '@@ -10,3 +10,4 @@ export class App', [' export class App {', '-  title = "cũ";', `+  title = "mới (${agent})";`, '+  ready = true;', ' }']),
         hunk('h2', '@@ -40,2 +41,2 @@ run()', [' run() {', '-  return 1;', '+  return 2;']),
       ],
     },
-    {
+    ...(agent === 'codex' ? [] : [{
       path: 'docs/ghi chú mới.md', status: 'A', binary: false, patchHeader: '',
       hunks: [hunk('h3', '@@ -0,0 +1,2 @@', ['+# Ghi chú', '+Nội dung mới'])],
-    },
+    }]),
   ];
 }
 
@@ -99,11 +100,11 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     const run: MockRun = { agent, timers: [], active: true };
     this.runs.set(runId, run);
-    this.tasks.set(runId, { files: mockDiff(), contents: mockContents(), accepted: 0, pending: true });
+    this.tasks.set(runId, { files: mockDiff(agent), contents: mockContents(), accepted: 0, pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
@@ -159,6 +160,16 @@ export class MockBackend extends AgentBackend {
     const task = this.task(runId);
     this.dropHunk(task, path, hunkId);
     task.accepted += 1;
+  }
+
+  async acceptAll(runId: string): Promise<number> {
+    const task = this.task(runId);
+    if (this.runs.get(runId)?.active) throw new Error('Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.');
+    if (!task.files.length) throw new Error('Không còn thay đổi nào để áp dụng.');
+    const count = task.files.length;
+    task.accepted += task.files.reduce((n, f) => n + f.hunks.length, 0);
+    task.files = [];
+    return count;
   }
 
   async rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
