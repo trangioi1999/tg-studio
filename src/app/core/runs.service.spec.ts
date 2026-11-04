@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
 import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
-import { RunsService, recapOf } from './runs.service';
+import { Run, RunsService, isQuiet, recapOf } from './runs.service';
 
 const usage: Usage = {
   inputTokens: 10,
@@ -583,5 +583,20 @@ describe('recapOf', () => {
     const recap = recapOf({ prompt: 'x'.repeat(9000), lines: [{ text: 'mới nhất', tone: 'text' }] });
     expect(recap).toContain('mới nhất');
     expect(recap.length).toBeLessThan(8200);
+  });
+});
+
+describe('isQuiet', () => {
+  const run = (over: Partial<Run> = {}) => ({ status: 'running', permissions: [], startedAt: 0, ...over }) as Run;
+
+  it('notices a running agent with nothing heard for 30 seconds', () => {
+    expect(isQuiet(run(), 1000, 30_999)).toBe(false);
+    expect(isQuiet(run(), 1000, 31_000)).toBe(true);
+    expect(isQuiet(run(), undefined, 30_000)).toBe(true);
+  });
+
+  it('stays calm while it waits for the user or has ended', () => {
+    expect(isQuiet(run({ permissions: [{}] as Run['permissions'] }), 0, 99_000)).toBe(false);
+    expect(isQuiet(run({ status: 'idle' }), 0, 99_000)).toBe(false);
   });
 });
