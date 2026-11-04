@@ -85,6 +85,8 @@ pub struct StoredRun {
     pub thread: Option<String>,
     /// The project folder: the repository of a code task, the folder of a read-only run.
     pub project: String,
+    /// The subfolder of the project the conversation is about, with `/`. None: all of it.
+    pub scope: Option<String>,
 }
 
 impl Store {
@@ -126,7 +128,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=8 => {},
+            1..=9 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -178,6 +180,10 @@ impl Store {
         if version < 8 {
             tx.execute_batch("ALTER TABLE runs ADD COLUMN thread_id TEXT;
                 PRAGMA user_version = 8;")?;
+        }
+        if version < 9 {
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN scope TEXT;
+                PRAGMA user_version = 9;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -447,8 +453,8 @@ impl Store {
         Ok(())
     }
 
-    pub fn set_run_thread(&self, run_id: &str, thread: &str) -> Result<()> {
-        self.connection()?.execute("UPDATE runs SET thread_id = ?2 WHERE id = ?1", params![run_id, thread])?;
+    pub fn set_run_thread(&self, run_id: &str, thread: &str, scope: Option<&str>) -> Result<()> {
+        self.connection()?.execute("UPDATE runs SET thread_id = ?2, scope = ?3 WHERE id = ?1", params![run_id, thread, scope])?;
         Ok(())
     }
 
@@ -470,7 +476,7 @@ impl Store {
         let tx = conn.transaction()?;
         let mut runs = {
             let mut stmt = tx.prepare(
-                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id, thread_id, COALESCE(repo, cwd)
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id, thread_id, COALESCE(repo, cwd), scope
                  FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
@@ -480,7 +486,7 @@ impl Store {
                 Ok(StoredRun {
                     id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
                     started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
-                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?, group: row.get(9)?, thread: row.get(10)?, project: row.get(11)?,
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?, group: row.get(9)?, thread: row.get(10)?, project: row.get(11)?, scope: row.get(12)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>>>()?
@@ -757,7 +763,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 8);
+            assert_eq!(version, 9);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();
@@ -806,9 +812,9 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         store.insert_run(&NewRun { id: "a", agent: AgentKind::Claude, prompt: "p", cwd: "/thu-muc", started_at: 5 }).unwrap();
         assert_eq!(store.list_runs(1).unwrap()[0].thread, None);
-        store.set_run_thread("a", "cuoc-1").unwrap();
+        store.set_run_thread("a", "cuoc-1", Some("goi/api")).unwrap();
         let run = &store.list_runs(1).unwrap()[0];
-        assert_eq!((run.thread.as_deref(), run.project.as_str()), (Some("cuoc-1"), "/thu-muc"));
+        assert_eq!((run.thread.as_deref(), run.project.as_str(), run.scope.as_deref()), (Some("cuoc-1"), "/thu-muc", Some("goi/api")));
     }
 
     #[test]

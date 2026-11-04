@@ -8,6 +8,7 @@ import { estimateCost } from '../core/pricing';
 import { AgentBackend } from '../core/backend';
 import { AGENT_IDS, AGENT_META, AgentId, BridgeNote, GitPlan } from '../core/protocol';
 import { Run, RunsService, isQuiet, recapOf } from '../core/runs.service';
+import { ThreadsService } from '../core/threads.service';
 import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
@@ -170,6 +171,11 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
       </div>
     }
     <section class="ap-composer" aria-label="Giao việc">
+      @if (scopeShown(); as scope) {
+        <div class="ap-scope dim">Trong thư mục <code>{{ scope }}/</code>
+          @if (!run()) { <button class="link" (click)="threads.draftScope.set(null)">Bỏ</button> }
+        </div>
+      }
       <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
       <textarea id="prompt" rows="3" [placeholder]="placeholder()"
         [value]="prompt()" (input)="prompt.set($any($event.target).value)"
@@ -269,6 +275,7 @@ export class AgentPanel {
   private readonly budget = inject(BudgetService);
   protected readonly workspace = inject(WorkspaceService);
   private readonly ui = inject(UiService);
+  protected readonly threads = inject(ThreadsService);
   protected readonly meta = AGENT_META;
   protected readonly keys = KEYS;
   protected readonly tok = fmtTokens;
@@ -425,6 +432,10 @@ export class AgentPanel {
     const hunks = files.flatMap((f) => f.hunks);
     return { files: files.length, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
   });
+  protected readonly scopeShown = computed(() => {
+    const r = this.run();
+    return r ? r.scope : this.threads.draftScope();
+  });
   protected readonly quiet = computed(() => {
     const r = this.run();
     return !!r && isQuiet(r, this.runs.lastEvent()[r.id], this.runs.now());
@@ -526,6 +537,7 @@ export class AgentPanel {
 
   protected newChat(): void {
     this.runs.selectedId.set(null);
+    this.threads.draftScope.set(null);
     this.chosen.set('');
     this.prompt.set('');
     this.error.set(null);
@@ -557,7 +569,7 @@ export class AgentPanel {
           return;
         }
       } else if (this.mode() === 'parallel') {
-        const failed = await this.runs.startParallel(this.picked(), text, cwd);
+        const failed = await this.runs.startParallel(this.picked(), text, cwd, this.threads.draftScope());
         if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
       } else if (agent) {
         const current = this.run();
@@ -565,12 +577,12 @@ export class AgentPanel {
           // Same agent with an open session: just the next message. Anything else is a new
           // session in the same draft; the core reopens the old one if it was this agent's.
           if (agent === current.agent && current.status === 'idle') await this.runs.sendMessage(current.id, text);
-          else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current), thread: current.thread });
-        } else if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd);
+          else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current), thread: current.thread, scope: current.scope });
+        } else if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd, { scope: this.threads.draftScope() });
         else {
           // The next question of a conversation continues it; the core resumes the CLI's session.
           const asked = current && !current.task && current.status !== 'running' ? current : null;
-          await this.runs.start(agent, text, cwd, asked?.thread, asked?.id ?? null);
+          await this.runs.start(agent, text, cwd, asked?.thread, asked?.id ?? null, asked ? asked.scope : this.threads.draftScope());
         }
       }
       this.prompt.set('');

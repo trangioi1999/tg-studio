@@ -120,6 +120,18 @@ pub async fn kill_tree(pid: u32) {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(2), kill.status()).await;
 }
 
+/// A subfolder an agent works from. It is where the agent starts, not a fence.
+pub fn scoped_dir(base: &std::path::Path, scope: Option<&str>) -> Result<PathBuf, String> {
+    let Some(scope) = scope.filter(|s| !s.is_empty()) else { return Ok(base.to_path_buf()); };
+    let relative = std::path::Path::new(scope);
+    if relative.is_absolute() || relative.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+        return Err(format!("Thư mục không hợp lệ: {scope}"));
+    }
+    let dir = base.join(relative);
+    if !dir.is_dir() { return Err(format!("Thư mục {scope} không có ở đây. Nếu nó chưa được commit thì bản nháp chưa có nó.")); }
+    Ok(dir)
+}
+
 /// Finds an executable on the login PATH (handles .cmd/.exe shims on Windows).
 pub fn which(bin: &str) -> Option<PathBuf> {
     let path = login_path();
@@ -145,6 +157,20 @@ pub fn which(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[test]
+    fn a_scope_stays_inside_its_project() {
+        let base = std::env::temp_dir().join(format!("tg-scope-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(base.join("goi/api")).unwrap();
+        assert_eq!(super::scoped_dir(&base, None).unwrap(), base);
+        assert_eq!(super::scoped_dir(&base, Some("")).unwrap(), base);
+        assert_eq!(super::scoped_dir(&base, Some("goi/api")).unwrap(), base.join("goi/api"));
+        for bad in ["../x", "goi/../..", "/tmp", "./goi"] {
+            assert!(super::scoped_dir(&base, Some(bad)).unwrap_err().contains("không hợp lệ"), "{bad}");
+        }
+        assert!(super::scoped_dir(&base, Some("khong-co")).unwrap_err().contains("chưa được commit"));
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[cfg(unix)]
     #[test]
