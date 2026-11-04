@@ -239,6 +239,43 @@ mod tests {
         assert_eq!(f[0].hunks[0].lines.last().unwrap(), "\\ No newline at end of file");
         assert_eq!(f[0].hunks[0].added, 1);
     }
+    // core.autocrlf=true is Git for Windows' default: files on disk are CRLF, blobs are LF.
+    #[test] fn review_flow_works_with_autocrlf() {
+        let r = Repo::new();
+        git(&r.0, &["config", "core.autocrlf", "true"], None).unwrap();
+        fs::remove_file(r.0.join("file.txt")).unwrap();
+        git(&r.0, &["checkout", "--", "file.txt"], None).unwrap();
+        let w = r.wt();
+        let original = fs::read_to_string(w.path.join("file.txt")).unwrap();
+        assert!(original.contains("line 2\r\n"), "the worktree must start with CRLF");
+
+        // An agent may keep the CRLF ending or write a bare LF line.
+        let edited = original
+            .replace("line 2\r\n", "two\r\n")
+            .replace("line 25\r\n", "twenty five\n");
+        fs::write(w.path.join("file.txt"), edited).unwrap();
+
+        let files = pending(&w).unwrap();
+        assert_eq!(files[0].hunks.len(), 2);
+        let first = files[0].hunks.iter().find(|h| h.lines.iter().any(|l| l.contains("two"))).unwrap();
+        accept_hunk(&r.0, &w, "file.txt", &first.id).unwrap();
+
+        let repo_file = fs::read_to_string(r.0.join("file.txt")).unwrap();
+        assert!(repo_file.contains("two\r\n"));
+        assert!(repo_file.contains("line 25\r\n"), "the other hunk must not be applied");
+        assert!(!repo_file.replace("\r\n", "").contains('\n'), "line endings must stay CRLF");
+
+        let left = pending(&w).unwrap();
+        assert_eq!(left[0].hunks.len(), 1);
+        reject_hunk(&w, "file.txt", &left[0].hunks[0].id).unwrap();
+        assert!(pending(&w).unwrap().is_empty());
+        assert!(fs::read_to_string(w.path.join("file.txt")).unwrap().contains("line 25"));
+
+        commit(&r.0, "fix").unwrap();
+        let committed = git(&r.0, &["show", "HEAD:file.txt"], None).unwrap();
+        assert!(committed.contains("two\n") && !committed.contains('\r'), "blobs stay LF");
+    }
+
     #[test] fn accept_one_of_two_hunks_applies_only_that_hunk() {
         let r = Repo::new(); let w = r.wt(); change(&w);
         let f = pending(&w).unwrap(); assert_eq!(f[0].hunks.len(), 2);

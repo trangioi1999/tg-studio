@@ -147,6 +147,8 @@ pub(crate) mod tests {
             git(&r.0, &["config", "user.name", "Test"], None).unwrap();
             git(&r.0, &["config", "user.email", "test@example.invalid"], None).unwrap();
             git(&r.0, &["config", "commit.gpgsign", "false"], None).unwrap();
+            // Keep bytes exact whatever the machine's default is; CRLF has its own test in diff.rs.
+            git(&r.0, &["config", "core.autocrlf", "false"], None).unwrap();
             fs::create_dir(r.0.join("empty-hooks")).unwrap();
             git(&r.0, &["config", "core.hooksPath", r.0.join("empty-hooks").to_str().unwrap()], None).unwrap();
             r.write("file.txt", &(1..=30).map(|i| format!("line {i}\n")).collect::<String>());
