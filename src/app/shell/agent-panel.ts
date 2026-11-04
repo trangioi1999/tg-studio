@@ -293,8 +293,9 @@ export class AgentPanel {
   protected readonly blocked = computed(() => {
     if (this.budget.blockReason()) return this.budget.blockReason();
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
-    if (!this.workspace.folder().trim()) return 'Chọn thư mục làm việc ở thanh trên cùng.';
-    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: đổi thư mục ở thanh trên cùng, hoặc dùng Chỉ đọc.';
+    if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
+    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: mở thư mục khác, hoặc dùng Chỉ đọc.';
+    if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: hãy commit trong dự án, hoặc dùng Chỉ đọc.';
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
@@ -380,7 +381,7 @@ export class AgentPanel {
     if (!this.canRun()) return;
     const agent = this.agent();
     const text = this.text();
-    const cwd = this.mode() === 'read' ? this.workspace.folder().trim() : (this.workspace.repo()?.root ?? this.workspace.folder().trim());
+    const cwd = this.workspace.folder();
     this.error.set(null);
     try {
       if (this.mode() === 'pipeline') {

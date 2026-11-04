@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -145,14 +145,17 @@ export class MockBackend extends AgentBackend {
     ];
   }
 
-  async homeDir(): Promise<string | null> {
+  async pickFolder(): Promise<string | null> {
     return '/Users/you/projects/demo';
   }
 
-  async repoInfo(path: string): Promise<RepoInfo> {
-    const root = path.replace(/[\\/]+$/, '');
-    if (!root) throw new Error('Thư mục không phải kho Git.');
-    return { root, name: root.split(/[\\/]/).pop() ?? root, branch: 'main' };
+  /** Path words imitate each state: missing, nogit, nocommit. */
+  async openProject(path: string): Promise<Project> {
+    const root = path.trim().replace(/[\\/]+$/, '');
+    if (!root || root.includes('missing')) throw new Error(`Thư mục không tồn tại: ${path.trim()}`);
+    const name = root.split(/[\\/]/).pop() ?? root;
+    const git = root.includes('nogit') ? 'none' : root.includes('nocommit') ? 'no_commits' : 'ready';
+    return { root, name, branch: git === 'none' ? null : 'main', git, adjusted: null };
   }
 
   async start(agent: AgentId, prompt: string, _cwd?: string): Promise<string> {

@@ -36,9 +36,6 @@ class FakeBackend extends MockBackend {
   override detectAgents(): Promise<DetectedAgent[]> {
     return Promise.resolve([]);
   }
-  override homeDir() {
-    return Promise.resolve(null);
-  }
   override start(_agent: AgentId, _prompt: string, _cwd: string) {
     return Promise.resolve('new');
   }

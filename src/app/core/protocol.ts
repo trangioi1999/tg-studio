@@ -233,6 +233,17 @@ export interface RepoInfo {
   branch: string | null;
 }
 
+/** A folder the core checked and resolved. Keep in sync with project.rs. */
+export interface Project {
+  /** The Git root, or the folder itself outside a repository. */
+  root: string;
+  name: string;
+  branch: string | null;
+  git: 'ready' | 'no_commits' | 'none';
+  /** Why `root` differs from the path that was given. */
+  adjusted: 'subfolder' | 'file' | null;
+}
+
 export interface PlanEntry {
   content: string;
   status: 'pending' | 'in_progress' | 'completed' | string;
