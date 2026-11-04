@@ -1,6 +1,6 @@
 import { AgentId } from './protocol';
 
-export type LineTone = 'text' | 'tool' | 'muted' | 'error' | 'ok';
+export type LineTone = 'text' | 'user' | 'tool' | 'muted' | 'error' | 'ok';
 export interface ConsoleLine {
   text: string;
   tone: LineTone;

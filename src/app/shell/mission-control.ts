@@ -123,7 +123,7 @@ export class MissionControl implements OnDestroy {
   protected readonly runs = inject(RunsService);
   protected readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly kindLabel = { approve: 'Duyệt lệnh', review: 'Review', commit: 'Commit' };
   protected readonly tok = fmtTokens;
   private readonly workspace = inject(WorkspaceService);

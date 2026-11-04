@@ -1,4 +1,6 @@
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
+import { RunsService } from '../core/runs.service';
 import { AgentBackend } from '../core/backend';
 import { AgentsService } from '../core/agents.service';
 import { MockBackend } from '../core/mock-backend';
@@ -8,10 +10,12 @@ import { AgentPanel } from './agent-panel';
 
 class FakeBackend extends MockBackend {
   starts = 0;
-  startResult: () => Promise<string> = () => Promise.resolve('run');
-  override startTask(_agent: AgentId, _prompt: string, _repo: string) {
+  lastStart: { agent: AgentId; prompt: string; reuse: string | null; recap: string | null } | null = null;
+  startResult: (() => Promise<string>) | null = null;
+  override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null) {
     this.starts += 1;
-    return this.startResult();
+    this.lastStart = { agent, prompt, reuse, recap };
+    return this.startResult ? this.startResult() : super.startTask(agent, prompt, repo, group, reuse, singleTurn);
   }
 }
 
@@ -21,7 +25,9 @@ interface Composer {
   prompt: { (): string; set(p: string): void };
   error(): string | null;
   canRun(): boolean;
+  sending(): boolean;
   send(): Promise<void>;
+  onEnter(e: KeyboardEvent): void;
 }
 
 async function setup() {
@@ -49,8 +55,47 @@ describe('AgentPanel composer', () => {
     finish('run');
     await first;
     expect(panel.prompt()).toBe('');
-    panel.prompt.set('việc khác');
-    expect(panel.canRun()).toBe(true);
+    expect(panel.sending()).toBe(false);
+  });
+
+  async function withOpenSession() {
+    const context = await setup();
+    await TestBed.inject(RunsService).startTask('claude', 'câu đầu', '/demo');
+    const run = TestBed.inject(RunsService).selected()!;
+    await context.backend.respondPermission(run.id, `perm-${run.id}`, 'allow', false);
+    await vi.waitFor(() => expect(TestBed.inject(RunsService).selected()?.status).toBe('idle'), { timeout: 3000 });
+    TestBed.tick();
+    return { ...context, run };
+  }
+
+  it('sends the next message into the open session without starting an agent', async () => {
+    const { backend, panel, run } = await withOpenSession();
+    backend.starts = 0;
+    panel.prompt.set('câu hai');
+    await panel.send();
+    expect(backend.starts).toBe(0);
+    await vi.waitFor(() => expect(TestBed.inject(RunsService).selected()?.lines.some((l) => l.tone === 'user' && l.text === 'câu hai')).toBe(true));
+    expect(TestBed.inject(RunsService).selected()?.id).toBe(run.id);
+  });
+
+  it('starts a new session in the same draft when handing over to another agent', async () => {
+    const { backend, panel, run } = await withOpenSession();
+    backend.starts = 0;
+    panel.prompt.set('@codex làm tiếp');
+    await panel.send();
+    expect(backend.starts).toBe(1);
+    expect(backend.lastStart).toMatchObject({ agent: 'codex', prompt: 'làm tiếp', reuse: run.id });
+    expect(backend.lastStart?.recap).toContain('câu đầu');
+  });
+
+  it('does not send on Enter while an input method is composing, or on Shift+Enter', async () => {
+    const { backend, panel } = await setup();
+    panel.prompt.set('xin chào');
+    panel.onEnter(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true }));
+    panel.onEnter(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true }));
+    expect(backend.starts).toBe(0);
+    panel.onEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(backend.starts).toBe(1);
   });
 
   it('keeps the prompt and shows why when a pipeline cannot start', async () => {

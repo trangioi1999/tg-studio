@@ -11,7 +11,7 @@ Thiết kế: `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Thứ t�
 - [ ] **M0** Windows ổn — còn thử bản cài trên máy thật
 - [ ] **M1** Mở dự án đầy đủ: dự án gần đây, chuẩn bị Git (đã xong: xem source chỉ đọc)
 - [ ] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
-- [ ] **M3** Chat trong một phiên agent, phạm vi thư mục
+- [ ] **M3** Chat trong một phiên agent (đã xong với chế độ Sửa code, kiểm chứng với Claude thật; còn chế độ Chỉ hỏi nối phiên, kiểm chứng Codex, phạm vi thư mục)
 - [ ] **M4** Bố cục mới
 - [ ] **M5** Dọn thuật ngữ, thông báo, tài liệu, nghiệm thu
 

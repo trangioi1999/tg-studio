@@ -44,7 +44,7 @@ export interface AccountLimits {
 }
 
 export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit' | 'limits'
-  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge';
+  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge' | 'user' | 'turn_end';
 
 /** A tg-bridge note shared by the runs of one task. Keep in sync with ledger.rs `BridgeNote`. */
 export interface BridgeNote {
@@ -66,10 +66,11 @@ export interface AgentEvent {
 }
 
 /** Stored state of a run, returned by the core's `list_runs`. Keep in sync with store.rs. */
-export type RunStatus = 'running' | 'done' | 'failed' | 'stopped' | 'interrupted';
+/** `idle`: the agent's session is open and waiting for the next message. */
+export type RunStatus = 'running' | 'idle' | 'done' | 'failed' | 'stopped' | 'interrupted';
 
 export interface StoredLine {
-  kind: 'started' | 'log' | 'stderr' | 'message';
+  kind: 'started' | 'log' | 'stderr' | 'message' | 'user';
   line: string;
 }
 

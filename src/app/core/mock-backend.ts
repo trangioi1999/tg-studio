@@ -2,6 +2,8 @@ import { AgentBackend, Unlisten } from './backend';
 import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
+  /** Its session waits for more messages after a turn. */
+  open?: boolean;
   agent: AgentId;
   timers: ReturnType<typeof setTimeout>[];
   active: boolean;
@@ -197,11 +199,11 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null, singleTurn = false): Promise<string> {
     const previous = reuse ? this.task(reuse) : null;
     if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
     const runId = crypto.randomUUID();
-    const run: MockRun = { agent, timers: [], active: true };
+    const run: MockRun = { agent, timers: [], active: true, open: !singleTurn };
     this.runs.set(runId, run);
     this.tasks.set(runId, previous
       ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, staged: previous.staged, pending: true }
@@ -260,7 +262,23 @@ export class MockBackend extends AgentBackend {
       kind: 'usage',
       usage: { inputTokens: 2400, cachedInputTokens: 12000, outputTokens: 610, costUsd: run.agent === 'claude' ? 0.04 : null, source: run.agent === 'claude' ? 'reported' : 'tokens', cumulative: true },
     }, 540);
-    send({ kind: 'exit', code: 0, data: { status: 'done' } }, 580);
+    this.endTurn(runId, run, 580);
+  }
+
+  /** A session that stays open waits for the next message; a pipeline step ends. */
+  private endTurn(runId: string, run: MockRun, delay: number): void {
+    if (run.open) this.later(runId, run, { kind: 'turn_end', data: { status: 'done' } }, delay);
+    else this.later(runId, run, { kind: 'exit', code: 0, data: { status: 'done' } }, delay);
+  }
+
+  async sendMessage(runId: string, prompt: string): Promise<void> {
+    const run = this.runs.get(runId);
+    if (!run?.open) throw new Error('Phiên này đã đóng.');
+    if (run.active) throw new Error('Agent đang chạy. Hãy chờ hoặc dừng trước.');
+    run.active = true;
+    this.later(runId, run, { kind: 'user', line: prompt }, 0);
+    this.later(runId, run, { kind: 'message', data: { text: `Đã nhận: ${prompt.slice(0, 60)}` } }, 300);
+    this.endTurn(runId, run, 700);
   }
 
   async getDiff(runId: string): Promise<FileDiff[]> {
@@ -396,16 +414,18 @@ export class MockBackend extends AgentBackend {
   private later(runId: string, run: MockRun, partial: Partial<AgentEvent>, delay: number, effect?: () => void): void {
     run.timers.push(setTimeout(() => {
       effect?.();
-      if (partial.kind === 'exit') run.active = false;
+      if (partial.kind === 'exit') { run.active = false; run.open = false; }
+      if (partial.kind === 'turn_end') run.active = false;
       this.emit({ runId, agent: run.agent, kind: 'log', line: null, usage: null, code: null, data: null, atMs: Date.now(), ...partial });
     }, delay));
   }
 
   async stop(runId: string) {
     const run = this.runs.get(runId);
-    if (!run || !run.active) return;
+    if (!run || (!run.active && !run.open)) return;
     run.timers.forEach(clearTimeout);
     run.active = false;
+    run.open = false;
     this.emit({ runId, agent: run.agent, kind: 'exit', line: null, usage: null, code: null, data: null, atMs: Date.now() });
   }
 

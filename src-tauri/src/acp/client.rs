@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use super::transport::{Incoming, RpcError, Transport};
 
 pub const PROTOCOL_VERSION: u64 = 1;
+const ASKING_MODE: &str = "default";
 
 pub type HandlerFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
 
@@ -100,6 +101,18 @@ impl AcpClient {
         Ok(result)
     }
 
+    /// Agents inherit the permission mode of the user's own CLI settings, where approvals
+    /// may be off. The app promises to ask, so its sessions use the agent's asking mode.
+    async fn require_approvals(&self, session_id: &str, modes: &Value) -> Result<(), String> {
+        let offered = modes["availableModes"].as_array().is_some_and(|all| all.iter().any(|m| m["id"] == ASKING_MODE));
+        if !offered || modes["currentModeId"] == ASKING_MODE { return Ok(()); }
+        self.transport
+            .request("session/set_mode", json!({ "sessionId": session_id, "modeId": ASKING_MODE }), Some(self.setup_timeout))
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("Không bật được chế độ xin duyệt: {e}"))
+    }
+
     pub async fn new_session(&self, cwd: &Path, mcp_servers: Value) -> Result<String, String> {
         let result = self
             .transport
@@ -110,23 +123,25 @@ impl AcpClient {
             )
             .await
             .map_err(|e| format!("Không mở được phiên: {e}"))?;
-        result["sessionId"]
+        let id = result["sessionId"]
             .as_str()
             .map(str::to_string)
-            .ok_or_else(|| "Agent không trả về sessionId.".to_string())
+            .ok_or_else(|| "Agent không trả về sessionId.".to_string())?;
+        self.require_approvals(&id, &result["modes"]).await?;
+        Ok(id)
     }
 
     /// Reopens an earlier session of this adapter; the agent replays it as updates.
     pub async fn load_session(&self, session_id: &str, cwd: &std::path::Path, mcp_servers: Value) -> Result<(), String> {
-        self.transport
+        let result = self.transport
             .request(
                 "session/load",
                 json!({ "sessionId": session_id, "cwd": cwd.to_string_lossy(), "mcpServers": mcp_servers }),
                 Some(self.setup_timeout),
             )
             .await
-            .map(|_| ())
-            .map_err(|e| format!("Không nối lại được phiên: {e}"))
+            .map_err(|e| format!("Không nối lại được phiên: {e}"))?;
+        self.require_approvals(session_id, &result["modes"]).await
     }
 
     /// Runs one turn and returns its `stopReason`. No timeout: a turn can wait
@@ -231,6 +246,33 @@ mod tests {
             }).await.expect("setup must use the configured timeout");
             assert!(error.contains("Hết thời gian chờ phản hồi ACP"), "{error}");
             client.close();
+        }
+    }
+
+    #[tokio::test]
+    async fn sessions_ask_for_approval_whatever_the_cli_settings_say() {
+        let recorder = Arc::new(Recorder::default());
+        let modes = json!({"currentModeId":"auto","availableModes":[{"id":"default"},{"id":"auto"}]});
+        let (reader, writer, log) = fake::spawn_with_modes(modes, vec![Step::End("end_turn")]);
+        let client = AcpClient::start(reader, writer, Arc::new(Handler(recorder)));
+        client.initialize().await.unwrap();
+        let id = client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+        client.prompt_turn(&id, "p").await.unwrap();
+        let methods: Vec<_> = log.lock().unwrap().iter().filter_map(|v| v["method"].as_str().map(String::from)).collect();
+        assert_eq!(methods, vec!["initialize", "session/new", "session/set_mode", "session/prompt"]);
+        let sent = log.lock().unwrap().iter().find(|v| v["method"] == "session/set_mode").cloned().unwrap();
+        assert_eq!(sent["params"]["modeId"], "default");
+        assert_eq!(sent["params"]["sessionId"], fake::SESSION_ID);
+    }
+
+    #[tokio::test]
+    async fn no_mode_change_when_already_asking_or_not_offered() {
+        for modes in [json!({"currentModeId":"default","availableModes":[{"id":"default"}]}), json!({"currentModeId":"full","availableModes":[{"id":"full"}]}), json!(null)] {
+            let (reader, writer, log) = fake::spawn_with_modes(modes, vec![]);
+            let client = AcpClient::start(reader, writer, Arc::new(Handler(Arc::new(Recorder::default()))));
+            client.initialize().await.unwrap();
+            client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+            assert!(!log.lock().unwrap().iter().any(|v| v["method"] == "session/set_mode"));
         }
     }
 

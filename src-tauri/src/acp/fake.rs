@@ -42,14 +42,19 @@ pub fn spawn(steps: Vec<Step>) -> (Reader, Writer, Log) {
 
 /// An agent that reports it can reopen earlier sessions.
 pub fn spawn_loadable(steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(1, json!({ "loadSession": true }), steps)
+    spawn_with(1, json!({ "loadSession": true }), Value::Null, steps)
+}
+
+/// An agent whose new sessions report these permission modes.
+pub fn spawn_with_modes(modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
+    spawn_with(1, json!({}), modes, steps)
 }
 
 pub fn spawn_with_version(version: u64, steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(version, json!({}), steps)
+    spawn_with(version, json!({}), Value::Null, steps)
 }
 
-fn spawn_with(version: u64, capabilities: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
+fn spawn_with(version: u64, capabilities: Value, modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
     let (client_side, agent_side) = tokio::io::duplex(1 << 16);
     let (client_reader, client_writer) = tokio::io::split(client_side);
     let (agent_reader, mut agent_writer) = tokio::io::split(agent_side);
@@ -82,8 +87,11 @@ fn spawn_with(version: u64, capabilities: Value, steps: Vec<Step>) -> (Reader, W
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
                 }
                 Some("session/new") => {
-                    let result = json!({ "sessionId": SESSION_ID });
+                    let result = json!({ "sessionId": SESSION_ID, "modes": modes });
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
+                }
+                Some("session/set_mode") => {
+                    send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
                 }
                 Some("session/load") => {
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
