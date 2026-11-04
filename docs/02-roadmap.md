@@ -43,7 +43,7 @@ Plan: `docs/superpowers/plans/2026-11-04-phase-2-parallel.md`.
 - [ ] Pipeline engine: bước, gán agent, truyền output bước trước (plan, diff, test report) sang bước sau
 - [ ] Mission control: timeline, cột agent, merge queue
 - [ ] Cherry-pick hunk từ nhiều worktree; chạy test trên bản ghép
-- [ ] Con trỏ agent + vạch màu trong editor
+- [x] Con trỏ agent + vạch màu trong editor: editor tự mở tệp agent đang làm, con trỏ có tên agent, vạch màu cập nhật ngay khi tool sửa file xong (đo ở mock mode: ~0,2 s)
 
 **XK:** 3 agent chạy song song cùng 1 task, chọn/ghép kết quả, merge.
 

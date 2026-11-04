@@ -16,11 +16,15 @@
 - `tg-compare`: mỗi agent một thẻ (tệp, +/−, token, chi phí, thời gian, tin nhắn cuối), "Xem thay đổi" mở review từng hunk, "Dùng bản này" → xác nhận → commit → dọn worktree của nhóm.
 - Nghiệm thu: Playwright ở mock mode (3 agent) và `live_claude_parallel_group_use_one` (2 phiên Claude thật cùng lúc).
 
+### 2.7 Con trỏ agent + vạch màu
+- `RunsService.activity`: tệp agent đang làm, lấy từ event `tool` (`locations[].path/line`, `content[].type = diff`, `rawInput.file_path`). Update sau chỉ có `toolCallId`, nên nhớ đường dẫn và loại tool theo id. Xóa khi run kết thúc.
+- Editor: chế độ "Theo agent" (bật mặc định, tắt khi người dùng tự chọn tệp), nhãn "đang sửa/đang xem" trong danh sách tệp, con trỏ có tên agent ở dòng đang sửa, nạp lại tệp + diff khi tool sửa file hoàn tất.
+- Mock: thay đổi chỉ vào worktree khi tool Edit hoàn tất, như adapter thật. Playwright đo: vạch màu hiện ~186 ms sau khi sửa xong.
+
 ## Còn lại (theo thứ tự đề xuất)
 
 | ID | Việc | Ghi chú |
 |---|---|---|
-| 2.7 | Con trỏ agent + vạch màu cập nhật ≤ 1s | Editor nghe event `tool` có `locations`/`content.type = diff` để nạp lại file đang mở. Không cần tài khoản ngoài. |
 | 2.5 | Mission control + merge queue | Timeline từ `startedAt/endedAt` và khoảng chờ duyệt (event `permission` → `permission_resolved`). Merge queue = các nhóm/run đã accept nhưng chưa commit. |
 | 2.6 | Cherry-pick hunk từ nhiều worktree; chạy test trên bản ghép | Ghép trong một worktree tạm từ base, áp hunk đã chọn từ nhiều run, chạy lệnh test do người dùng nhập (qua thẻ duyệt). |
 | 2.4 | Pipeline engine | Bước = (agent, prompt mẫu, quyền); output bước trước (tin nhắn cuối, diff) chèn vào prompt bước sau. Test bằng `acp/fake.rs`. |

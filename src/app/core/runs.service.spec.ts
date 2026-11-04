@@ -97,6 +97,25 @@ describe('RunsService ACP events', () => {
     expect(run.task).toBe(true);
   });
 
+  it('tracks the file an agent works on across partial tool updates', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(event('tool', { toolCallId: 't', kind: 'edit', title: 'Edit', status: 'pending', locations: [{ path: '/wt/a.ts', line: 3 }] }));
+    expect(service.activity()['live']).toMatchObject({ toolCallId: 't', path: '/wt/a.ts', line: 3, editing: true, done: false });
+    backend.handler(event('tool', { toolCallId: 't', status: 'completed' }));
+    expect(service.activity()['live']).toMatchObject({ path: '/wt/a.ts', line: 3, editing: true, done: true });
+    // Claude's Write: no kind on updates, the diff content names the file.
+    backend.handler(event('tool', { toolCallId: 'u', content: [{ type: 'diff', path: '/wt/b.ts', newText: 'x' }] }));
+    expect(service.activity()['live']).toMatchObject({ path: '/wt/b.ts', line: null, editing: true, done: false });
+    // A read only moves the cursor; a command without a file changes nothing.
+    backend.handler(event('tool', { toolCallId: 'r', kind: 'read', rawInput: { file_path: '/wt/c.ts' } }));
+    expect(service.activity()['live']).toMatchObject({ path: '/wt/c.ts', editing: false });
+    backend.handler(event('tool', { toolCallId: 'v', title: 'npm test', kind: 'execute' }));
+    expect(service.activity()['live'].toolCallId).toBe('r');
+    backend.handler(liveEvent({ kind: 'exit', code: 0 }));
+    expect(service.activity()['live']).toBeUndefined();
+  });
+
   it('updates a tool line in place and keeps its title', async () => {
     const { backend, service } = setup([]);
     await flush();
@@ -319,7 +338,7 @@ describe('MockBackend task flow', () => {
     expect(pending?.status).toBe('running');
 
     await service.respondPermission(pending!.id, pending!.permissions[0].requestId, 'allow', false);
-    await wait(300);
+    await wait(800);
     const run = service.selected()!;
     expect(run.status).toBe('done');
     expect(run.permissions).toEqual([]);
@@ -358,7 +377,7 @@ describe('RunsService parallel mode', () => {
     for (const r of service.groupRuns(group)) {
       await service.respondPermission(r.id, r.permissions[0].requestId, 'allow', false);
     }
-    await wait(300);
+    await wait(800);
     expect(service.groupRuns(group).map((r) => r.status)).toEqual(['done', 'done']);
     await expect(service.commitChoice(group!, 'x')).rejects.toThrow('Chưa chọn');
     await service.useRun(group!, runs[0].id);

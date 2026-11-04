@@ -28,6 +28,19 @@ export interface Run {
   group: string | null;
 }
 
+/** Where an agent is working right now, from its latest tool call that names a file. */
+export interface AgentActivity {
+  toolCallId: string;
+  /** As the agent sent it: usually absolute, inside the run's worktree. */
+  path: string;
+  line: number | null;
+  /** The tool writes the file (edit kind or a diff in its content). */
+  editing: boolean;
+  /** The tool call finished (completed or failed). */
+  done: boolean;
+  at: number;
+}
+
 /** The run picked with "Use this" for a parallel group, kept while the user moves around. */
 export interface GroupChoice {
   runId: string;
@@ -60,6 +73,9 @@ export class RunsService {
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
   readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
   readonly choices = signal<Record<string, GroupChoice>>({});
+  /** Per run: the file the agent touched last. Cleared when the run ends. */
+  readonly activity = signal<Record<string, AgentActivity>>({});
+  private readonly tools = new Map<string, { path: string | null; line: number | null; editing: boolean }>();
 
   readonly usageByAgent = computed<AgentUsage[]>(() =>
     AGENT_IDS.map((agent) => {
@@ -232,6 +248,7 @@ export class RunsService {
           };
         }
         case 'tool':
+          this.track(run.id, dataOf(e), e.atMs);
           return { ...run, task: true, lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
         case 'plan':
           return { ...run, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
@@ -257,11 +274,41 @@ export class RunsService {
             ? e.data['status'] : null;
           const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
             ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
+          this.forget(run.id);
           return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [] };
         }
       }
     });
     if (!this.selectedId()) this.selectedId.set(e.runId);
+  }
+
+  /** Tool updates repeat only what changed, so remember each call's file and kind by id. */
+  private track(runId: string, update: Json, at: number): void {
+    const id = update['toolCallId'];
+    if (typeof id !== 'string') return;
+    const key = `${runId}:${id}`;
+    const prev = this.tools.get(key) ?? { path: null, line: null, editing: false };
+    const location = Array.isArray(update['locations']) ? (update['locations'][0] as Json | undefined) : undefined;
+    const content = Array.isArray(update['content']) ? (update['content'] as Json[]) : [];
+    const diff = content.find((c) => c['type'] === 'diff');
+    const raw = (update['rawInput'] ?? {}) as Json;
+    const path = [location?.['path'], diff?.['path'], raw['file_path'], raw['path']].find((p): p is string => typeof p === 'string') ?? prev.path;
+    const line = typeof location?.['line'] === 'number' ? location['line'] : prev.line;
+    const editing = prev.editing || update['kind'] === 'edit' || !!diff;
+    this.tools.set(key, { path, line, editing });
+    if (!path) return;
+    const done = update['status'] === 'completed' || update['status'] === 'failed';
+    this.activity.update((a) => ({ ...a, [runId]: { toolCallId: id, path, line, editing, done, at } }));
+  }
+
+  private forget(runId: string): void {
+    for (const key of [...this.tools.keys()]) if (key.startsWith(`${runId}:`)) this.tools.delete(key);
+    if (this.activity()[runId]) {
+      this.activity.update((a) => {
+        const { [runId]: _, ...rest } = a;
+        return rest;
+      });
+    }
   }
 
   private upsert(id: string, agent: AgentId, change: (r: Run) => Run): void {
