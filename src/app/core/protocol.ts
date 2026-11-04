@@ -95,6 +95,8 @@ export interface StoredRun {
   thread: string | null;
   /** The repository of a code task, the folder of a read-only run. */
   project: string;
+  /** The subfolder the conversation is about, with `/`. null: all of the project. */
+  scope: string | null;
 }
 
 export interface PermissionOption {

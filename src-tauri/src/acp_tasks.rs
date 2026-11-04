@@ -250,7 +250,7 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>) -> Result<String, String> {
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>) -> Result<String, String> {
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -285,8 +285,16 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     let (id, wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse).await?;
     let pid = child.id();
     if let Some(thread) = &thread {
-        if let Err(e) = app.state::<Store>().set_run_thread(&id, thread) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
+        if let Err(e) = app.state::<Store>().set_run_thread(&id, thread, scope.as_deref()) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
     }
+    let start_dir = match env::scoped_dir(&wt.path, scope.as_deref()) {
+        Ok(dir) => dir,
+        Err(e) => {
+            terminate_adapter(&mut child, pid).await;
+            let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
+            return Err(e);
+        }
+    };
     let sink = Arc::new(AppSink(app.clone()));
     let rules = Arc::new(RepoRules { app: app.clone(), repo: repo.to_string_lossy().into_owned(), agent });
     let session = match TaskSession::new(&id, agent, &wt.path, sink.clone(), rules) {
@@ -348,7 +356,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         }
         let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
         session.set_cost_base(base);
-        let plan = SessionPlan { cwd: &wt.path, prompt: prompt.clone(), recap, servers: &servers, resume, next, idle_limit: IDLE_LIMIT };
+        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, next, idle_limit: IDLE_LIMIT };
         let next_stop = || {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut runs) = app.state::<Runs>().0.lock() { runs.insert(task_id.clone(), tx); }

@@ -109,6 +109,7 @@ pub async fn start_agent(
     cwd: String,
     thread: Option<String>,
     resume_from: Option<String>,
+    scope: Option<String>,
 ) -> Result<String, String> {
     let unsupported = || format!("{} chưa chạy được ở chế độ Chỉ đọc trong bản này.", agent.display_name());
     if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
@@ -134,7 +135,7 @@ pub async fn start_agent(
         }
     }
     let mut command = env::command(&bin);
-    command.args(&args).current_dir(&cwd).env("PATH", env::login_path())
+    command.args(&args).current_dir(env::scoped_dir(std::path::Path::new(&cwd), scope.as_deref())?).env("PATH", env::login_path())
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     env::isolate(&mut command);
@@ -165,7 +166,7 @@ pub async fn start_agent(
         started_at: now_ms(),
     }));
 
-    if let Some(thread) = &thread { log_store_error(app.state::<Store>().set_run_thread(&run_id, thread)); }
+    if let Some(thread) = &thread { log_store_error(app.state::<Store>().set_run_thread(&run_id, thread, scope.as_deref())); }
     let mut started = AgentEvent::new(&run_id, agent, "started");
     started.line = Some(format!("{} · {}", bin.display(), cwd));
     publish(&app, started);

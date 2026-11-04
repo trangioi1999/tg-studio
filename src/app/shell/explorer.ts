@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AGENT_META } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
+import { ThreadsService } from '../core/threads.service';
 import { WorkspaceService, tabKey } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 
@@ -43,10 +44,13 @@ interface Row {
         } @else {
           @for (row of rows(); track row.key) {
             @if (row.dir) {
-              <button class="tree-row" role="treeitem" [attr.aria-expanded]="!collapsed().has(row.path)" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">
-                <span class="twisty" aria-hidden="true">{{ collapsed().has(row.path) ? '▸' : '▾' }}</span>
-                <span class="ellipsis">{{ row.name }}</span>
-              </button>
+              <div class="tree-dir">
+                <button class="tree-row" role="treeitem" [attr.aria-expanded]="!collapsed().has(row.path)" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">
+                  <span class="twisty" aria-hidden="true">{{ collapsed().has(row.path) ? '▸' : '▾' }}</span>
+                  <span class="ellipsis">{{ row.name }}</span>
+                </button>
+                <button class="tl-add" [attr.aria-label]="'Trò chuyện mới trong thư mục ' + row.path" title="Trò chuyện mới trong thư mục này" (click)="threads.newChat(workspace.folder(), row.path)">+</button>
+              </div>
             } @else {
               <button class="tree-row" role="treeitem" [class.active]="row.key === activeKey()" [style.padding-left.px]="22 + row.depth * 12" (click)="workspace.openSource(row.path)">
                 <span class="ellipsis">{{ row.name }}</span>
@@ -97,6 +101,7 @@ interface Row {
 export class Explorer {
   protected readonly runs = inject(RunsService);
   protected readonly workspace = inject(WorkspaceService);
+  protected readonly threads = inject(ThreadsService);
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly collapsed = signal(new Set<string>());
