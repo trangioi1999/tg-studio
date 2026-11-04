@@ -108,6 +108,44 @@ export interface AgentMeta {
   install: string;
 }
 
+export interface NameValue {
+  name: string;
+  value: string;
+}
+
+/** A registry MCP server, handed to every session of the agents it is enabled for. Keep in sync with mcp.rs. */
+export interface McpServer {
+  /** Empty for a new server; the core assigns one. */
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http';
+  command: string | null;
+  args: string[];
+  env: NameValue[];
+  url: string | null;
+  headers: NameValue[];
+  agents: AgentId[];
+}
+
+/** A SKILL.md in the app's library. Keep in sync with skills.rs. */
+export interface Skill {
+  name: string;
+  description: string;
+  content: string;
+}
+
+export interface SkillTarget {
+  scope: 'project' | 'user';
+  path: string;
+  state: 'missing' | 'same' | 'different';
+}
+
+export interface SkillInstalled {
+  path: string;
+  /** Where the replaced, different file was copied, if there was one. */
+  backup: string | null;
+}
+
 /** One run in the usage ledger. Keep in sync with store.rs `UsageRow`. */
 export interface UsageRow {
   id: string;

@@ -2,7 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { RunsService } from './runs.service';
 import { WorkspaceService } from './workspace.service';
 
-export type Screen = 'ide' | 'mission' | 'usage';
+export type Screen = 'ide' | 'mission' | 'usage' | 'integrations';
 export type Sidebar = 'files' | 'agents';
 export type ConsoleView = 'log' | 'changes' | 'editor' | 'compare';
 

@@ -4,7 +4,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::{Child, Command}, sync::oneshot};
-use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
+use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -81,11 +81,15 @@ async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
 }
 
 // No AppHandle or real adapter required to exercise cancellation and failure status.
-async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, mut stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
+async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], mut stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     tokio::pin!(dead);
     let setup = async {
-        client.initialize().await?;
-        client.new_session(cwd, json!([])).await
+        let init = client.initialize().await?;
+        let (mcp, skipped) = mcp::for_acp(servers, session.agent(), &init);
+        if !skipped.is_empty() {
+            session.note(format!("Bỏ qua MCP server {} vì agent không báo hỗ trợ kết nối http.", skipped.join(", ")));
+        }
+        client.new_session(cwd, mcp).await
     };
     let session_id = tokio::select! {
         biased;
@@ -175,7 +179,8 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     });
     let task_id = id.clone();
     tauri::async_runtime::spawn(async move {
-        let (status, error) = drive(&client, &session, &wt.path, &prompt, rx, async { let _ = child.wait().await; }).await;
+        let servers = mcp::load(&app.state::<Store>());
+        let (status, error) = drive(&client, &session, &wt.path, &prompt, &servers, rx, async { let _ = child.wait().await; }).await;
         client.close();
         terminate_adapter(&mut child, pid).await;
         // Descendants may keep stderr open; do not leave an unbounded log task behind.
@@ -298,7 +303,7 @@ mod tests {
             let (reader, writer, _) = fake::spawn(steps);
             let client = AcpClient::start(reader, writer, session.clone());
             let (_tx, rx) = oneshot::channel();
-            let result = tokio::time::timeout(Duration::from_secs(2), drive(&client, &session, &std::env::temp_dir(), "p", rx, std::future::pending())).await.unwrap();
+            let result = tokio::time::timeout(Duration::from_secs(2), drive(&client, &session, &std::env::temp_dir(), "p", &[], rx, std::future::pending())).await.unwrap();
             assert_eq!(result.0, status);
             if status == "failed" {
                 let events = sink.0.lock().unwrap();
@@ -307,6 +312,27 @@ mod tests {
             }
         }
     }
+    #[tokio::test]
+    async fn session_new_carries_enabled_mcp_servers() {
+        use crate::acp::fake::{self, Step};
+        use crate::mcp::{McpServer, NameValue};
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new("r", AgentKind::Codex, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+        let (reader, writer, log) = fake::spawn(vec![Step::End("end_turn")]);
+        let client = AcpClient::start(reader, writer, session.clone());
+        let servers = [
+            McpServer { id: "1".into(), name: "docs".into(), transport: "stdio".into(), command: Some("docs-mcp".into()), args: vec![], env: vec![NameValue { name: "K".into(), value: "v".into() }], url: None, headers: vec![], agents: vec![AgentKind::Codex] },
+            McpServer { id: "2".into(), name: "web".into(), transport: "http".into(), command: None, args: vec![], env: vec![], url: Some("https://x".into()), headers: vec![], agents: vec![AgentKind::Codex] },
+        ];
+        let (_tx, rx) = oneshot::channel();
+        let result = drive(&client, &session, &std::env::temp_dir(), "p", &servers, rx, std::future::pending()).await;
+        assert_eq!(result.0, "done");
+        let sent = log.lock().unwrap().iter().find(|v| v["method"] == "session/new").cloned().unwrap();
+        assert_eq!(sent["params"]["mcpServers"], json!([{"name":"docs","command":"docs-mcp","args":[],"env":[{"name":"K","value":"v"}]}]));
+        // The fake agent does not offer http, so the user is told why "web" is missing.
+        assert!(sink.0.lock().unwrap().iter().any(|e| e.kind == "stderr" && e.line.as_deref().unwrap().contains("web")));
+    }
+
     #[tokio::test]
     async fn user_stop_sends_cancel_resolves_cards_and_reports_stopped() {
         use crate::acp::fake::{self, Step};
@@ -317,7 +343,7 @@ mod tests {
         let (tx, rx) = oneshot::channel();
         let request_stop = async { wait_permission(&sink).await; tx.send(()).unwrap(); };
         let cwd = std::env::temp_dir();
-        let (result, _) = tokio::join!(drive(&client, &session, &cwd, "p", rx, std::future::pending()), request_stop);
+        let (result, _) = tokio::join!(drive(&client, &session, &cwd, "p", &[], rx, std::future::pending()), request_stop);
         assert_eq!(result.0, "stopped");
         assert!(log.lock().unwrap().iter().any(|v| v["method"] == "session/cancel"));
         assert!(sink.0.lock().unwrap().iter().any(|e| e.kind == "permission_resolved" && e.data.as_ref().unwrap()["outcome"]["outcome"] == "cancelled"));
@@ -331,7 +357,7 @@ mod tests {
         let client = AcpClient::start(reader, writer, session.clone());
         let (_tx, rx) = oneshot::channel();
         let dead = async { wait_permission(&sink).await; };
-        let result = drive(&client, &session, &std::env::temp_dir(), "p", rx, dead).await;
+        let result = drive(&client, &session, &std::env::temp_dir(), "p", &[], rx, dead).await;
         assert_eq!(result.0, "failed");
         assert!(sink.0.lock().unwrap().iter().any(|e| e.kind == "permission_resolved"));
     }
@@ -350,7 +376,7 @@ mod tests {
         };
         let cwd = std::env::temp_dir();
         let (result, requested_at) = tokio::time::timeout(Duration::from_secs(8), async {
-            tokio::join!(drive(&client, &session, &cwd, "p", rx, std::future::pending()), request_stop)
+            tokio::join!(drive(&client, &session, &cwd, "p", &[], rx, std::future::pending()), request_stop)
         }).await.unwrap();
         assert_eq!(result.0, "stopped");
         assert!(requested_at.elapsed() >= Duration::from_secs(5));
@@ -434,6 +460,10 @@ mod tests {
 
     /// Spawns the real Claude adapter for one task and plays the user: every card is allowed once.
     async fn run_live(store: &Store, repo: &Path, prompt: &str, group: Option<&str>) -> LiveRun {
+        run_live_with(store, repo, prompt, group, &[]).await
+    }
+
+    async fn run_live_with(store: &Store, repo: &Path, prompt: &str, group: Option<&str>, servers: &[McpServer]) -> LiveRun {
         let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
         let (wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group, None).await.unwrap();
         let pid = child.id();
@@ -475,7 +505,7 @@ mod tests {
             })
         };
         let (_tx, rx) = oneshot::channel();
-        let (status, error) = tokio::time::timeout(Duration::from_secs(300), drive(&client, &session, &wt.path, prompt, rx, async { std::future::pending::<()>().await })).await.expect("quá 5 phút");
+        let (status, error) = tokio::time::timeout(Duration::from_secs(300), drive(&client, &session, &wt.path, prompt, servers, rx, async { std::future::pending::<()>().await })).await.expect("quá 5 phút");
         client.close();
         terminate_adapter(&mut child, pid).await;
         sink.emit(AgentEvent::new(&wt.run_id, AgentKind::Claude, "exit"));
@@ -583,6 +613,26 @@ mod tests {
         worktree::remove(&root, &shared, true).unwrap();
         store.clear_run_worktree(&later.id).unwrap();
         assert!(store.run_worktree(&wt.run_id).is_err());
+    }
+
+    /// Phase 3: an MCP server from the registry reaches a real Claude ACP session.
+    /// Uses `tests/fixtures/mcp/ping-server.js` (needs `node`).
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_acp_uses_registry_mcp_server() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp/ping-server.js").to_string_lossy().into_owned();
+        let repo = Repo::new();
+        let store = Store::open_in_memory().unwrap();
+        let servers = [McpServer { id: "1".into(), name: "tg-ping".into(), transport: "stdio".into(), command: Some("node".into()), args: vec![script],
+            env: vec![], url: None, headers: vec![], agents: vec![AgentKind::Claude] }];
+        let run = run_live_with(&store, &repo.0, "Call the ping tool from the tg-ping MCP server and reply with exactly what it returned. Do not edit files.", None, &servers).await;
+        let message = message_of(&run.events);
+        assert_eq!(run.status, "done", "{:?}", run.error);
+        assert!(message.contains("pong from tg-ping"), "{message}");
+        let new = run.traffic.iter().find(|m| m["msg"]["method"] == "session/new").unwrap();
+        assert_eq!(new["msg"]["params"]["mcpServers"][0]["name"], "tg-ping");
+        worktree::remove(&repo.0, &run.wt, true).unwrap();
     }
 
     #[tokio::test]

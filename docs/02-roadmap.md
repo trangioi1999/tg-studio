@@ -54,9 +54,9 @@ Chi tiết: `04-usage-and-cost.md`, `05-mcp-skills-plugins.md`.
 - [x] Usage Ledger SQLite + màn Usage (KPI, biểu đồ theo ngày theo agent, bảng lượt chạy, xuất CSV vào Downloads)
 - [x] Bảng giá chỉnh trong app (có lịch sử: đổi giá không đổi số cũ); ngân sách theo task/ngày; cảnh báo 80 %; tự dừng khi đã có số chi phí. Chưa có ngân sách tuần
 - [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn) — **đã có cho Claude**: cửa sổ 5 giờ / 7 ngày từ `rate_limit_event` của lượt Chỉ đọc, lưu lại qua các lần mở app. Còn thiếu: lượt Sửa code (adapter ACP bỏ event này nếu nó đến trước phản hồi đầu tiên), Codex/Gemini/Kiro chưa có nguồn
-- [ ] Registry MCP: thêm server, ma trận bật/tắt, sinh config từng agent
-- [ ] Skills: thư viện SKILL.md, đồng bộ sang agent hỗ trợ
-- [ ] MCP `tg-bridge`: báo tiến độ, chuyển việc, ghi chú chung, xin duyệt
+- [x] Registry MCP: thêm server, ma trận bật/tắt theo agent; server được đưa vào mỗi phiên ACP (`session/new`) và Claude headless (`--mcp-config`), không sửa file cấu hình của agent — kiểm chứng với Claude thật (`live_claude_acp_uses_registry_mcp_server`)
+- [x] Skills: thư viện SKILL.md, cài vào Claude Code mức repo hoặc mức máy (sao lưu bản khác trước khi ghi). Codex/Gemini/Kiro: chưa có vị trí chuẩn đã kiểm chứng
+- [ ] MCP `tg-bridge`: báo tiến độ, chuyển việc, ghi chú chung, xin duyệt — chưa làm (cần một kênh IPC từ app tới server MCP)
 
 **XK:** biết chính xác mỗi agent tốn bao nhiêu; bật 1 MCP server một lần cho mọi agent.
 

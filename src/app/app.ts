@@ -6,6 +6,7 @@ import { Screen, Sidebar, UiService } from './core/ui.service';
 import { AgentPanel } from './shell/agent-panel';
 import { AgentsPanel } from './shell/agents-panel';
 import { Explorer } from './shell/explorer';
+import { Integrations } from './shell/integrations';
 import { MissionControl } from './shell/mission-control';
 import { StatusBar } from './shell/status-bar';
 import { TitleBar } from './shell/title-bar';
@@ -14,7 +15,7 @@ import { Workbench } from './shell/workbench';
 
 @Component({
   selector: 'app-root',
-  imports: [TitleBar, AgentsPanel, Explorer, Workbench, AgentPanel, MissionControl, UsageScreen, StatusBar],
+  imports: [TitleBar, AgentsPanel, Explorer, Workbench, AgentPanel, MissionControl, UsageScreen, Integrations, StatusBar],
   templateUrl: './app.html',
 })
 export class App {
