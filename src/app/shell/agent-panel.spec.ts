@@ -58,7 +58,7 @@ describe('AgentPanel composer', () => {
     const first = panel.send();
     expect(panel.canRun()).toBe(false);
     await panel.send();
-    expect(backend.starts).toBe(1);
+    await vi.waitFor(() => expect(backend.starts).toBe(1));
     finish('run');
     await first;
     expect(panel.prompt()).toBe('');
