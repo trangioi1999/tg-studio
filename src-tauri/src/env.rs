@@ -37,6 +37,33 @@ fn read_login_path() -> String {
     std::env::var("PATH").unwrap_or_default()
 }
 
+/// Hides the console Windows would otherwise open for each child of this GUI app.
+/// The child's output goes through pipes, so that window stays empty and looks hung,
+/// and closing it kills the agent. Descendants inherit the hidden console.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Every asynchronous child process starts here, never from `Command::new`.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut cmd = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// Like `command`, for code that blocks its thread.
+pub fn std_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Finds an executable on the login PATH (handles .cmd/.exe shims on Windows).
 pub fn which(bin: &str) -> Option<PathBuf> {
     let path = login_path();
@@ -57,4 +84,40 @@ pub fn which(bin: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, path::Path};
+
+    fn collect(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                collect(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// A GUI app has no console, so on Windows any child started without
+    /// CREATE_NO_WINDOW opens an empty console; closing it kills the agent.
+    #[test]
+    fn child_processes_start_through_the_helpers() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        collect(&src, &mut files);
+        assert!(files.len() > 10, "source files not found");
+        let needle = ["Command", "::new("].concat();
+        let offenders: Vec<_> = files.iter()
+            .filter(|path| path.file_name().unwrap() != "env.rs")
+            .filter(|path| {
+                let text = fs::read_to_string(path).unwrap();
+                let production = text.split("#[cfg(test)]").next().unwrap();
+                production.contains(&needle)
+            })
+            .collect();
+        assert!(offenders.is_empty(), "dùng env::command thay cho Command::new: {offenders:?}");
+    }
 }

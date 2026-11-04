@@ -15,6 +15,7 @@ mod ledger;
 mod mcp;
 mod skills;
 mod policy;
+mod project;
 mod runner;
 mod store;
 mod usage;
@@ -56,6 +57,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
         .manage(compose::Composites::default())
@@ -67,7 +69,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             detect::detect_agents,
-            detect::home_dir,
             runner::start_agent,
             runner::stop_agent,
             store::list_runs,
@@ -88,7 +89,7 @@ pub fn run() {
             skills::delete_skill,
             skills::skill_targets,
             skills::install_skill,
-            worktree::repo_info,
+            project::open_project,
             acp_tasks::start_task,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,
@@ -96,6 +97,7 @@ pub fn run() {
             acp_tasks::accept_all,
             acp_tasks::reject_hunk,
             acp_tasks::commit_accepted,
+            acp_tasks::staged_files,
             acp_tasks::list_worktree_files,
             acp_tasks::read_worktree_file,
             acp_tasks::write_worktree_file,

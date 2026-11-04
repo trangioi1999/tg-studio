@@ -143,6 +143,8 @@ tg-diff-viewer, tg-code-editor, tg-compare { flex: 1; min-height: 0; display: fl
 .diff-line[data-kind='del'] { background: rgba(248, 81, 73, 0.09); box-shadow: inset 2px 0 0 #f85149; }
 .diff-line[data-kind='meta'] { color: var(--muted); }
 .commit-box { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #2a2a30; border-radius: 8px; background: var(--raised); }
+.commit-box p { margin: 0; }
+.commit-files { margin: 0; padding-left: 16px; max-height: 96px; overflow: auto; color: var(--text-2); font-size: 12px; }
 .commit-box textarea { padding: 6px 8px; border: 1px solid #2a2a30; border-radius: 6px; background: var(--bg); resize: vertical; }
 .ok-text { margin: 0; color: var(--ok); font-size: 12px; }
 

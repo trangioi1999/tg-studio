@@ -293,13 +293,15 @@ export class AgentPanel {
   protected readonly blocked = computed(() => {
     if (this.budget.blockReason()) return this.budget.blockReason();
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
-    if (!this.workspace.folder().trim()) return 'Chọn thư mục làm việc ở thanh trên cùng.';
-    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: đổi thư mục ở thanh trên cùng, hoặc dùng Chỉ đọc.';
+    if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
+    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: mở thư mục khác, hoặc dùng Chỉ đọc.';
+    if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: hãy commit trong dự án, hoặc dùng Chỉ đọc.';
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
   });
-  protected readonly canRun = computed(() => !this.blocked() && !!this.text());
+  protected readonly sending = signal(false);
+  protected readonly canRun = computed(() => !this.blocked() && !!this.text() && !this.sending());
 
   // Pipeline steps, remembered for the next task.
   protected readonly editSteps = signal(false);
@@ -368,7 +370,7 @@ export class AgentPanel {
   }
 
   protected duration(r: Run): string {
-    return fmtDuration((r.endedAt ?? Date.now()) - r.startedAt);
+    return fmtDuration(Math.max(0, (r.endedAt ?? this.runs.now()) - r.startedAt));
   }
 
   protected toggle(id: AgentId): void {
@@ -380,11 +382,17 @@ export class AgentPanel {
     if (!this.canRun()) return;
     const agent = this.agent();
     const text = this.text();
-    const cwd = this.mode() === 'read' ? this.workspace.folder().trim() : (this.workspace.repo()?.root ?? this.workspace.folder().trim());
+    const cwd = this.workspace.folder();
     this.error.set(null);
+    this.sending.set(true);
     try {
       if (this.mode() === 'pipeline') {
-        await this.pipelines.start(text, cwd, this.steps());
+        const started = await this.pipelines.start(text, cwd, this.steps());
+        // No run exists yet to show this in the thread, and the prompt must not be lost.
+        if (started.status === 'failed') {
+          this.error.set(started.error);
+          return;
+        }
       } else if (this.mode() === 'parallel') {
         const failed = await this.runs.startParallel(this.picked(), text, cwd);
         if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
@@ -396,6 +404,8 @@ export class AgentPanel {
       this.tab.set('thread');
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.sending.set(false);
     }
   }
 }

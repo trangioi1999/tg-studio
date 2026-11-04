@@ -27,10 +27,14 @@ import { AgentAvatar } from './agent-avatar';
       @if (error()) { <p class="error-text" role="alert">{{ error() }}</p> }
       @if (committed()) { <p class="ok-text" role="status">Đã commit {{ committed() }}</p> }
 
-      @if (accepted() > 0) {
+      @if (staged().length) {
         <section class="commit-box" aria-label="Commit các thay đổi đã chấp nhận">
+          <p class="dim">Commit sẽ gồm mọi tệp đang staged trong dự án, kể cả tệp bạn tự stage:</p>
+          <ul class="commit-files mono">
+            @for (path of staged(); track path) { <li>{{ path }}</li> }
+          </ul>
           <label class="field">
-            <span>Nội dung commit ({{ accepted() }} thay đổi đã chấp nhận)</span>
+            <span>Nội dung commit</span>
             <textarea rows="2" [value]="message()" (input)="edited.set($any($event.target).value)"></textarea>
           </label>
           <div><button class="btn primary sm" [disabled]="busy() || !message().trim()" (click)="commit()">Commit</button></div>
@@ -80,7 +84,8 @@ export class DiffViewer {
   protected readonly loaded = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly committed = signal<string | null>(null);
-  protected readonly accepted = signal(0);
+  /** From the repository, so changes accepted in the editor or before a tab switch count too. */
+  protected readonly staged = signal<string[]>([]);
   protected readonly edited = signal<string | null>(null);
   protected readonly confirmingDiscard = signal(false);
   protected readonly message = computed(() => this.edited() ?? this.suggestion());
@@ -99,7 +104,6 @@ export class DiffViewer {
       this.runId();
       this.running();
       untracked(() => {
-        this.accepted.set(0);
         this.edited.set(null);
         this.committed.set(null);
         void this.load();
@@ -113,7 +117,9 @@ export class DiffViewer {
 
   protected async load(): Promise<void> {
     await this.guard(async () => {
-      this.files.set(await this.runs.getDiff(this.runId()));
+      const [files, staged] = await Promise.all([this.runs.getDiff(this.runId()), this.runs.stagedFiles(this.runId())]);
+      this.files.set(files);
+      this.staged.set(staged);
       this.loaded.set(true);
     });
   }
@@ -124,12 +130,13 @@ export class DiffViewer {
     await this.guard(async () => {
       if (action === 'accept') {
         await this.runs.acceptHunk(id, file.path, hunk.id);
-        this.accepted.update((n) => n + 1);
       } else {
         await this.runs.rejectHunk(id, file.path, hunk.id);
       }
       this.committed.set(null);
-      this.files.set(await this.runs.getDiff(id));
+      const [files, staged] = await Promise.all([this.runs.getDiff(id), this.runs.stagedFiles(id)]);
+      this.files.set(files);
+      this.staged.set(staged);
       void this.workspace.refresh(id);
     });
   }
@@ -138,7 +145,7 @@ export class DiffViewer {
     await this.guard(async () => {
       const hash = await this.runs.commitAccepted(this.runId(), this.message().trim());
       this.committed.set(hash.slice(0, 7));
-      this.accepted.set(0);
+      this.staged.set(await this.runs.stagedFiles(this.runId()));
       this.edited.set(null);
     });
   }

@@ -2,7 +2,7 @@
 
 ```
 Angular UI (signals)
-   │  invoke('start_agent' | 'stop_agent' | 'detect_agents' | 'home_dir' | 'list_runs')
+   │  invoke('start_agent' | 'stop_agent' | 'detect_agents' | 'open_project' | 'list_runs')
    │  listen('agent-event')
    ▼
 Rust core (Tauri 2)
@@ -63,7 +63,7 @@ Adapter Claude (`claude-agent-acp`) tự sửa file và chạy lệnh bằng too
 
 Usage của task: `usage_update` chỉ có chi phí (và độ đầy context), token nằm trong `usage` của kết quả `session/prompt`. `TaskSession::turn_finished` ghép hai nguồn thành một event `usage` cumulative.
 
-Layout IDE (theo mockup trong `06-design-system.md`): Explorer cây thư mục của worktree đang chọn (chấm màu agent + M/A, nhãn "đang sửa"), các tab ở giữa (tệp, Thay đổi, So sánh), log từng agent ở dưới, panel agent bên phải (usage của task, transcript, thẻ duyệt, plan, danh sách run, ô giao việc có `@mention`). Thanh tiêu đề cho đổi thư mục làm việc (`repo_info` trả về tên repo và nhánh).
+Layout IDE (theo mockup trong `06-design-system.md`): Explorer cây thư mục của worktree đang chọn (chấm màu agent + M/A, nhãn "đang sửa"), các tab ở giữa (tệp, Thay đổi, So sánh), log từng agent ở dưới, panel agent bên phải (usage của task, transcript, thẻ duyệt, plan, danh sách run, ô giao việc có `@mention`). Thanh tiêu đề cho đổi thư mục làm việc (`open_project` kiểm tra đường dẫn, trả về thư mục gốc, nhánh và trạng thái Git).
 
 Editor: `workspace.rs` liệt kê, đọc và ghi file trong worktree (đường dẫn tương đối, không đụng `.git`, từ chối symlink ra ngoài). Ghi bị từ chối khi agent đang chạy. Vạch màu tính ở UI từ hunk của `get_diff` (`line-marks.ts`). Monaco bundle cục bộ, tải lazy, chỉ có worker cơ bản và tô màu Monarch. Khi agent đang chạy, editor đi theo `RunsService.activity` (tệp agent vừa đọc/sửa, từ event `tool`) và nạp lại tệp ngay khi tool sửa file hoàn tất.
 

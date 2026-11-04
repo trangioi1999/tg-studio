@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
-import { FileDiff, RepoInfo } from './protocol';
+import { FileDiff, Project, RepoInfo } from './protocol';
 import { RunsService } from './runs.service';
 
 /** What the center area shows. Files and reviews belong to a run's worktree. */
@@ -21,10 +21,13 @@ export class WorkspaceService {
   private readonly backend = inject(AgentBackend);
   private readonly runs = inject(RunsService);
 
-  /** Folder chosen by the user; tasks run in the Git repo that contains it. */
+  /** The open folder, resolved by the core. Empty until the user picks one. */
   readonly folder = signal('');
+  readonly project = signal<Project | null>(null);
+  /** Null outside a Git repository. */
   readonly repo = signal<RepoInfo | null>(null);
-  readonly repoError = signal<string | null>(null);
+  /** Why the last open failed. The previous project stays open. */
+  readonly folderError = signal<string | null>(null);
   readonly tabs = signal<Tab[]>([]);
   readonly activeKey = signal<string | null>(null);
   readonly active = computed(() => this.tabs().find((t) => tabKey(t) === this.activeKey()) ?? null);
@@ -35,38 +38,58 @@ export class WorkspaceService {
   readonly diffs = signal<Record<string, FileDiff[]>>({});
   private loads: Record<string, number> = {};
 
+  /** Settles once the saved folder has been restored or dropped. */
+  readonly ready: Promise<void>;
+  private openTicket = 0;
+
   constructor() {
-    void this.init();
+    this.ready = this.init();
   }
 
   private async init(): Promise<void> {
-    let saved: string | null = null;
+    const saved = readSaved();
+    if (!saved) return;
+    const ticket = ++this.openTicket;
     try {
-      saved = localStorage.getItem(REPO_KEY);
+      const project = await this.backend.openProject(saved);
+      if (ticket === this.openTicket) this.apply(project);
     } catch {
-      /* storage can be unavailable; fall back to the home folder */
+      // It moved or was deleted: nothing the user just did, so no error to show.
+      if (ticket === this.openTicket) writeSaved(null);
     }
-    await this.setFolder(saved ?? (await this.backend.homeDir()) ?? '');
   }
 
-  async setFolder(path: string): Promise<void> {
-    this.folder.set(path);
+  /** Opens a typed or picked path. On failure the current project stays as it was. */
+  async setFolder(path: string): Promise<boolean> {
+    const ticket = ++this.openTicket;
     try {
-      localStorage.setItem(REPO_KEY, path);
-    } catch {
-      /* not essential */
+      const project = await this.backend.openProject(path);
+      if (ticket !== this.openTicket) return false;
+      this.apply(project);
+      return true;
+    } catch (e) {
+      if (ticket === this.openTicket) this.folderError.set(e instanceof Error ? e.message : String(e));
+      return false;
     }
-    if (!path.trim()) {
-      this.repo.set(null);
+  }
+
+  async pickFolder(): Promise<void> {
+    let picked: string | null;
+    try {
+      picked = await this.backend.pickFolder();
+    } catch (e) {
+      this.folderError.set(e instanceof Error ? e.message : String(e));
       return;
     }
-    try {
-      this.repo.set(await this.backend.repoInfo(path));
-      this.repoError.set(null);
-    } catch (e) {
-      this.repo.set(null);
-      this.repoError.set(e instanceof Error ? e.message : String(e));
-    }
+    if (picked) await this.setFolder(picked);
+  }
+
+  private apply(project: Project): void {
+    this.project.set(project);
+    this.folder.set(project.root);
+    this.repo.set(project.git === 'none' ? null : { root: project.root, name: project.name, branch: project.branch });
+    this.folderError.set(null);
+    writeSaved(project.root);
   }
 
   open(tab: Tab): void {
@@ -121,5 +144,22 @@ export class WorkspaceService {
   /** Drops tabs of a run whose worktree is gone. */
   closeRun(runId: string): void {
     for (const t of this.tabs()) if (t.kind !== 'compare' && t.runId === runId) this.close(tabKey(t));
+  }
+}
+
+function readSaved(): string | null {
+  try {
+    return localStorage.getItem(REPO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSaved(path: string | null): void {
+  try {
+    if (path === null) localStorage.removeItem(REPO_KEY);
+    else localStorage.setItem(REPO_KEY, path);
+  } catch {
+    /* not essential */
   }
 }

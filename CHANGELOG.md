@@ -4,6 +4,14 @@
 
 ## [Chưa phát hành]
 
+### Tự dùng app (M-D)
+- Chọn thư mục bằng hộp thoại của hệ điều hành; đường dẫn được chuẩn hoá và kiểm tra trước khi lưu, hiện đúng lỗi.
+- Windows: không còn bật cửa sổ cmd cho mỗi tiến trình con.
+- Codex dùng gói ACP mới `@agentclientprotocol/codex-acp`, đã chạy thật cùng Claude.
+- Pipeline: mỗi bước có lịch sử và chi phí riêng. Lượt dừng vì `max_tokens`, `refusal` được báo là lỗi.
+- Review: thay đổi agent đã `git add` hay commit không còn biến mất; ô Commit luôn hiện và liệt kê mọi tệp staged.
+- Chống gửi trùng khi bấm hai lần; đồng hồ chạy đúng; lỗi khởi động Pipeline không còn bị nuốt.
+
 ### tg-bridge
 - MCP server `tg-bridge` cho mọi task Sửa code: báo tiến độ, ghi chú chung giữa các agent, đề xuất chuyển việc (người dùng quyết định), xin duyệt, ngữ cảnh task. Bật/tắt ở Integrations.
 
