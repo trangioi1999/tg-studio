@@ -44,7 +44,6 @@ pub async fn detect_agents() -> Vec<DetectedAgent> {
     found
 }
 
-#[tauri::command]
 pub fn home_dir() -> Option<String> {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
