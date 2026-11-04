@@ -55,8 +55,19 @@ impl Error for TransportError {
     }
 }
 
+/// Wakes whoever waits once the dispatcher has handled every earlier message.
+#[derive(Debug, Clone)]
+pub struct Barrier(Arc<tokio::sync::Notify>);
+impl Barrier {
+    pub fn release(&self) { self.0.notify_one(); }
+}
+impl PartialEq for Barrier {
+    fn eq(&self, other: &Self) -> bool { Arc::ptr_eq(&self.0, &other.0) }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Incoming {
+    Barrier(Barrier),
     Request { id: Value, method: String, params: Value },
     Notification { method: String, params: Value },
 }
@@ -129,6 +140,20 @@ impl State {
 #[derive(Clone)]
 pub struct Transport {
     shared: Arc<Mutex<State>>,
+}
+
+impl Transport {
+    /// Waits until messages read so far have been dispatched. A response and the
+    /// notifications before it travel separately, so a caller that acts on the
+    /// response would otherwise overtake them.
+    pub async fn drained(&self) {
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let sent = match self.shared.lock() {
+            Ok(state) => state.incoming.as_ref().is_some_and(|tx| tx.send(Incoming::Barrier(Barrier(notify.clone()))).is_ok()),
+            Err(_) => false,
+        };
+        if sent { notify.notified().await; }
+    }
 }
 
 // Also removes a pending entry when the caller cancels the request future.

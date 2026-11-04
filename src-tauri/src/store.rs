@@ -122,7 +122,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=6 => {},
+            1..=7 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -166,6 +166,10 @@ impl Store {
                 );
                 CREATE INDEX bridge_notes_scope ON bridge_notes(scope, id);
                 PRAGMA user_version = 6;")?;
+        }
+        if version < 7 {
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN acp_session TEXT;
+                PRAGMA user_version = 7;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -422,7 +426,29 @@ impl Store {
     }
 
     pub fn mark_interrupted(&self) -> Result<usize> {
-        self.connection()?.execute("UPDATE runs SET status = 'interrupted' WHERE status = 'running'", [])
+        let conn = self.connection()?;
+        // A session waiting for the next message had finished its work.
+        conn.execute("UPDATE runs SET status = 'done', exit_code = 0,
+            ended_at = COALESCE((SELECT MAX(at) FROM run_lines WHERE run_id = runs.id), started_at) WHERE status = 'idle'", [])?;
+        conn.execute("UPDATE runs SET status = 'interrupted' WHERE status = 'running'", [])
+    }
+
+    /// 'running' or 'idle' while the agent's session stays open.
+    pub fn set_run_status(&self, run_id: &str, status: &str) -> Result<()> {
+        self.connection()?.execute("UPDATE runs SET status = ?2 WHERE id = ?1", params![run_id, status])?;
+        Ok(())
+    }
+
+    pub fn set_acp_session(&self, run_id: &str, session: &str) -> Result<()> {
+        self.connection()?.execute("UPDATE runs SET acp_session = ?2 WHERE id = ?1", params![run_id, session])?;
+        Ok(())
+    }
+
+    /// The agent and ACP session of a run, and the cost it last reported.
+    pub fn session_of(&self, run_id: &str) -> Result<(String, Option<String>, Option<f64>)> {
+        self.connection()?.query_row(
+            "SELECT agent, acp_session, (SELECT cost_usd FROM usage_events WHERE run_id = runs.id AND cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1)
+             FROM runs WHERE id = ?1", [run_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
     }
 
     pub fn list_runs(&self, limit: usize) -> Result<Vec<StoredRun>> {
@@ -708,7 +734,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 6);
+            assert_eq!(version, 7);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();
@@ -736,6 +762,32 @@ mod tests {
         let run = store.list_runs(1).unwrap().remove(0);
         assert!(run.lines.is_empty());
         assert_eq!(run.usage, None);
+    }
+
+    #[test]
+    fn a_session_left_idle_counts_as_finished_on_the_next_start() {
+        let store = Store::open_in_memory().unwrap();
+        store.insert_run(&NewRun { id: "a", agent: AgentKind::Claude, prompt: "p", cwd: "/", started_at: 5 }).unwrap();
+        store.append_line("a", "user", "câu hai", 9).unwrap();
+        store.set_run_status("a", "idle").unwrap();
+        store.insert_run(&NewRun { id: "b", agent: AgentKind::Claude, prompt: "p", cwd: "/", started_at: 6 }).unwrap();
+        store.mark_interrupted().unwrap();
+        let runs = store.list_runs(10).unwrap();
+        let a = runs.iter().find(|r| r.id == "a").unwrap();
+        assert_eq!((a.status.as_str(), a.ended_at), ("done", Some(9)));
+        assert_eq!(runs.iter().find(|r| r.id == "b").unwrap().status, "interrupted");
+    }
+
+    #[test]
+    fn session_of_returns_the_session_and_last_cost() {
+        let store = Store::open_in_memory().unwrap();
+        store.insert_run(&NewRun { id: "a", agent: AgentKind::Claude, prompt: "p", cwd: "/", started_at: 5 }).unwrap();
+        assert_eq!(store.session_of("a").unwrap(), ("claude".to_string(), None, None));
+        store.set_acp_session("a", "s1").unwrap();
+        let mut spent = usage(1, 1, 1);
+        spent.cost_usd = Some(0.2);
+        store.add_usage("a", 6, &spent).unwrap();
+        assert_eq!(store.session_of("a").unwrap(), ("claude".to_string(), Some("s1".to_string()), Some(0.2)));
     }
 
     #[test]
