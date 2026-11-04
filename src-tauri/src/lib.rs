@@ -15,6 +15,7 @@ mod ledger;
 mod mcp;
 mod skills;
 mod policy;
+mod project;
 mod runner;
 mod store;
 mod usage;
@@ -90,6 +91,7 @@ pub fn run() {
             skills::skill_targets,
             skills::install_skill,
             worktree::repo_info,
+            project::open_project,
             acp_tasks::start_task,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,
