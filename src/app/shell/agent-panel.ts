@@ -6,7 +6,7 @@ import { KEYS } from '../core/keys';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
 import { estimateCost } from '../core/pricing';
 import { AGENT_IDS, AGENT_META, AgentId, BridgeNote } from '../core/protocol';
-import { Run, RunsService, recapOf } from '../core/runs.service';
+import { Run, RunsService, isQuiet, recapOf } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
@@ -98,6 +98,12 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
                 }
               }
             </div>
+            @if (quiet()) {
+              <div class="ap-quiet" role="status">
+                <span>Agent chưa phản hồi 30 giây. Có thể vẫn đang xử lý.</span>
+                <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button>
+              </div>
+            }
             @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
             @for (h of taskHandoffs(); track h.id) {
               <section class="handoff" [style.--agent]="meta[h.agent].color" aria-label="Đề xuất chuyển việc">
@@ -311,6 +317,10 @@ export class AgentPanel {
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
+  });
+  protected readonly quiet = computed(() => {
+    const r = this.run();
+    return !!r && isQuiet(r, this.runs.lastEvent()[r.id], this.runs.now());
   });
   protected readonly placeholder = computed(() => {
     const r = this.run();

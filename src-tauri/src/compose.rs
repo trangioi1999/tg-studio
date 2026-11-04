@@ -1,7 +1,7 @@
 //! Composite worktrees: hunks picked from several runs of one parallel group, applied
 //! on top of their shared base, so the mix can be tested before it reaches the repo.
 
-use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::Mutex, time::{Duration, Instant}};
+use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Arc, Mutex}, time::{Duration, Instant}};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -71,29 +71,59 @@ pub async fn run_check(cwd: &Path, command: &str) -> Result<CheckResult, String>
     let mut cmd = { let mut c = env::command("sh"); c.args(["-c", command]); c };
     cmd.current_dir(cwd).env("PATH", env::login_path()).stdin(Stdio::null())
         .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    env::isolate(&mut cmd);
     let started = Instant::now();
-    let child = cmd.spawn().map_err(|e| format!("Không chạy được lệnh: {e}"))?;
-    let (code, mut text) = match tokio::time::timeout(CHECK_TIMEOUT, child.wait_with_output()).await {
-        Ok(Ok(out)) => {
-            let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-            let err = String::from_utf8_lossy(&out.stderr);
-            if !err.is_empty() {
-                if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
-                text.push_str(&err);
-            }
-            (out.status.code(), text)
-        }
+    let mut child = cmd.spawn().map_err(|e| format!("Không chạy được lệnh: {e}"))?;
+    let pid = child.id();
+    let tail = Arc::new(Mutex::new(Tail::default()));
+    let readers = [
+        tokio::spawn(read_tail(child.stdout.take().expect("piped stdout"), tail.clone())),
+        tokio::spawn(read_tail(child.stderr.take().expect("piped stderr"), tail.clone())),
+    ];
+    let code = match tokio::time::timeout(CHECK_TIMEOUT, child.wait()).await {
+        Ok(Ok(status)) => status.code(),
         Ok(Err(e)) => return Err(format!("Lệnh lỗi khi chạy: {e}")),
-        Err(_) => (None, format!("Đã dừng lệnh sau {} phút.", CHECK_TIMEOUT.as_secs() / 60)),
+        Err(_) => {
+            if let Some(pid) = pid { env::kill_tree(pid).await; }
+            let _ = child.kill().await;
+            None
+        }
     };
-    let truncated = text.len() > OUTPUT_LIMIT;
-    if truncated {
-        // Keep the end, where test summaries are, on a character boundary.
-        let mut cut = text.len() - OUTPUT_LIMIT;
-        while !text.is_char_boundary(cut) { cut += 1; }
-        text = text[cut..].to_string();
+    // A background process can keep the pipes open after the command itself has ended.
+    for reader in readers {
+        let abort = reader.abort_handle();
+        if tokio::time::timeout(Duration::from_secs(2), reader).await.is_err() { abort.abort(); }
+    }
+    let (bytes, truncated) = {
+        let tail = tail.lock().map_err(|_| "Không đọc được kết quả lệnh.")?;
+        (tail.bytes.clone(), tail.dropped)
+    };
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if code.is_none() && started.elapsed() >= CHECK_TIMEOUT {
+        if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
+        text.push_str(&format!("Đã dừng lệnh sau {} phút.", CHECK_TIMEOUT.as_secs() / 60));
     }
     Ok(CheckResult { code, output: text, truncated, duration_ms: started.elapsed().as_millis() as u64 })
+}
+
+/// The end of a command's output, where test summaries are. A noisy command must not
+/// fill memory during the minutes it runs.
+#[derive(Default)]
+struct Tail { bytes: Vec<u8>, dropped: bool }
+
+async fn read_tail(mut pipe: impl tokio::io::AsyncRead + Unpin, tail: Arc<Mutex<Tail>>) {
+    use tokio::io::AsyncReadExt;
+    let mut buffer = [0; 8192];
+    while let Ok(n) = pipe.read(&mut buffer).await {
+        if n == 0 { break; }
+        let Ok(mut tail) = tail.lock() else { break };
+        tail.bytes.extend_from_slice(&buffer[..n]);
+        if tail.bytes.len() > OUTPUT_LIMIT {
+            let extra = tail.bytes.len() - OUTPUT_LIMIT;
+            tail.bytes.drain(..extra);
+            tail.dropped = true;
+        }
+    }
 }
 
 fn get(state: &Composites, id: &str) -> Result<(PathBuf, Worktree), String> {
@@ -147,6 +177,25 @@ pub fn discard_composite(state: State<'_, Composites>, id: String) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn check_keeps_only_the_tail_of_huge_output() {
+        let result = run_check(&std::env::temp_dir(), "yes x | head -c 3000000; echo KET-THUC").await.unwrap();
+        assert!(result.truncated);
+        assert!(result.output.len() <= OUTPUT_LIMIT);
+        assert!(result.output.contains("KET-THUC"));
+        assert_eq!(result.code, Some(0));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn check_returns_though_a_background_process_holds_the_pipes() {
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(10), run_check(&std::env::temp_dir(), "sleep 30 & echo xong")).await.unwrap().unwrap();
+        assert!(result.output.contains("xong"));
+        assert!(started.elapsed() < Duration::from_secs(8));
+    }
+
     use super::*;
     use crate::worktree::tests::Repo;
     use std::fs;

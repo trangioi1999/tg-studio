@@ -97,10 +97,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
     process.args(&command.1).current_dir(&wt.path)
         .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
         .stderr(Stdio::piped()).kill_on_drop(true);
-    #[cfg(unix)] {
-        use std::os::unix::process::CommandExt;
-        process.as_std_mut().process_group(0);
-    }
+    env::isolate(&mut process);
     let spawned = process.spawn();
     let mut child = match spawned {
         Ok(child) => child,
@@ -121,20 +118,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
 
 // npx is a wrapper: its adapter descendants must stop along with the run.
 async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
-    if let Some(pid) = pid {
-        #[cfg(unix)] {
-            let mut kill = env::command("kill");
-            kill.args(["-KILL", "--", &format!("-{pid}")]).env("PATH", env::login_path())
-                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
-            let _ = tokio::time::timeout(Duration::from_secs(2), kill.status()).await;
-        }
-        #[cfg(windows)] {
-            let mut kill = env::command("taskkill");
-            kill.args(["/PID", &pid.to_string(), "/T", "/F"]).env("PATH", env::login_path())
-                .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
-            let _ = tokio::time::timeout(Duration::from_secs(2), kill.status()).await;
-        }
-    }
+    if let Some(pid) = pid { env::kill_tree(pid).await; }
     let _ = child.kill().await;
     let _ = child.wait().await;
 }

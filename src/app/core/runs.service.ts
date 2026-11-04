@@ -134,6 +134,8 @@ export class RunsService {
     ),
   );
 
+  /** When each run was last heard from, to notice one gone quiet. */
+  readonly lastEvent = signal<Record<string, number>>({});
   /** Time for live durations; only ticks while a run is running. */
   readonly now = signal(Date.now());
   private readonly anyRunning = computed(() => this.running().length > 0);
@@ -359,6 +361,7 @@ export class RunsService {
   }
 
   private apply(e: AgentEvent): void {
+    this.lastEvent.update((all) => ({ ...all, [e.runId]: e.atMs }));
     if (e.kind === 'limits') {
       const windows = dataOf(e)['windows'];
       if (Array.isArray(windows)) {
@@ -543,6 +546,13 @@ function applyPlan(lines: ConsoleLine[], update: Json): ConsoleLine[] {
   const text = entries.map((e) => `${PLAN_MARK[String(e['status'])] ?? '[ ]'} ${String(e['content'] ?? '')}`).join('\n');
   const line: ConsoleLine = { key: 'plan', text, tone: 'muted' };
   return lines.some((l) => l.key === 'plan') ? lines.map((l) => (l.key === 'plan' ? line : l)) : [...lines, line];
+}
+
+export const QUIET_MS = 30_000;
+
+/** Running, not waiting for the user, and nothing heard for a while. It may still be working. */
+export function isQuiet(run: Run, lastEvent: number | undefined, now: number): boolean {
+  return run.status === 'running' && !run.permissions.length && now - (lastEvent ?? run.startedAt) >= QUIET_MS;
 }
 
 const RECAP_LIMIT = 8000;

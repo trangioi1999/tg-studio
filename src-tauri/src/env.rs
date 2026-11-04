@@ -64,6 +64,37 @@ pub fn std_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Comman
     cmd
 }
 
+/// Gives a child its own process group, so `kill_tree` also reaches what it starts.
+pub fn isolate(cmd: &mut tokio::process::Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.as_std_mut().process_group(0);
+    }
+    #[cfg(not(unix))]
+    let _ = cmd;
+}
+
+/// Stops a process and its descendants. npm shims and shells are wrappers: killing only
+/// them leaves the real program running, still spending tokens or writing files.
+pub async fn kill_tree(pid: u32) {
+    #[cfg(unix)]
+    let mut kill = {
+        let mut c = command("kill");
+        c.args(["-KILL", "--", &format!("-{pid}")]);
+        c
+    };
+    #[cfg(windows)]
+    let mut kill = {
+        let mut c = command("taskkill");
+        c.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        c
+    };
+    kill.env("PATH", login_path()).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null()).kill_on_drop(true);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), kill.status()).await;
+}
+
 /// Finds an executable on the login PATH (handles .cmd/.exe shims on Windows).
 pub fn which(bin: &str) -> Option<PathBuf> {
     let path = login_path();
@@ -89,6 +120,27 @@ pub fn which(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kill_tree_stops_descendants() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let mut cmd = super::command("sh");
+        cmd.args(["-c", "sleep 30 & echo $!; wait"]).stdout(std::process::Stdio::piped()).kill_on_drop(true);
+        super::isolate(&mut cmd);
+        let mut child = cmd.spawn().unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let sleeper = lines.next_line().await.unwrap().unwrap();
+        super::kill_tree(child.id().unwrap()).await;
+        let _ = child.wait().await;
+        let mut alive = true;
+        for _ in 0..40 {
+            alive = super::command("kill").args(["-0", &sleeper]).stderr(std::process::Stdio::null()).status().await.unwrap().success();
+            if !alive { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(!alive, "tiến trình con vẫn chạy");
+    }
 
     fn collect(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         for entry in fs::read_dir(dir).unwrap() {
