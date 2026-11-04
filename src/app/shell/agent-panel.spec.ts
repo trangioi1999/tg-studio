@@ -28,6 +28,7 @@ interface Composer {
   sending(): boolean;
   send(): Promise<void>;
   onEnter(e: KeyboardEvent): void;
+  threadRuns(): { prompt: string }[];
   dirtyWarning(): number | null;
   sendAnyway(): Promise<void>;
   needsGit(): string | null;
@@ -140,6 +141,29 @@ describe('AgentPanel composer', () => {
     await panel.prepareGit();
     expect(panel.error()).toContain('tên và email');
     expect(panel.gitPlan()).not.toBeNull();
+  });
+
+  it('continues a question in its conversation, resuming the CLI session', async () => {
+    const { backend, panel } = await setup();
+    const calls: { thread: string | null | undefined; resumeFrom: string | null | undefined }[] = [];
+    const start = backend.start.bind(backend);
+    backend.start = (agent, prompt, cwd, thread, resumeFrom) => {
+      calls.push({ thread, resumeFrom });
+      return start(agent, prompt, cwd);
+    };
+    panel.mode.set('read');
+    panel.prompt.set('câu một');
+    await panel.send();
+    const runs = TestBed.inject(RunsService);
+    const first = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('done'), { timeout: 4000 });
+    TestBed.tick();
+    panel.prompt.set('câu hai');
+    await panel.send();
+    expect(calls[1]).toEqual({ thread: first.thread, resumeFrom: first.id });
+    expect(runs.selected()!.thread).toBe(first.thread);
+    TestBed.tick();
+    expect(panel.threadRuns().map((r) => r.prompt)).toEqual(['câu một', 'câu hai']);
   });
 
   it('keeps the prompt and shows why when a pipeline cannot start', async () => {
