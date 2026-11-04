@@ -98,7 +98,7 @@ export class Explorer {
   protected readonly runs = inject(RunsService);
   protected readonly workspace = inject(WorkspaceService);
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly collapsed = signal(new Set<string>());
   /** The selected run, if it is a code task with a worktree. */
   protected readonly run = computed(() => {

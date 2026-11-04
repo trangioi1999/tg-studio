@@ -4,6 +4,18 @@
 
 ## [Chưa phát hành]
 
+### Chat trong một phiên
+- Gửi thêm câu là chat tiếp với cùng một agent, không tạo agent mới. Enter để gửi, Shift+Enter để xuống dòng, không gửi nhầm khi đang gõ dấu tiếng Việt.
+- Nút Dừng cạnh ô chat chỉ dừng câu đang chạy; có nút Trò chuyện mới. `@agent` hoặc đổi agent giao tiếp trên cùng bản nháp, kèm tóm tắt.
+- Quay lại agent cũ sau khi phiên đóng sẽ nối lại đúng phiên nếu agent hỗ trợ.
+- Chi phí và token cộng đúng qua nhiều câu; không còn mất tin nhắn cuối lượt.
+
+### Hạn mức tài khoản
+- Thanh dưới cùng luôn hiện hạn mức 5 giờ và 7 ngày của từng agent, kèm giờ reset và thời điểm cập nhật. Codex đọc từ log phiên của nó; Claude có số sau lượt chạy đầu.
+
+### Duyệt lệnh
+- Phiên do app mở luôn ở chế độ xin duyệt, kể cả khi thiết lập của Claude Code trên máy là tự duyệt.
+
 ### Xem source
 - Explorer hiện cây thư mục của dự án ngay khi mở, không cần giao việc; bấm tệp để xem ở chế độ chỉ đọc. Khi có task thì chuyển được giữa Dự án và Bản nháp.
 - Ẩn mục Worktrees khi trống, khung log thu gọn sẵn.

@@ -6,7 +6,7 @@ import { KEYS } from '../core/keys';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
 import { estimateCost } from '../core/pricing';
 import { AGENT_IDS, AGENT_META, AgentId, BridgeNote } from '../core/protocol';
-import { Run, RunsService } from '../core/runs.service';
+import { Run, RunsService, recapOf } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
@@ -91,6 +91,7 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
               @for (l of r.lines; track $index) {
                 @switch (l.tone) {
                   @case ('text') { <p class="ap-msg">{{ l.text }}</p> }
+                  @case ('user') { <p class="ap-user">{{ l.text }}</p> }
                   @case ('tool') { <div class="ap-tool mono">{{ l.text }}</div> }
                   @case ('error') { <div class="ap-tool mono err">{{ l.text }}</div> }
                   @default { <div class="ap-tool mono dim">{{ l.text }}</div> }
@@ -161,9 +162,9 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
 
     <section class="ap-composer" aria-label="Giao việc">
       <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
-      <textarea id="prompt" rows="3" [placeholder]="'Giao việc, hỏi, hoặc @mention agent… (' + keys.enter + ' để chạy)'"
+      <textarea id="prompt" rows="3" [placeholder]="placeholder()"
         [value]="prompt()" (input)="prompt.set($any($event.target).value)"
-        (keydown.meta.enter)="send()" (keydown.control.enter)="send()"></textarea>
+        (keydown.enter)="onEnter($any($event))"></textarea>
       <div class="ap-composer-row">
         <select aria-label="Chế độ" [value]="mode()" (change)="mode.set($any($event.target).value)">
           <option value="task">Sửa code</option>
@@ -189,7 +190,12 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
           </select>
         }
         <span class="spacer"></span>
-        <button class="btn primary sm" [disabled]="!canRun()" [title]="blocked() ?? ''" (click)="send()">Chạy<span class="kbd">{{ keys.enter }}</span></button>
+        @if (run(); as r) { <button class="btn ghost sm" (click)="newChat()">Trò chuyện mới</button> }
+        @if (run()?.status === 'running') {
+          <button class="btn ghost sm" (click)="runs.stop(run()!.id)">Dừng</button>
+        } @else {
+          <button class="btn primary sm" [disabled]="!canRun()" [title]="blocked() ?? ''" (click)="send()">Gửi<span class="kbd">↵</span></button>
+        }
       </div>
       @if (mode() === 'pipeline') {
         <ol class="pipe-steps" aria-label="Các bước">
@@ -227,7 +233,7 @@ export class AgentPanel {
   protected readonly tok = fmtTokens;
   protected readonly usd = fmtUsd;
   protected readonly panelTabs = [{ id: 'thread', label: 'Thread' }, { id: 'plan', label: 'Plan' }, { id: 'runs', label: 'Runs' }] as const;
-  protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly planLabel: Record<string, string> = { completed: 'xong', in_progress: 'đang làm', pending: 'chưa làm' };
 
   protected readonly tab = signal<'thread' | 'plan' | 'runs'>('thread');
@@ -272,6 +278,11 @@ export class AgentPanel {
   protected readonly mode = signal<Mode>('task');
   protected readonly prompt = signal('');
   protected readonly chosen = signal<AgentId | ''>('');
+  /** A conversation keeps its agent until the user picks another. */
+  private readonly followRun = effect(() => {
+    const agent = this.run()?.agent;
+    if (agent) untracked(() => this.chosen.set(agent));
+  });
   protected readonly error = signal<string | null>(null);
   protected readonly picks = signal<AgentId[] | null>(null);
   /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */
@@ -292,6 +303,7 @@ export class AgentPanel {
   /** Why Run is disabled, in words. */
   protected readonly blocked = computed(() => {
     if (this.budget.blockReason()) return this.budget.blockReason();
+    if (this.mode() === 'task' && this.run()?.task && this.run()?.status === 'running') return 'Agent đang chạy. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
     if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
     if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: mở thư mục khác, hoặc dùng Chỉ đọc.';
@@ -299,6 +311,11 @@ export class AgentPanel {
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
+  });
+  protected readonly placeholder = computed(() => {
+    const r = this.run();
+    if (this.mode() === 'task' && r?.task && r.status !== 'running') return `Nhắn tiếp cho ${AGENT_META[r.agent].name}, hoặc @mention agent khác… (Enter để gửi, Shift+Enter để xuống dòng)`;
+    return 'Giao việc, hỏi, hoặc @mention agent… (Enter để gửi, Shift+Enter để xuống dòng)';
   });
   protected readonly sending = signal(false);
   protected readonly canRun = computed(() => !this.blocked() && !!this.text() && !this.sending());
@@ -378,6 +395,20 @@ export class AgentPanel {
     this.picks.set(now.includes(id) ? now.filter((a) => a !== id) : [...now, id]);
   }
 
+  protected onEnter(e: KeyboardEvent): void {
+    // Enter while a Vietnamese input method is composing only commits the word.
+    if (e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    void this.send();
+  }
+
+  protected newChat(): void {
+    this.runs.selectedId.set(null);
+    this.chosen.set('');
+    this.prompt.set('');
+    this.error.set(null);
+  }
+
   protected async send(): Promise<void> {
     if (!this.canRun()) return;
     const agent = this.agent();
@@ -397,7 +428,13 @@ export class AgentPanel {
         const failed = await this.runs.startParallel(this.picked(), text, cwd);
         if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
       } else if (agent) {
-        if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd);
+        const current = this.run();
+        if (this.mode() === 'task' && current?.task) {
+          // Same agent with an open session: just the next message. Anything else is a new
+          // session in the same draft; the core reopens the old one if it was this agent's.
+          if (agent === current.agent && current.status === 'idle') await this.runs.sendMessage(current.id, text);
+          else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current) });
+        } else if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd);
         else await this.runs.start(agent, text, cwd);
       }
       this.prompt.set('');

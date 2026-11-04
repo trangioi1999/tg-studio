@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
 import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
-import { RunsService } from './runs.service';
+import { RunsService, recapOf } from './runs.service';
 
 const usage: Usage = {
   inputTokens: 10,
@@ -349,7 +349,7 @@ describe('MockBackend task flow', () => {
     await service.respondPermission(pending!.id, pending!.permissions[0].requestId, 'allow', false);
     await wait(800);
     const run = service.selected()!;
-    expect(run.status).toBe('done');
+    expect(run.status).toBe('idle');
     expect(run.permissions).toEqual([]);
     expect(run.lastMessage).toBe('fix: sửa lỗi theo yêu cầu');
 
@@ -387,7 +387,7 @@ describe('RunsService parallel mode', () => {
       await service.respondPermission(r.id, r.permissions[0].requestId, 'allow', false);
     }
     await wait(800);
-    expect(service.groupRuns(group).map((r) => r.status)).toEqual(['done', 'done']);
+    expect(service.groupRuns(group).map((r) => r.status)).toEqual(['idle', 'idle']);
     await expect(service.commitChoice(group!, 'x')).rejects.toThrow('Chưa chọn');
     await service.useRun(group!, runs[0].id);
     expect(service.choices()[group!]).toEqual({ runId: runs[0].id, compositeId: null, files: 2, commit: null });
@@ -529,5 +529,59 @@ describe('RunsService clock', () => {
     const ended = service.now();
     vi.advanceTimersByTime(5000);
     expect(service.now()).toBe(ended);
+  });
+});
+
+describe('RunsService open sessions', () => {
+  it('waits for the next message after a turn, then runs again', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'started' }));
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'done' }, atMs: 5000 }));
+    expect(service.runs()[0]).toMatchObject({ status: 'idle', endedAt: 5000 });
+    backend.handler(liveEvent({ kind: 'user', line: 'câu hai' }));
+    expect(service.runs()[0]).toMatchObject({ status: 'running', endedAt: null });
+    expect(service.runs()[0].lines.at(-1)).toEqual({ text: 'câu hai', tone: 'user' });
+    backend.handler(liveEvent({ kind: 'exit', code: 0, data: { status: 'done' } }));
+    expect(service.runs()[0].status).toBe('done');
+  });
+
+  it('returns a stopped turn to the waiting state', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'started' }));
+    await service.stop('live').catch(() => {});
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'stopped' } }));
+    expect(service.runs()[0].status).toBe('idle');
+    backend.handler(liveEvent({ kind: 'exit', code: 0, data: { status: 'done' } }));
+    expect(service.runs()[0].status).toBe('done');
+  });
+
+  it('keeps an idle run live across a UI reload', async () => {
+    const { service } = setup([stored({ id: 'open', status: 'idle', endedAt: null })]);
+    await flush();
+    expect(service.runs()[0]).toMatchObject({ status: 'idle', restored: false });
+  });
+
+  it('restores what the user said', async () => {
+    const { service } = setup([stored({ lines: [{ kind: 'user', line: 'câu hai' }] })]);
+    await flush();
+    expect(service.runs()[0].lines[0]).toEqual({ text: 'câu hai', tone: 'user' });
+  });
+});
+
+describe('recapOf', () => {
+  it('has the first prompt and what was said, not tool noise', () => {
+    const recap = recapOf({ prompt: 'câu đầu', lines: [{ text: 'trả lời', tone: 'text' }, { text: 'npm test', tone: 'tool' }, { text: 'câu hai', tone: 'user' }] });
+    expect(recap).toContain('Người dùng: câu đầu');
+    expect(recap).toContain('Agent: trả lời');
+    expect(recap).toContain('Người dùng: câu hai');
+    expect(recap).not.toContain('npm test');
+  });
+
+  it('keeps the newest text when too long', () => {
+    const recap = recapOf({ prompt: 'x'.repeat(9000), lines: [{ text: 'mới nhất', tone: 'text' }] });
+    expect(recap).toContain('mới nhất');
+    expect(recap.length).toBeLessThan(8200);
   });
 });

@@ -62,7 +62,7 @@ pub(crate) fn now_ms() -> u64 {
 /// Writes an event to the run history. "exit" is saved through `finish_run`.
 fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
     match (ev.kind, &ev.line, &ev.usage) {
-        ("started" | "log" | "stderr", Some(line), _) => {
+        ("started" | "log" | "stderr" | "user", Some(line), _) => {
             store.append_line(&ev.run_id, ev.kind, line, ev.at_ms)
         }
         ("message", _, _) => match ev.data.as_ref().and_then(|v| v["text"].as_str()) {

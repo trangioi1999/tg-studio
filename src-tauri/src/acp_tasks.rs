@@ -9,6 +9,17 @@ use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMem
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
 
+impl TaskRuns {
+    /// The agent is working on a turn, not just waiting for the next message.
+    fn busy(&self, run_id: &str) -> Result<bool, String> {
+        Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(run_id).is_some_and(|s| s.is_busy()))
+    }
+}
+
+/// Where the next message of each open session goes.
+#[derive(Default)]
+pub struct SessionInboxes(Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>);
+
 struct AppSink(AppHandle);
 impl EventSink for AppSink {
     fn emit(&self, ev: AgentEvent) { runner::publish(&self.0, ev); }
@@ -138,50 +149,124 @@ fn turn_outcome(result: &Value) -> (&'static str, Option<String>) {
     }
 }
 
-// No AppHandle or real adapter required to exercise cancellation and failure status.
-async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], mut stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
+/// How one agent session runs: its first prompt, and more if it stays open.
+struct SessionPlan<'a> {
+    cwd: &'a Path,
+    prompt: String,
+    /// Sent before the first prompt unless `resume` reopens the session.
+    recap: Option<String>,
+    servers: &'a [McpServer],
+    resume: Option<String>,
+    /// `None`: the session ends after one turn (a pipeline step).
+    next: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
+    idle_limit: Duration,
+}
+
+const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
+
+struct TurnEnd { status: &'static str, error: Option<String>, alive: bool }
+
+async fn run_turn(client: &AcpClient, session: &TaskSession, id: &str, prompt: &str, stop: &mut oneshot::Receiver<()>, dead: &mut std::pin::Pin<&mut impl std::future::Future<Output = ()>>) -> TurnEnd {
+    let turn = client.prompt_turn(id, prompt);
+    tokio::pin!(turn);
+    tokio::select! {
+        biased;
+        _ = &mut *stop => {
+            session.cancel_pending();
+            let _ = client.cancel(id);
+            let answered = tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::select! { result = &mut turn => Some(result), _ = dead.as_mut() => None }
+            }).await;
+            match answered {
+                Ok(Some(Ok(result))) => { session.turn_finished(&result); TurnEnd { status: "stopped", error: None, alive: true } }
+                _ => TurnEnd { status: "stopped", error: None, alive: false },
+            }
+        }
+        result = &mut turn => match result {
+            Ok(result) => {
+                session.turn_finished(&result);
+                let (status, error) = turn_outcome(&result);
+                TurnEnd { status, error, alive: true }
+            }
+            Err(e) => TurnEnd { status: "failed", error: Some(format!("Phiên ACP thất bại: {e}")), alive: true },
+        },
+        _ = dead.as_mut() => TurnEnd { status: "failed", error: Some("Adapter đã dừng trước khi hoàn tất yêu cầu.".into()), alive: false },
+    }
+}
+
+/// One agent session from setup to the end. `next_stop` arms the stop signal for each
+/// phase, since a stop during a turn only ends that turn. `on_opened` gets the session id,
+/// `on_turn` each finished turn of a session that stays open.
+async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: SessionPlan<'_>, mut next_stop: impl FnMut() -> oneshot::Receiver<()>, mut on_opened: impl FnMut(&str), mut on_turn: impl FnMut(&TurnEnd), dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     tokio::pin!(dead);
+    let mut stop = next_stop();
+    session.set_busy(true);
     let setup = async {
         let init = client.initialize().await?;
-        let (mcp, skipped) = mcp::for_acp(servers, session.agent(), &init);
+        let (mcp, skipped) = mcp::for_acp(plan.servers, session.agent(), &init);
         if !skipped.is_empty() {
             session.note(format!("Bỏ qua MCP server {} vì agent không báo hỗ trợ kết nối http.", skipped.join(", ")));
         }
-        client.new_session(cwd, mcp).await
+        if let Some(previous) = plan.resume.as_deref().filter(|_| init["agentCapabilities"]["loadSession"] == true) {
+            session.set_muted(true);
+            let loaded = client.load_session(previous, plan.cwd, mcp.clone()).await;
+            session.set_muted(false);
+            match loaded {
+                Ok(()) => return Ok::<_, String>((previous.to_string(), true)),
+                Err(e) => session.note(format!("{e} Mở phiên mới và gửi kèm tóm tắt.")),
+            }
+        }
+        client.new_session(plan.cwd, mcp).await.map(|id| (id, false))
     };
-    let session_id = tokio::select! {
+    let (session_id, loaded) = tokio::select! {
         biased;
         _ = &mut stop => { session.finish().await; return ("stopped", None); }
-        _ = &mut dead => { session.finish().await; return ("failed", Some("Adapter đã dừng khi đang khởi tạo.".into())); }
+        _ = dead.as_mut() => { session.finish().await; return ("failed", Some("Adapter đã dừng khi đang khởi tạo.".into())); }
         result = setup => match result {
-            Ok(id) => id,
+            Ok(opened) => opened,
             Err(e) => { session.finish().await; return ("failed", Some(e)); }
         }
     };
-    let turn = client.prompt_turn(&session_id, prompt);
-    tokio::pin!(turn);
-    let result = tokio::select! {
-        biased;
-        _ = &mut stop => {
-            session.cancel_pending();
-            let _ = client.cancel(&session_id);
-            let _ = tokio::time::timeout(Duration::from_secs(5), async {
-                tokio::select! { _ = &mut turn => {}, _ = &mut dead => {} }
-            }).await;
-            ("stopped", None)
-        }
-        result = &mut turn => match result {
-            Ok(result) => { session.turn_finished(&result); turn_outcome(&result) }
-            Err(e) => ("failed", Some(format!("Phiên ACP thất bại: {e}"))),
-        },
-        _ = &mut dead => ("failed", Some("Adapter đã dừng trước khi hoàn tất yêu cầu.".into())),
+    on_opened(&session_id);
+    let mut prompt = match plan.recap.take().filter(|_| !loaded) {
+        Some(recap) => format!("{recap}\n\n{}", plan.prompt),
+        None => std::mem::take(&mut plan.prompt),
     };
-    session.finish().await;
-    result
+    loop {
+        let end = run_turn(client, session, &session_id, &prompt, &mut stop, &mut dead).await;
+        session.set_busy(false);
+        let Some(next) = plan.next.as_mut().filter(|_| end.alive) else {
+            session.finish().await;
+            return (end.status, end.error);
+        };
+        on_turn(&end);
+        stop = next_stop();
+        // The session has finished its work, so closing it now is a normal end.
+        let closed = if end.status == "failed" { "failed" } else { "done" };
+        prompt = tokio::select! {
+            biased;
+            _ = &mut stop => { session.finish().await; return (closed, None); }
+            _ = dead.as_mut() => { session.finish().await; return (closed, None); }
+            message = next.recv() => match message {
+                Some(message) => message,
+                None => { session.finish().await; return (closed, None); }
+            },
+            _ = tokio::time::sleep(plan.idle_limit) => { session.finish().await; return (closed, None); }
+        };
+        stop = next_stop();
+    }
+}
+
+// No AppHandle or real adapter required to exercise cancellation and failure status.
+#[cfg(test)]
+async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
+    let mut stop = Some(stop);
+    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, next: None, idle_limit: IDLE_LIMIT };
+    drive_session(client, session, plan, || stop.take().expect("một lượt chỉ có một tín hiệu dừng"), |_| {}, |_| {}, dead).await
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>) -> Result<String, String> {
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>) -> Result<String, String> {
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -190,11 +275,12 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         .map_err(|e| format!("Thư mục không phải kho Git. {e}"))?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| format!("Không mở được kho Git: {e}"))?;
     let command = agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {} hoặc npx trong PATH.", agent.display_name()))?;
+    let previous_run = reuse.clone();
     // A later pipeline step continues in the worktree of a finished earlier step.
     let reuse = match reuse {
         None => None,
         Some(previous) => {
-            if app.state::<TaskRuns>().0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&previous) {
+            if app.state::<TaskRuns>().busy(&previous)? {
                 return Err("Bước trước vẫn đang chạy.".into());
             }
             let (stored, wt) = app.state::<Store>().run_worktree(&previous).map_err(|e| format!("Không tìm thấy worktree của bước trước: {e}"))?;
@@ -203,6 +289,15 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         }
     };
     let timeout = setup_timeout(&command.0);
+    // Back to the same agent: reopen its session instead of starting over.
+    let resumed = match previous_run.as_deref() {
+        Some(previous) => {
+            let (owner, session, cost) = app.state::<Store>().session_of(previous).map_err(|e| format!("Không đọc được phiên cũ: {e}"))?;
+            let same = serde_json::to_value(agent).ok().and_then(|v| v.as_str().map(|s| s == owner)).unwrap_or(false);
+            session.filter(|_| same).map(|s| (s, cost.unwrap_or(0.0)))
+        }
+        None => None,
+    };
     let (id, wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse).await?;
     let pid = child.id();
     let sink = Arc::new(AppSink(app.clone()));
@@ -219,9 +314,12 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     let stdin = child.stdin.take().expect("piped stdin");
     let stderr = child.stderr.take().expect("piped stderr");
     let client = AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout);
-    let (tx, rx) = oneshot::channel();
-    app.state::<Runs>().0.lock().unwrap().insert(id.clone(), tx);
     app.state::<TaskRuns>().0.lock().unwrap().insert(id.clone(), session.clone());
+    let next = if single_turn.unwrap_or(false) { None } else {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        app.state::<SessionInboxes>().0.lock().unwrap().insert(id.clone(), tx);
+        Some(rx)
+    };
     let mut started = AgentEvent::new(&id, agent, "started");
     started.line = Some(format!("{} · {}", agent.display_name(), wt.path.display()));
     sink.emit(started);
@@ -261,7 +359,30 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
                 (_, None) => session.note("tg-bridge không bật được: không xác định được đường dẫn của app.".into()),
             }
         }
-        let (status, error) = drive(&client, &session, &wt.path, &prompt, &servers, rx, async { let _ = child.wait().await; }).await;
+        let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
+        session.set_cost_base(base);
+        let plan = SessionPlan { cwd: &wt.path, prompt: prompt.clone(), recap, servers: &servers, resume, next, idle_limit: IDLE_LIMIT };
+        let next_stop = || {
+            let (tx, rx) = oneshot::channel();
+            if let Ok(mut runs) = app.state::<Runs>().0.lock() { runs.insert(task_id.clone(), tx); }
+            rx
+        };
+        let on_opened = |sid: &str| {
+            if let Err(e) = app.state::<Store>().set_acp_session(&task_id, sid) { eprintln!("Không lưu được phiên ACP: {e}"); }
+        };
+        let on_turn = |end: &TurnEnd| {
+            if let Some(error) = &end.error {
+                let mut event = AgentEvent::new(&task_id, agent, "stderr");
+                event.line = Some(error.clone());
+                sink.emit(event);
+            }
+            if let Err(e) = app.state::<Store>().set_run_status(&task_id, "idle") { eprintln!("Không lưu được trạng thái: {e}"); }
+            let mut event = AgentEvent::new(&task_id, agent, "turn_end");
+            event.data = Some(json!({"status": end.status}));
+            sink.emit(event);
+        };
+        let (status, error) = drive_session(&client, &session, plan, next_stop, on_opened, on_turn, async { let _ = child.wait().await; }).await;
+        app.state::<SessionInboxes>().0.lock().unwrap().remove(&task_id);
         client.close();
         if let Some(t) = token { hub.unregister(&t); }
         terminate_adapter(&mut child, pid).await;
@@ -288,6 +409,23 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
 }
 
 #[tauri::command]
+pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'_, SessionInboxes>, store: State<'_, Store>, run_id: String, prompt: String) -> Result<(), String> {
+    if prompt.trim().is_empty() { return Err("Hãy nhập nội dung tin nhắn.".into()); }
+    let inbox = inboxes.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
+    let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
+    let (Some(inbox), Some(session)) = (inbox, session) else { return Err("Phiên này đã đóng.".into()); };
+    if !session.claim_turn() { return Err("Agent đang chạy. Hãy chờ hoặc dừng trước.".into()); }
+    if let Err(e) = store.set_run_status(&run_id, "running") { eprintln!("Không lưu được trạng thái: {e}"); }
+    let mut event = AgentEvent::new(&run_id, session.agent(), "user");
+    event.line = Some(prompt.clone());
+    AppSink(app).emit(event);
+    inbox.send(prompt).map_err(|_| {
+        session.set_busy(false);
+        "Phiên này đã đóng.".to_string()
+    })
+}
+
+#[tauri::command]
 pub fn respond_permission(tasks: State<'_, TaskRuns>, run_id: String, request_id: String, option_id: String, always: bool) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned().ok_or("Lượt chạy này đã kết thúc.")?;
     session.respond_permission(&request_id, &option_id, always)
@@ -307,7 +445,7 @@ pub fn accept_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_i
 }
 #[tauri::command]
 pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<usize, String> {
-    if tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&run_id) {
+    if tasks.busy(&run_id)? {
         return Err("Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.".into());
     }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
@@ -341,20 +479,31 @@ pub fn read_worktree_file(store: State<'_, Store>, run_id: String, path: String)
 #[tauri::command]
 pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, content: String) -> Result<(), String> {
     // The agent may be writing the same file; edits wait until it is done.
-    if tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&run_id) {
+    if tasks.busy(&run_id)? {
         return Err("Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.".into());
     }
     let (_, wt) = stored_worktree(&store, &run_id)?;
     workspace::write_file(&wt, &path, &content)
 }
 #[tauri::command]
-pub fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<(), String> {
-    let sharing = store.runs_sharing_worktree(&run_id).map_err(|e| format!("Không đọc được lịch sử: {e}"))?;
-    let live = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?;
-    if live.contains_key(&run_id) || sharing.iter().any(|id| live.contains_key(id)) {
-        return Err("Hãy dừng lượt chạy (hoặc bước pipeline) đang dùng worktree này trước khi xóa.".into());
+pub async fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns>, runs: State<'_, Runs>, run_id: String) -> Result<(), String> {
+    let mut sharing = store.runs_sharing_worktree(&run_id).map_err(|e| format!("Không đọc được lịch sử: {e}"))?;
+    sharing.push(run_id.clone());
+    for id in &sharing {
+        if tasks.busy(id)? {
+            return Err("Hãy dừng lượt chạy (hoặc bước pipeline) đang dùng worktree này trước khi xóa.".into());
+        }
     }
-    drop(live);
+    // Sessions waiting for a next message have no more to do here. Windows cannot
+    // delete a folder a process runs in, so wait until they are gone.
+    let open = |id: &String| tasks.0.lock().map(|live| live.contains_key(id)).unwrap_or(false);
+    for id in sharing.iter().filter(|id| open(id)) {
+        if let Some(stop) = runs.0.lock().map_err(|e| e.to_string())?.remove(id) { let _ = stop.send(()); }
+    }
+    for _ in 0..50 {
+        if !sharing.iter().any(|id| open(id)) { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     worktree::remove(&repo, &wt, true)?;
     store.clear_run_worktree(&run_id).map_err(|e| format!("Đã xóa worktree nhưng không cập nhật được lịch sử: {e}"))
@@ -381,6 +530,128 @@ mod tests {
             }
         }).await.unwrap();
     }
+    /// Runs a session, feeding `messages` one per finished turn, then closes it.
+    async fn session_with(client: &AcpClient, session: &TaskSession, resume: Option<String>, recap: Option<String>, messages: Vec<&'static str>, stop_each_turn: bool) -> (&'static str, Vec<&'static str>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let cwd = std::env::temp_dir();
+        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, next: Some(rx), idle_limit: Duration::from_secs(5) };
+        let stops = Mutex::new(Vec::new());
+        let turns = Mutex::new(Vec::new());
+        let remaining = Mutex::new(messages.into_iter());
+        let next_stop = || {
+            let (stop, rx) = oneshot::channel();
+            let mut all = stops.lock().unwrap();
+            if stop_each_turn && !all.is_empty() { let _ = stop.send(()); } else { all.push(stop); }
+            rx
+        };
+        let on_turn = |end: &TurnEnd| {
+            turns.lock().unwrap().push(end.status);
+            match remaining.lock().unwrap().next() {
+                Some(message) => tx.send(message.to_string()).unwrap(),
+                None => stops.lock().unwrap().clear(),
+            }
+        };
+        let (status, _) = tokio::time::timeout(Duration::from_secs(5), drive_session(client, session, plan, next_stop, |_| {}, on_turn, std::future::pending())).await.unwrap();
+        (status, turns.into_inner().unwrap())
+    }
+
+    fn fixture(steps: Vec<crate::acp::fake::Step>, loadable: bool) -> (AcpClient, Arc<TaskSession>, crate::acp::fake::Log, Arc<Recorder>) {
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+        let (reader, writer, log) = if loadable { crate::acp::fake::spawn_loadable(steps) } else { crate::acp::fake::spawn(steps) };
+        (AcpClient::start(reader, writer, session.clone()), session, log, sink)
+    }
+
+    fn prompts(log: &crate::acp::fake::Log) -> Vec<String> {
+        log.lock().unwrap().iter().filter(|v| v["method"] == "session/prompt").map(|v| v["params"]["prompt"][0]["text"].as_str().unwrap().to_string()).collect()
+    }
+
+    fn count(log: &crate::acp::fake::Log, method: &str) -> usize {
+        log.lock().unwrap().iter().filter(|v| v["method"] == method).count()
+    }
+
+    #[tokio::test]
+    async fn messages_stay_in_one_session_and_closing_is_a_normal_end() {
+        use crate::acp::fake::Step;
+        let (client, session, log, _) = fixture(vec![Step::Message("xin chào"), Step::End("end_turn")], false);
+        let (status, turns) = session_with(&client, &session, None, None, vec!["hai", "ba"], false).await;
+        assert_eq!(status, "done");
+        assert_eq!(turns, vec!["done", "done", "done"]);
+        assert_eq!(count(&log, "session/new"), 1, "gửi thêm câu không được mở phiên mới");
+        assert_eq!(prompts(&log), vec!["đầu", "hai", "ba"]);
+        assert!(!session.is_busy());
+    }
+
+    #[tokio::test]
+    async fn a_refused_turn_is_reported_and_the_session_stays_open() {
+        use crate::acp::fake::Step;
+        let (client, session, log, _) = fixture(vec![Step::End("refusal")], false);
+        let (status, turns) = session_with(&client, &session, None, None, vec!["hai"], false).await;
+        assert_eq!(turns, vec!["failed", "failed"]);
+        assert_eq!(status, "failed");
+        assert_eq!(prompts(&log).len(), 2);
+    }
+
+    #[tokio::test]
+    async fn only_one_turn_can_be_claimed() {
+        let (_, session, _, _) = fixture(vec![], false);
+        assert!(session.claim_turn());
+        assert!(!session.claim_turn());
+        session.set_busy(false);
+        assert!(session.claim_turn());
+    }
+
+    #[tokio::test]
+    async fn a_reopened_session_needs_no_recap() {
+        use crate::acp::fake::Step;
+        let (client, session, log, _) = fixture(vec![Step::End("end_turn")], true);
+        session_with(&client, &session, Some("cũ".into()), Some("TÓM TẮT".into()), vec![], false).await;
+        assert_eq!(count(&log, "session/load"), 1);
+        assert_eq!(count(&log, "session/new"), 0);
+        assert_eq!(prompts(&log), vec!["đầu"]);
+    }
+
+    #[tokio::test]
+    async fn an_agent_that_cannot_reopen_gets_the_recap() {
+        use crate::acp::fake::Step;
+        let (client, session, log, _) = fixture(vec![Step::End("end_turn")], false);
+        session_with(&client, &session, Some("cũ".into()), Some("TÓM TẮT".into()), vec![], false).await;
+        assert_eq!(count(&log, "session/load"), 0);
+        assert_eq!(prompts(&log), vec!["TÓM TẮT\n\nđầu"]);
+    }
+
+    #[tokio::test]
+    async fn tokens_add_up_across_turns_while_cost_is_the_session_total() {
+        let (_, session, _, sink) = fixture(vec![], false);
+        use crate::acp::client::ClientHandler;
+        let cost = |amount: f64| json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2,"cost":{"amount":amount,"currency":"USD"}}});
+        session.on_notification("session/update", cost(0.1));
+        session.turn_finished(&json!({"usage":{"inputTokens":2,"cachedWriteTokens":10,"cachedReadTokens":100,"outputTokens":4}}));
+        session.on_notification("session/update", cost(0.25));
+        session.turn_finished(&json!({"usage":{"inputTokens":3,"cachedWriteTokens":5,"cachedReadTokens":200,"outputTokens":6}}));
+        let events = sink.0.lock().unwrap();
+        let last = events.iter().rev().find_map(|e| e.usage.clone()).unwrap();
+        assert_eq!((last.input_tokens, last.cached_input_tokens, last.output_tokens), (20, 300, 10));
+        assert_eq!(last.cost_usd, Some(0.25));
+        assert!(last.cumulative);
+        assert!(events.iter().filter_map(|e| e.usage.as_ref()).all(|u| u.cumulative));
+    }
+
+    #[tokio::test]
+    async fn a_reopened_session_counts_only_new_cost_and_mutes_its_replay() {
+        let (_, session, _, sink) = fixture(vec![], false);
+        use crate::acp::client::ClientHandler;
+        session.set_cost_base(0.2);
+        session.set_muted(true);
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"cũ"}}}));
+        session.set_muted(false);
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2,"cost":{"amount":0.25,"currency":"USD"}}}));
+        let events = sink.0.lock().unwrap();
+        assert!(!events.iter().any(|e| e.kind == "message"));
+        let cost = events.iter().rev().find_map(|e| e.usage.as_ref()?.cost_usd).unwrap();
+        assert!((cost - 0.05).abs() < 1e-9, "{cost}");
+    }
+
     #[test]
     fn turn_outcome_maps_stop_reasons() {
         for (result, status, message) in [
@@ -708,6 +979,65 @@ mod tests {
         assert!(!diff::commit(&repo.0, "Đổi lời chào").unwrap().is_empty());
         assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello ACP\n");
         worktree::remove(&repo.0, &wt, true).unwrap();
+    }
+
+    /// Two prompts in one session remember each other, and so does a respawned adapter
+    /// through session/load. Prints what it reports. `TG_LIVE_AGENT=claude|codex`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_two_turns_probe() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let agent = if std::env::var("TG_LIVE_AGENT").as_deref() == Ok("codex") { AgentKind::Codex } else { AgentKind::Claude };
+        let dir = std::env::temp_dir().join(format!("tg-two-turns-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let dir = dunce::canonicalize(dir).unwrap();
+        let spawn = || {
+            let (program, args) = agent.acp_command(env::which).unwrap();
+            let mut c = env::command(program);
+            c.args(args).current_dir(&dir).env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+            c.spawn().unwrap()
+        };
+        let start = |child: &mut Child, sink: Arc<Recorder>| {
+            let session = Arc::new(TaskSession::new("r", agent, &dir, sink, Arc::new(Rules)).unwrap());
+            AcpClient::start_with_timeout(child.stdout.take().unwrap(), child.stdin.take().unwrap(), session, Duration::from_secs(300))
+        };
+        let sink = Arc::new(Recorder::default());
+        let mut child = spawn();
+        let client = start(&mut child, sink.clone());
+        let init = client.initialize().await.unwrap();
+        eprintln!("loadSession={}", init["agentCapabilities"]["loadSession"]);
+        let id = client.new_session(&dir, json!([])).await.unwrap();
+        for text in ["Remember the word PINEAPPLE. Reply with exactly: ok", "Which word did I ask you to remember? Reply with that word only."] {
+            let result = client.prompt_turn(&id, text).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let events = sink.0.lock().unwrap();
+            let costs: Vec<_> = events.iter().filter(|e| e.kind == "usage").filter_map(|e| e.usage.as_ref()?.cost_usd).collect();
+            eprintln!("RESULT stop={} usage={} costs={costs:?}\nMESSAGE={}", result["stopReason"], result["usage"], message_of(&events));
+            drop(events);
+        }
+        assert!(message_of(&sink.0.lock().unwrap()).contains("PINEAPPLE"), "câu sau phải nhớ câu trước");
+        eprintln!("pid alive across turns: {:?}", child.id());
+        client.close();
+        let pid = child.id(); terminate_adapter(&mut child, pid).await;
+        let sink = Arc::new(Recorder::default());
+        let mut child = spawn();
+        let client = start(&mut child, sink.clone());
+        client.initialize().await.unwrap();
+        let loaded = client.load_session(&id, &dir, json!([])).await;
+        eprintln!("LOAD={loaded:?} replayed={}", sink.0.lock().unwrap().len());
+        if loaded.is_ok() {
+            sink.0.lock().unwrap().clear();
+            let result = client.prompt_turn(&id, "Which word did I ask you to remember? Reply with that word only.").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let events = sink.0.lock().unwrap();
+            let costs: Vec<_> = events.iter().filter(|e| e.kind == "usage").filter_map(|e| e.usage.as_ref()?.cost_usd).collect();
+            eprintln!("AFTER LOAD usage={} costs={costs:?} MESSAGE={}", result["usage"], message_of(&events));
+            assert!(message_of(&events).contains("PINEAPPLE"), "phiên nối lại phải nhớ");
+            drop(events);
+        }
+        client.close();
+        let pid = child.id(); terminate_adapter(&mut child, pid).await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// The M-D scenario: Claude and Codex on one prompt at once, then one result is used.

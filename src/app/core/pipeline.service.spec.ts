@@ -8,9 +8,9 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class RecordingBackend extends MockBackend {
   calls: { agent: string; prompt: string; reuse: string | null }[] = [];
-  override startTask(agent: Parameters<MockBackend['startTask']>[0], prompt: string, repo: string, group: string | null = null, reuse: string | null = null) {
+  override startTask(agent: Parameters<MockBackend['startTask']>[0], prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false) {
     this.calls.push({ agent, prompt, reuse });
-    return super.startTask(agent, prompt, repo, group, reuse);
+    return super.startTask(agent, prompt, repo, group, reuse, singleTurn);
   }
 }
 

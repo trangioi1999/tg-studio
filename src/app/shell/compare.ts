@@ -102,7 +102,7 @@ export class Compare {
   readonly review = output<string>();
 
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly runs = computed(() => this.runsService.groupRuns(this.group()));
   protected readonly prompt = computed(() => this.runs()[0]?.prompt ?? '');
   protected readonly runningCount = computed(() => this.runs().filter((r) => r.status === 'running').length);

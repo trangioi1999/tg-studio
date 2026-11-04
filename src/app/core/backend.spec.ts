@@ -16,11 +16,11 @@ describe('Tauri task commands', () => {
     bridge.invoke.mockResolvedValue('result');
     const backend = new TauriBackend();
     expect(await backend.startTask('codex', 'change', '/repo')).toBe('result');
-    expect(lastCall()).toEqual(['start_task', { agent: 'codex', prompt: 'change', repo: '/repo', group: null, reuse: null }]);
+    expect(lastCall()).toEqual(['start_task', { agent: 'codex', prompt: 'change', repo: '/repo', group: null, reuse: null, singleTurn: false, recap: null }]);
     await backend.startTask('claude', 'change', '/repo', 'g-1');
-    expect(lastCall()).toEqual(['start_task', { agent: 'claude', prompt: 'change', repo: '/repo', group: 'g-1', reuse: null }]);
+    expect(lastCall()).toEqual(['start_task', { agent: 'claude', prompt: 'change', repo: '/repo', group: 'g-1', reuse: null, singleTurn: false, recap: null }]);
     await backend.startTask('gemini', 'review', '/repo', null, 'run-1');
-    expect(lastCall()).toEqual(['start_task', { agent: 'gemini', prompt: 'review', repo: '/repo', group: null, reuse: 'run-1' }]);
+    expect(lastCall()).toEqual(['start_task', { agent: 'gemini', prompt: 'review', repo: '/repo', group: null, reuse: 'run-1', singleTurn: false, recap: null }]);
     await backend.respondPermission('run', 'request', 'allow', true);
     expect(lastCall()).toEqual(['respond_permission', { runId: 'run', requestId: 'request', optionId: 'allow', always: true }]);
     await backend.getDiff('run');
