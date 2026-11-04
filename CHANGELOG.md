@@ -4,6 +4,9 @@
 
 ## [Chưa phát hành]
 
+### An toàn
+- Chế độ Chỉ hỏi chặn ghi bằng cờ của CLI. Trước đây, nếu Claude Code trên máy đặt `defaultMode: auto`, chế độ này ghi được vào code thật. Gemini tạm không có chế độ Chỉ hỏi vì chưa kiểm chứng được cờ chặn ghi.
+
 ### Tiếng Việt
 - Đổi nhãn và thuật ngữ: Nhận/Bỏ, Cho phép lần này/Luôn cho phép/Từ chối, bản nháp, Chỉ hỏi, Thử với nhiều agent, Theo các bước, Chi phí.
 
