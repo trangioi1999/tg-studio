@@ -1,43 +1,48 @@
 import { vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
 import { TauriBackend } from './backend';
 import { MockBackend } from './mock-backend';
 import { AgentEvent } from './protocol';
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+// The real `invoke` forwards to this bridge. Faking the bridge, not the module, keeps the
+// test independent of how the test builder bundles shared modules.
+const bridge = { invoke: vi.fn() };
+const lastCall = () => bridge.invoke.mock.lastCall?.slice(0, 2);
 
 describe('Tauri task commands', () => {
+  afterAll(() => delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+
   it('forwards task arguments using the native camelCase contract', async () => {
+    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = bridge;
+    bridge.invoke.mockResolvedValue('result');
     const backend = new TauriBackend();
-    vi.mocked(invoke).mockResolvedValue('result');
     expect(await backend.startTask('codex', 'change', '/repo')).toBe('result');
-    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'codex', prompt: 'change', repo: '/repo', group: null, reuse: null });
+    expect(lastCall()).toEqual(['start_task', { agent: 'codex', prompt: 'change', repo: '/repo', group: null, reuse: null }]);
     await backend.startTask('claude', 'change', '/repo', 'g-1');
-    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'claude', prompt: 'change', repo: '/repo', group: 'g-1', reuse: null });
+    expect(lastCall()).toEqual(['start_task', { agent: 'claude', prompt: 'change', repo: '/repo', group: 'g-1', reuse: null }]);
     await backend.startTask('gemini', 'review', '/repo', null, 'run-1');
-    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'gemini', prompt: 'review', repo: '/repo', group: null, reuse: 'run-1' });
+    expect(lastCall()).toEqual(['start_task', { agent: 'gemini', prompt: 'review', repo: '/repo', group: null, reuse: 'run-1' }]);
     await backend.respondPermission('run', 'request', 'allow', true);
-    expect(invoke).toHaveBeenLastCalledWith('respond_permission', { runId: 'run', requestId: 'request', optionId: 'allow', always: true });
+    expect(lastCall()).toEqual(['respond_permission', { runId: 'run', requestId: 'request', optionId: 'allow', always: true }]);
     await backend.getDiff('run');
-    expect(invoke).toHaveBeenLastCalledWith('get_diff', { runId: 'run' });
+    expect(lastCall()).toEqual(['get_diff', { runId: 'run' }]);
     await backend.acceptHunk('run', 'file', 'hunk');
-    expect(invoke).toHaveBeenLastCalledWith('accept_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' });
+    expect(lastCall()).toEqual(['accept_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' }]);
     await backend.acceptAll('run');
-    expect(invoke).toHaveBeenLastCalledWith('accept_all', { runId: 'run' });
+    expect(lastCall()).toEqual(['accept_all', { runId: 'run' }]);
     await backend.listFiles('run');
-    expect(invoke).toHaveBeenLastCalledWith('list_worktree_files', { runId: 'run' });
+    expect(lastCall()).toEqual(['list_worktree_files', { runId: 'run' }]);
     await backend.readFile('run', 'a b.ts');
-    expect(invoke).toHaveBeenLastCalledWith('read_worktree_file', { runId: 'run', path: 'a b.ts' });
+    expect(lastCall()).toEqual(['read_worktree_file', { runId: 'run', path: 'a b.ts' }]);
     await backend.writeFile('run', 'a b.ts', 'x');
-    expect(invoke).toHaveBeenLastCalledWith('write_worktree_file', { runId: 'run', path: 'a b.ts', content: 'x' });
+    expect(lastCall()).toEqual(['write_worktree_file', { runId: 'run', path: 'a b.ts', content: 'x' }]);
     await backend.rejectHunk('run', 'file', 'hunk');
-    expect(invoke).toHaveBeenLastCalledWith('reject_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' });
+    expect(lastCall()).toEqual(['reject_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' }]);
     expect(await backend.commitAccepted('run', 'commit')).toBe('result');
-    expect(invoke).toHaveBeenLastCalledWith('commit_accepted', { runId: 'run', message: 'commit' });
+    expect(lastCall()).toEqual(['commit_accepted', { runId: 'run', message: 'commit' }]);
     await backend.accountLimits();
-    expect(invoke).toHaveBeenLastCalledWith('account_limits');
+    expect(lastCall()).toEqual(['account_limits', {}]);
     await backend.discardWorktree('run');
-    expect(invoke).toHaveBeenLastCalledWith('discard_worktree', { runId: 'run' });
+    expect(lastCall()).toEqual(['discard_worktree', { runId: 'run' }]);
   });
 });
 
