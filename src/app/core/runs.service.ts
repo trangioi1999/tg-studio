@@ -150,7 +150,7 @@ export class RunsService {
     void this.loadLimits();
   }
 
-  private async loadLimits(): Promise<void> {
+  async loadLimits(): Promise<void> {
     try {
       const saved = await this.backend.accountLimits();
       // A live report may already have arrived; keep whichever is newer.
@@ -423,6 +423,7 @@ export class RunsService {
           const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
             ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
           this.forget(run.id);
+          void this.loadLimits();
           const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
           return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [], waits };
         }
