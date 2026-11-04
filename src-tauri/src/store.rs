@@ -1,7 +1,7 @@
 //! SQLite run history. Callers handle storage errors without stopping a run.
 
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
 };
 
@@ -9,7 +9,7 @@ use rusqlite::{params, types::Type, Connection, Error, Result};
 use serde::Serialize;
 use tauri::State;
 
-use crate::{adapters::AgentKind, usage::Usage};
+use crate::{adapters::AgentKind, usage::Usage, worktree::Worktree};
 
 const RESTORED_RUNS: usize = 100;
 
@@ -43,6 +43,7 @@ pub struct StoredRun {
     pub exit_code: Option<i32>,
     pub usage: Option<Usage>,
     pub lines: Vec<StoredLine>,
+    pub worktree: Option<String>,
 }
 
 impl Store {
@@ -84,8 +85,18 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1 => {},
+            1 | 2 => {},
             _ => return Err(Error::InvalidQuery),
+        }
+        if version < 2 {
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN repo TEXT;
+                ALTER TABLE runs ADD COLUMN branch TEXT;
+                ALTER TABLE runs ADD COLUMN base TEXT;
+                CREATE TABLE permission_rules (
+                    repo TEXT NOT NULL, agent TEXT NOT NULL, rule TEXT NOT NULL,
+                    PRIMARY KEY (repo, agent, rule)
+                );
+                PRAGMA user_version = 2;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -103,6 +114,59 @@ impl Store {
             params![run.id, agent.as_str(), run.prompt, run.cwd, sql_integer(run.started_at)?],
         )?;
         Ok(())
+    }
+
+    pub fn add_rule(&self, repo: &str, agent: AgentKind, rule: &str) -> Result<()> {
+        let agent = agent_key(agent)?;
+        self.connection()?.execute(
+            "INSERT OR IGNORE INTO permission_rules (repo, agent, rule) VALUES (?1, ?2, ?3)",
+            params![repo, agent, rule],
+        )?;
+        Ok(())
+    }
+
+    pub fn rules_for(&self, repo: &str, agent: AgentKind) -> Result<Vec<String>> {
+        let agent = agent_key(agent)?;
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT rule FROM permission_rules WHERE repo = ?1 AND agent = ?2 ORDER BY rule")?;
+        let rows = stmt.query_map(params![repo, agent], |row| row.get(0))?;
+        rows.collect()
+    }
+
+    #[cfg(test)]
+    pub fn set_run_worktree(&self, run_id: &str, repo: &str, wt: &Worktree) -> Result<()> {
+        write_worktree(&*self.connection()?, run_id, repo, wt)
+    }
+
+    pub fn insert_run_with_worktree(&self, run: &NewRun<'_>, repo: &str, wt: &Worktree) -> Result<()> {
+        let agent = agent_key(run.agent)?;
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO runs (id, agent, prompt, cwd, started_at, status) VALUES (?1, ?2, ?3, ?4, ?5, 'running')",
+            params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?],
+        )?;
+        write_worktree(&tx, run.id, repo, wt)?;
+        tx.commit()
+    }
+
+    pub fn clear_run_worktree(&self, run_id: &str) -> Result<()> {
+        self.connection()?.execute(
+            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL WHERE id = ?1",
+            params![run_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn run_worktree(&self, run_id: &str) -> Result<(PathBuf, Worktree)> {
+        self.connection()?.query_row(
+            "SELECT repo, worktree, branch, base FROM runs WHERE id = ?1 AND repo IS NOT NULL
+                AND worktree IS NOT NULL AND branch IS NOT NULL AND base IS NOT NULL",
+            [run_id], |row| Ok((PathBuf::from(row.get::<_, String>(0)?), Worktree {
+                run_id: run_id.into(), path: PathBuf::from(row.get::<_, String>(1)?),
+                branch: row.get(2)?, base: row.get(3)?,
+            })),
+        )
     }
 
     pub fn append_line(&self, run_id: &str, kind: &str, line: &str, at: u64) -> Result<()> {
@@ -141,7 +205,7 @@ impl Store {
         let tx = conn.transaction()?;
         let mut runs = {
             let mut stmt = tx.prepare(
-                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree
                  FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
@@ -151,7 +215,7 @@ impl Store {
                 Ok(StoredRun {
                     id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
                     started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
-                    exit_code: row.get(7)?, usage: None, lines: Vec::new(),
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>>>()?
@@ -205,6 +269,23 @@ pub async fn list_runs(store: State<'_, Store>) -> std::result::Result<Vec<Store
     store.list_runs(RESTORED_RUNS).map_err(|e| e.to_string())
 }
 
+fn agent_key(agent: AgentKind) -> Result<String> {
+    serde_json::to_value(agent)
+        .map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))?
+        .as_str().map(str::to_owned).ok_or(Error::InvalidQuery)
+}
+
+fn write_worktree(conn: &Connection, run_id: &str, repo: &str, wt: &Worktree) -> Result<()> {
+    if wt.run_id != run_id { return Err(Error::InvalidQuery); }
+    let path = wt.path.to_str().ok_or(Error::InvalidQuery)?;
+    let changed = conn.execute(
+        "UPDATE runs SET repo = ?2, worktree = ?3, branch = ?4, base = ?5 WHERE id = ?1",
+        params![run_id, repo, path, wt.branch, wt.base],
+    )?;
+    if changed == 0 { return Err(Error::QueryReturnedNoRows); }
+    Ok(())
+}
+
 // SQLite INTEGER is signed; reject out-of-range values instead of truncating.
 fn sql_integer(value: u64) -> Result<i64> {
     i64::try_from(value).map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))
@@ -218,6 +299,67 @@ fn unsigned(value: i64, column: usize) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v1_migration_preserves_history() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE runs (id TEXT PRIMARY KEY, agent TEXT NOT NULL, prompt TEXT NOT NULL,
+            cwd TEXT NOT NULL, status TEXT NOT NULL, exit_code INTEGER, started_at INTEGER NOT NULL,
+            ended_at INTEGER, model TEXT, step TEXT, worktree TEXT, task_id TEXT);
+            CREATE TABLE run_lines (id INTEGER PRIMARY KEY, run_id TEXT REFERENCES runs(id), kind TEXT, line TEXT, at INTEGER);
+            CREATE TABLE usage_events (id INTEGER PRIMARY KEY, run_id TEXT REFERENCES runs(id), at INTEGER,
+            input_tokens INTEGER, cached_input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL, cumulative INTEGER, source TEXT, raw TEXT);
+            INSERT INTO runs (id, agent, prompt, cwd, status, started_at) VALUES ('old', 'codex', 'original', '/repo', 'done', 1);
+            INSERT INTO run_lines VALUES (1, 'old', 'log', 'saved', 2);
+            INSERT INTO usage_events VALUES (1, 'old', 3, 10, 2, 3, NULL, 0, 'tokens', NULL);
+            PRAGMA user_version = 1;").unwrap();
+        let store = Store::initialize(conn).unwrap();
+        let run = store.list_runs(1).unwrap().remove(0);
+        assert_eq!(run.prompt, "original");
+        assert_eq!(run.lines[0].line, "saved");
+        assert_eq!(run.usage, Some(usage(10, 2, 3)));
+        store.add_rule("/repo", AgentKind::Codex, "read:*").unwrap();
+        assert!(store.run_worktree("old").is_err());
+    }
+
+    #[test]
+    fn reopen_keeps_scoped_rules_and_worktree() {
+        let dir = std::env::temp_dir().join(format!("tg-store-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("history.db");
+        let wt = crate::worktree::Worktree { run_id: "a".into(), path: dir.join("work tree ✓"), branch: "tg/codex/task".into(), base: "abc123".into() };
+        {
+            let store = Store::open(&path).unwrap();
+            insert(&store, "a", 1);
+            store.set_run_worktree("a", "/repo", &wt).unwrap();
+            store.add_rule("/repo", AgentKind::Codex, "read:*").unwrap();
+            store.add_rule("/repo", AgentKind::Codex, "read:*").unwrap();
+            store.add_rule("/repo", AgentKind::Claude, "write:*").unwrap();
+            store.add_rule("/other", AgentKind::Codex, "shell:*").unwrap();
+            assert!(store.set_run_worktree("missing", "/repo", &Worktree { run_id: "missing".into(), ..wt.clone() }).is_err());
+            assert!(store.set_run_worktree("a", "/changed", &Worktree { run_id: "wrong".into(), ..wt.clone() }).is_err());
+        }
+        {
+            let store = Store::open(&path).unwrap();
+            assert_eq!(store.run_worktree("a").unwrap(), (std::path::PathBuf::from("/repo"), wt));
+            assert_eq!(store.rules_for("/repo", AgentKind::Codex).unwrap(), vec!["read:*"]);
+            assert!(store.rules_for("/missing", AgentKind::Codex).unwrap().is_empty());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn insert_with_worktree_is_atomic_and_checks_identity() {
+        let store = Store::open_in_memory().unwrap();
+        let run = NewRun { id: "a", agent: AgentKind::Codex, prompt: "task", cwd: "/wt", started_at: 1 };
+        let mut wt = crate::worktree::Worktree { run_id: "wrong".into(), path: "/wt".into(), branch: "branch".into(), base: "base".into() };
+        assert!(store.insert_run_with_worktree(&run, "/repo", &wt).is_err());
+        assert!(store.list_runs(1).unwrap().is_empty());
+        wt.run_id = "a".into();
+        store.insert_run_with_worktree(&run, "/repo", &wt).unwrap();
+        assert_eq!(store.run_worktree("a").unwrap().1, wt);
+        assert!(store.insert_run_with_worktree(&run, "/changed", &wt).is_err());
+        assert_eq!(store.run_worktree("a").unwrap().0, std::path::PathBuf::from("/repo"));
+    }
 
     fn insert(store: &Store, id: &str, started_at: u64) {
         store.insert_run(&NewRun { id, agent: AgentKind::Codex, prompt: "Giải thích ✓", cwd: "/tmp/thư mục có dấu cách", started_at }).unwrap();
@@ -234,7 +376,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 1);
+            assert_eq!(version, 2);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();

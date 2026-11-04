@@ -3,7 +3,7 @@
 Tổng: ~14 tuần tới beta. Mỗi giai đoạn kết thúc bằng bản chạy được trên **cả macOS và Windows**.
 Ký hiệu: `[x]` xong · `[ ]` chưa · **XK** = tiêu chí "xong khi".
 
-## Giai đoạn 0 — Nền móng (tuần 1–2) · *đang làm*
+## Giai đoạn 0 — Nền móng (tuần 1–2)
 
 - [x] Angular 22 + Tauri 2, dark IDE shell
 - [x] Dò CLI trên login PATH (`detect.rs`, `env.rs`)
@@ -17,17 +17,18 @@ Ký hiệu: `[x]` xong · `[ ]` chưa · **XK** = tiêu chí "xong khi".
 
 **XK:** mở app, thấy agent đã cài, chạy 1 yêu cầu chỉ-đọc với Claude/Codex/Gemini, thấy token & chi phí.
 
-## Giai đoạn 1 — Một agent chạy trọn vẹn (tuần 3–5)
+## Giai đoạn 1 — Một agent chạy trọn vẹn (tuần 3–5) · *đang làm*
 
 Phụ thuộc: GĐ0. Chi tiết kỹ thuật: `03-agent-integration.md`.
 
-- [ ] ACP client trong Rust (JSON-RPC 2.0 qua stdio): initialize, session mới, prompt, cancel, nhận update
-- [ ] Adapter ACP cho Claude Code; đọc usage song song (headless hoặc từ update)
-- [ ] Thẻ xin duyệt ↔ `request_permission`; policy "Always allow" theo repo
-- [ ] Git worktree manager: tạo / liệt kê / dọn worktree theo run
-- [ ] Editor Monaco + diff viewer; Accept/Reject theo hunk
-- [ ] Commit từ app (message do agent đề xuất, người dùng sửa)
-- [ ] Kiro CLI qua `kiro-cli acp`
+- [x] ACP client trong Rust (JSON-RPC 2.0 qua stdio): initialize, session mới, prompt, cancel, nhận update (kiểm chứng bằng agent giả)
+- [ ] Adapter ACP cho Claude Code; đọc usage song song (headless hoặc từ update) — đã viết, **chưa chạy với adapter thật**
+- [x] Thẻ xin duyệt ↔ `request_permission`; policy "Always allow" theo repo
+- [x] Git worktree manager: tạo / liệt kê / dọn worktree theo run
+- [x] Diff viewer; Accept/Reject theo hunk
+- [ ] Editor Monaco
+- [x] Commit từ app (message do agent đề xuất, người dùng sửa)
+- [ ] Kiro CLI qua `kiro-cli acp` — đã viết, chưa thử vì máy chưa cài Kiro
 
 **XK:** giao 1 task sửa code cho Claude → duyệt lệnh → xem diff → accept → commit, không rời app.
 
