@@ -34,7 +34,7 @@ interface Summary {
           @if (committed()) {
             <p class="ok-text" role="status">Đã commit {{ committed() }} từ {{ choiceLabel() }}.</p>
             @if (leftovers().length || hasComposite()) {
-              <div><button class="btn ghost sm" [disabled]="busy()" (click)="cleanup()">Dọn worktree của nhóm</button></div>
+              <div><button class="btn ghost sm" [disabled]="busy()" (click)="cleanup()">Dọn bản nháp của nhóm</button></div>
             }
           } @else {
             <label class="field">
@@ -67,7 +67,7 @@ interface Summary {
                 @for (f of s.files.slice(0, 8); track f.path) {
                   <li><span class="file-status" [attr.data-status]="f.status">{{ f.status }}</span><span class="mono ellipsis">{{ f.path }}</span></li>
                 } @empty {
-                  <li class="dim">{{ !r.task ? 'Đã bỏ worktree.' : r.status === 'running' ? 'Chưa có thay đổi.' : 'Không có thay đổi nào chờ duyệt.' }}</li>
+                  <li class="dim">{{ !r.task ? 'Đã bỏ bản nháp.' : r.status === 'running' ? 'Chưa có thay đổi.' : 'Không có thay đổi nào chờ duyệt.' }}</li>
                 }
                 @if (s.files.length > 8) { <li class="dim">và {{ s.files.length - 8 }} tệp khác</li> }
               </ul>

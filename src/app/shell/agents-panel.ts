@@ -26,7 +26,7 @@ import { AgentAvatar } from './agent-avatar';
               @if (a.path && a.auth === 'ok') { <span class="tag ok">đã đăng nhập</span> }
               @else if (a.path && a.auth === 'none') { <span class="tag warn">cần đăng nhập</span> }
               @else if (a.path && a.headless) { <span class="tag">chưa rõ đăng nhập</span> }
-              @else if (a.path) { <span class="tag" title="Agent này chưa có chế độ chỉ-đọc; dùng được ở Sửa code, Song song và Pipeline">chỉ Sửa code</span> }
+              @else if (a.path) { <span class="tag" title="Agent này chưa có chế độ chỉ-đọc; dùng được ở Sửa code, Thử với nhiều agent và Theo các bước">chỉ Sửa code</span> }
               @else { <span class="tag warn">chưa cài</span> }
             </div>
             @if (a.path) {

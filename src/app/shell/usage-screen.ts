@@ -28,7 +28,7 @@ const TABLE_LIMIT = 200;
     <div class="usage-page">
       <div class="usage-main-col">
         <header class="usage-head">
-          <h1>Usage</h1>
+          <h1>Chi phí</h1>
           <div class="segmented" role="group" aria-label="Khoảng thời gian">
             @for (d of ranges; track d) {
               <button [class.active]="days() === d" [attr.aria-pressed]="days() === d" (click)="days.set(d)">{{ d }} ngày</button>
