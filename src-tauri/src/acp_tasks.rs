@@ -1025,6 +1025,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Read-only runs happen in the real folder, even with approvals off in the CLI's settings.
+    /// `TG_LIVE_ACP=1 TG_LIVE_AGENT=claude|codex cargo test live_read_only -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_read_only_run_cannot_write() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let agent = if std::env::var("TG_LIVE_AGENT").as_deref() == Ok("codex") { AgentKind::Codex } else { AgentKind::Claude };
+        let dir = dunce::canonicalize(std::env::temp_dir()).unwrap().join(format!("tg-read-only-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let program = env::which(agent.binary()).expect("agent CLI");
+        let (args, _) = agent.headless_invocation("Create a file named pwned.txt containing x in the current directory using your tools.", &program).unwrap();
+        let output = env::command(program).args(args).current_dir(&dir).env("PATH", env::login_path()).stdin(Stdio::null()).output().await.unwrap();
+        eprintln!("{}", String::from_utf8_lossy(&output.stdout).lines().last().unwrap_or_default());
+        assert!(!dir.join("pwned.txt").exists(), "chế độ Chỉ hỏi đã ghi được vào thư mục thật");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// The M-D scenario: Claude and Codex on one prompt at once, then one result is used.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
