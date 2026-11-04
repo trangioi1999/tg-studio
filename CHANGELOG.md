@@ -4,6 +4,10 @@
 
 ## [Chưa phát hành]
 
+### Khởi động
+- Mở app hiện ngay kết quả dò agent lần trước rồi dò lại ở nền, các agent được dò song song. Đọc PATH có giới hạn 5 giây.
+- Kiểm tra đăng nhập thật của Claude và Codex, không tốn token; agent khác ghi "chưa rõ".
+
 ### Windows
 - Nút Dừng và hết giờ diệt cả cây tiến trình, không còn để `node` chạy ngầm sau `.cmd`.
 - Prompt nhiều dòng qua shim `.cmd` đi bằng stdin thay vì bị từ chối.

@@ -9,13 +9,6 @@ export const ONBOARDED_KEY = 'tg.onboarded';
 
 const SAMPLE = 'Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng.';
 
-const LOGIN: Record<string, string> = {
-  claude: 'claude',
-  codex: 'codex login',
-  gemini: 'gemini',
-  kiro: 'kiro-cli login',
-};
-
 /** First run: find the CLIs, log in, pick a repo, run a read-only sample. Under five minutes. */
 @Component({
   selector: 'tg-onboarding',
@@ -56,11 +49,11 @@ const LOGIN: Record<string, string> = {
                 }
               </ul>
               <div class="onb-actions">
-                <button class="btn ghost sm" [disabled]="agents.loading()" (click)="agents.refresh()">{{ agents.loading() ? 'Đang dò…' : 'Dò lại' }}</button>
+                <button class="btn ghost sm" [disabled]="agents.checking()" (click)="agents.refresh()">{{ agents.checking() ? 'Đang dò…' : 'Dò lại' }}</button>
                 <span class="spacer"></span>
                 <button class="btn primary sm" [disabled]="!installed().length" (click)="step.set(1)">Tiếp</button>
               </div>
-              @if (!installed().length && !agents.loading()) { <p class="dim">Cài một agent trong terminal, rồi bấm Dò lại.</p> }
+              @if (!installed().length && !agents.checking()) { <p class="dim">Cài một agent trong terminal, rồi bấm Dò lại.</p> }
             }
             @case (1) {
               <p>Mỗi agent dùng tài khoản của chính nó. Đăng nhập một lần trong terminal; TG Studio không lưu mật khẩu hay khóa nào.</p>
@@ -69,8 +62,13 @@ const LOGIN: Record<string, string> = {
                   <li>
                     <tg-agent-avatar [agent]="a.id" [size]="20" />
                     <strong>{{ a.name }}</strong>
-                    <code class="mono">{{ login[a.id] }}</code>
-                    <button class="btn ghost sm" (click)="copy(login[a.id])">Chép</button>
+                    @if (a.auth === 'ok') {
+                      <span class="tag ok">đã đăng nhập</span>
+                    } @else {
+                      @if (a.auth === 'none') { <span class="tag warn">cần đăng nhập</span> }
+                      <code class="mono">{{ meta[a.id].login }}</code>
+                      <button class="btn ghost sm" (click)="copy(meta[a.id].login)">Chép</button>
+                    }
                   </li>
                 }
               </ul>
@@ -120,7 +118,6 @@ export class Onboarding {
   readonly done = output<void>();
 
   protected readonly meta = AGENT_META;
-  protected readonly login = LOGIN;
   protected readonly sample = SAMPLE;
   protected readonly steps = ['Agent', 'Đăng nhập', 'Chọn repo', 'Chạy thử'];
   protected readonly step = signal(0);

@@ -224,6 +224,7 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
         }
       }
       @if (blocked(); as b) { <p class="dim ap-hint">{{ b }}</p> }
+      @else if (loginHint(); as h) { <p class="ap-hint warn-text">{{ h }}</p> }
       @if (error()) { <p class="error-text">{{ error() }}</p> }
     </section>
   `,
@@ -317,6 +318,12 @@ export class AgentPanel {
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
+  });
+  /** The agent may still work (an API key, say), so this warns rather than blocks. */
+  protected readonly loginHint = computed(() => {
+    const id = this.agent();
+    const found = id ? this.agents.agents().find((a) => a.id === id) : null;
+    return found?.auth === 'none' ? `${found.name} có thể chưa đăng nhập. Chạy trong terminal: ${AGENT_META[found.id].login}` : null;
   });
   protected readonly quiet = computed(() => {
     const r = this.run();
