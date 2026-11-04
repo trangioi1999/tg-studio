@@ -36,13 +36,13 @@ Lần đầu `npm run dev` sẽ tải và biên dịch các crate Rust, mất v�
 
 Gợi ý yêu cầu đầu tiên: *"Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng"* — chỉ cần đọc file nên chạy trơn tru ở chế độ headless.
 
-## Lưu ý ở giai đoạn 0
+## Lưu ý
 
 - **Quyền:** chế độ *Chỉ đọc* chạy headless, nên thao tác cần duyệt sẽ bị từ chối. Chế độ *Sửa code* chạy qua ACP, có thẻ xin duyệt, và lần đầu tải adapter bằng `npx` nếu máy chưa có.
 - **Codex** yêu cầu thư mục làm việc là một git repo.
 - **Gemini CLI:** nếu phiên bản của bạn đặt tên định dạng stream khác, sửa trong `src-tauri/src/adapters.rs` (xem `gemini --help`).
-- **Kiro CLI:** mới dò được, chưa chạy — Kiro chạy qua ACP (`kiro-cli acp`) ở giai đoạn 1.
-- **Chi phí:** Claude Code tự báo `total_cost_usd`. Codex/Gemini chỉ có token — điền bảng giá trong `src/app/core/pricing.ts` nếu muốn ước tính tiền.
+- **Kiro CLI:** không có chế độ headless, nên chỉ dùng được ở Sửa code / Song song / Pipeline qua ACP (`kiro-cli acp`); chưa kiểm chứng với Kiro thật.
+- **Chi phí:** Claude Code tự báo `total_cost_usd`. Codex/Gemini chỉ có token — nhập bảng giá ở màn Usage nếu muốn ước tính tiền.
 - **PATH trên macOS:** app mở từ Finder không thấy PATH của terminal (nvm, Homebrew). Lõi Rust tự hỏi login shell để lấy PATH — xem `src-tauri/src/env.rs`.
 - Thư mục `src-tauri/icons/android` và `ios` do `tauri icon` tạo ra, không cần cho desktop, xóa được.
 
