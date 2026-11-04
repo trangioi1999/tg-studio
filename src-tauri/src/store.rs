@@ -496,6 +496,16 @@ impl Store {
 
 #[tauri::command]
 pub async fn account_limits(store: State<'_, Store>) -> std::result::Result<Vec<AccountLimits>, String> {
+    // Codex keeps its plan limits in its session logs, so they are current even when it ran elsewhere.
+    let found = tauri::async_runtime::spawn_blocking(|| {
+        let sessions = std::env::var_os("CODEX_HOME").map(std::path::PathBuf::from)
+            .or_else(|| crate::detect::home_dir().map(|home| std::path::Path::new(&home).join(".codex")))?
+            .join("sessions");
+        crate::usage::latest_codex_limits(&sessions)
+    }).await.ok().flatten();
+    if let Some((windows, at)) = found {
+        if let Err(e) = store.set_limits(AgentKind::Codex, &windows, at) { eprintln!("Không lưu được hạn mức Codex: {e}"); }
+    }
     store.all_limits().map_err(|e| e.to_string())
 }
 
