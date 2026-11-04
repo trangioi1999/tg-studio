@@ -3,7 +3,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -16,7 +16,7 @@ pub struct Worktree {
 }
 
 pub fn git(cwd: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut child = crate::env::std_command("git")
         .current_dir(cwd)
         .env("PATH", crate::env::login_path())
         .args(["-c", "core.quotepath=false"])
