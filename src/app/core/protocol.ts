@@ -251,6 +251,17 @@ export interface Project {
   git: 'ready' | 'no_commits' | 'none';
   /** Why `root` differs from the path that was given. */
   adjusted: 'subfolder' | 'file' | null;
+  /** Files a new draft will not see, because it starts from the latest commit. */
+  uncommitted: number;
+  /** Git has a name and email to commit with. */
+  gitUser: boolean;
+}
+
+/** What preparing Git would do, for the user to confirm. Keep in sync with project.rs. */
+export interface GitPlan {
+  files: number;
+  /** Lines added to `.gitignore`, so secrets and dependencies stay out of the commit. */
+  ignore: string[];
 }
 
 export interface PlanEntry {

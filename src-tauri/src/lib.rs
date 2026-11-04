@@ -94,6 +94,8 @@ pub fn run() {
             project::open_project,
             project::list_project_files,
             project::read_project_file,
+            project::git_plan,
+            project::git_prepare,
             acp_tasks::start_task,
             acp_tasks::send_message,
             acp_tasks::respond_permission,

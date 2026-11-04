@@ -28,6 +28,13 @@ interface Composer {
   sending(): boolean;
   send(): Promise<void>;
   onEnter(e: KeyboardEvent): void;
+  dirtyWarning(): number | null;
+  sendAnyway(): Promise<void>;
+  needsGit(): string | null;
+  blocked(): string | null;
+  gitPlan(): { ignore: string[] } | null;
+  planGit(): Promise<void>;
+  prepareGit(): Promise<void>;
 }
 
 async function setup() {
@@ -95,7 +102,44 @@ describe('AgentPanel composer', () => {
     panel.onEnter(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true }));
     expect(backend.starts).toBe(0);
     panel.onEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await vi.waitFor(() => expect(backend.starts).toBe(1));
+  });
+
+  it('warns once about uncommitted files before a new draft, then goes on', async () => {
+    const { backend, panel } = await setup();
+    await TestBed.inject(WorkspaceService).setFolder('/x/dirty');
+    panel.prompt.set('sửa');
+    await panel.send();
+    expect(backend.starts).toBe(0);
+    expect(panel.dirtyWarning()).toBe(3);
+    expect(panel.prompt()).toBe('sửa');
+    await panel.sendAnyway();
     expect(backend.starts).toBe(1);
+    expect(panel.dirtyWarning()).toBeNull();
+  });
+
+  it('makes a plain folder ready for code tasks after showing the plan', async () => {
+    const { panel } = await setup();
+    const workspace = TestBed.inject(WorkspaceService);
+    await workspace.setFolder('/x/nogit');
+    expect(panel.needsGit()).toBe('Khởi tạo Git…');
+    expect(panel.blocked()).toContain('Khởi tạo Git');
+    await panel.planGit();
+    expect(panel.gitPlan()?.ignore).toContain('.env');
+    expect(workspace.project()?.git).toBe('none');
+    await panel.prepareGit();
+    expect(workspace.project()?.git).toBe('ready');
+    expect(panel.needsGit()).toBeNull();
+    expect(panel.gitPlan()).toBeNull();
+  });
+
+  it('shows why Git could not be prepared', async () => {
+    const { panel } = await setup();
+    await TestBed.inject(WorkspaceService).setFolder('/x/nogit-noname');
+    await panel.planGit();
+    await panel.prepareGit();
+    expect(panel.error()).toContain('tên và email');
+    expect(panel.gitPlan()).not.toBeNull();
   });
 
   it('keeps the prompt and shows why when a pipeline cannot start', async () => {

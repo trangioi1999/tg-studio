@@ -5,7 +5,7 @@ import { Project } from './protocol';
 import { WorkspaceService } from './workspace.service';
 
 const KEY = 'tg.repo';
-const ready = (root: string): Project => ({ root, name: root.split('/').pop()!, branch: 'main', git: 'ready', adjusted: null });
+const ready = (root: string): Project => ({ root, name: root.split('/').pop()!, branch: 'main', git: 'ready', adjusted: null, uncommitted: 0, gitUser: true });
 
 class FakeBackend extends MockBackend {
   open: (path: string) => Promise<Project> = async (path) => ready(path);
