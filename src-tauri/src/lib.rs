@@ -58,6 +58,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .manage(project::OpenedProjects::default())
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
         .manage(compose::Composites::default())
@@ -90,6 +91,8 @@ pub fn run() {
             skills::skill_targets,
             skills::install_skill,
             project::open_project,
+            project::list_project_files,
+            project::read_project_file,
             acp_tasks::start_task,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,

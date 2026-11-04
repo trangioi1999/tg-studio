@@ -1,5 +1,9 @@
 use serde::Serialize;
-use std::{fs, io, path::{Path, PathBuf}};
+use std::{collections::HashSet, fs, io, path::{Path, PathBuf}, sync::Mutex};
+use tauri::State;
+
+#[derive(Default)]
+pub struct OpenedProjects(Mutex<HashSet<PathBuf>>);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,10 +119,40 @@ pub fn open(input: &str) -> Result<Project, String> {
     Ok(project)
 }
 
+/// Only exact roots returned by a successful open are authorized.
+fn check_opened(opened: &HashSet<PathBuf>, root: &str) -> Result<PathBuf, String> {
+    let root = PathBuf::from(root);
+    if opened.contains(&root) { Ok(root) } else { Err("Dự án này chưa được mở.".into()) }
+}
+
+impl OpenedProjects {
+    fn root(&self, root: &str) -> Result<PathBuf, String> {
+        let opened = self.0.lock().map_err(|_| "Không truy cập được danh sách dự án.".to_string())?;
+        check_opened(&opened, root)
+    }
+}
+
 #[tauri::command]
-pub async fn open_project(path: String) -> Result<Project, String> {
-    tauri::async_runtime::spawn_blocking(move || open(&path)).await
-        .map_err(|e| format!("Không mở được dự án: {e}"))?
+pub async fn open_project(opened: State<'_, OpenedProjects>, path: String) -> Result<Project, String> {
+    let project = tauri::async_runtime::spawn_blocking(move || open(&path)).await
+        .map_err(|e| format!("Không mở được dự án: {e}"))??;
+    opened.0.lock().map_err(|_| "Không truy cập được danh sách dự án.".to_string())?
+        .insert(PathBuf::from(&project.root));
+    Ok(project)
+}
+
+#[tauri::command]
+pub async fn list_project_files(opened: State<'_, OpenedProjects>, root: String) -> Result<Vec<String>, String> {
+    let root = opened.root(&root)?;
+    tauri::async_runtime::spawn_blocking(move || crate::workspace::list_root(&root)).await
+        .map_err(|e| format!("Không liệt kê được tệp dự án: {e}"))?
+}
+
+#[tauri::command]
+pub async fn read_project_file(opened: State<'_, OpenedProjects>, root: String, path: String) -> Result<String, String> {
+    let root = opened.root(&root)?;
+    tauri::async_runtime::spawn_blocking(move || crate::workspace::read_root(&root, &path)).await
+        .map_err(|e| format!("Không đọc được tệp dự án: {e}"))?
 }
 
 #[cfg(test)]
@@ -141,6 +175,19 @@ mod tests {
     }
 
     fn open_path(path: &Path) -> Project { open(path.to_str().unwrap()).unwrap() }
+
+    #[test]
+    fn project_root_must_have_been_opened() {
+        let folder = Folder::new();
+        let root = dunce::canonicalize(&folder.0).unwrap();
+        let mut opened = std::collections::HashSet::new();
+        assert_eq!(check_opened(&opened, root.to_str().unwrap()).unwrap_err(),
+            "Dự án này chưa được mở.");
+        opened.insert(root.clone());
+        assert_eq!(check_opened(&opened, root.to_str().unwrap()).unwrap(), root);
+        assert!(check_opened(&opened, root.join("child").to_str().unwrap()).is_err());
+        let _ = OpenedProjects::default();
+    }
 
     #[test]
     fn open_reports_each_git_state() {

@@ -6,12 +6,14 @@ import { RunsService } from './runs.service';
 /** What the center area shows. Files and reviews belong to a run's worktree. */
 export type Tab =
   | { kind: 'file'; runId: string; path: string }
+  | { kind: 'source'; root: string; path: string }
   | { kind: 'changes'; runId: string }
   | { kind: 'compare'; group: string };
 
 const REPO_KEY = 'tg.repo';
 
 export function tabKey(t: Tab): string {
+  if (t.kind === 'source') return `source:${t.root}:${t.path}`;
   return t.kind === 'file' ? `file:${t.runId}:${t.path}` : t.kind === 'changes' ? `changes:${t.runId}` : `compare:${t.group}`;
 }
 
@@ -28,6 +30,12 @@ export class WorkspaceService {
   readonly repo = signal<RepoInfo | null>(null);
   /** Why the last open failed. The previous project stays open. */
   readonly folderError = signal<string | null>(null);
+  /** The opened project's own files, viewable before any task exists. */
+  readonly projectFiles = signal<string[]>([]);
+  readonly projectFilesError = signal<string | null>(null);
+  /** Settles when the latest listing is done. */
+  filesLoaded: Promise<void> = Promise.resolve();
+  private filesTicket = 0;
   readonly tabs = signal<Tab[]>([]);
   readonly activeKey = signal<string | null>(null);
   readonly active = computed(() => this.tabs().find((t) => tabKey(t) === this.activeKey()) ?? null);
@@ -90,14 +98,36 @@ export class WorkspaceService {
     this.repo.set(project.git === 'none' ? null : { root: project.root, name: project.name, branch: project.branch });
     this.folderError.set(null);
     writeSaved(project.root);
+    this.reloadProjectFiles();
+  }
+
+  reloadProjectFiles(): void {
+    const root = this.folder();
+    if (!root) return;
+    const ticket = ++this.filesTicket;
+    this.filesLoaded = this.backend.listProjectFiles(root).then(
+      (files) => {
+        if (ticket !== this.filesTicket) return;
+        this.projectFiles.set(files);
+        this.projectFilesError.set(null);
+      },
+      (e) => {
+        if (ticket !== this.filesTicket) return;
+        this.projectFiles.set([]);
+        this.projectFilesError.set(e instanceof Error ? e.message : String(e));
+      },
+    );
+  }
+
+  openSource(path: string): void {
+    this.open({ kind: 'source', root: this.folder(), path });
   }
 
   open(tab: Tab): void {
     const key = tabKey(tab);
     if (!this.tabs().some((t) => tabKey(t) === key)) this.tabs.update((list) => [...list, tab]);
     this.activeKey.set(key);
-    const runId = tab.kind === 'compare' ? this.runs.groupRuns(tab.group)[0]?.id : tab.runId;
-    if (runId && this.runs.selectedId() !== runId && tab.kind !== 'compare') this.runs.selectedId.set(runId);
+    if ((tab.kind === 'file' || tab.kind === 'changes') && this.runs.selectedId() !== tab.runId) this.runs.selectedId.set(tab.runId);
   }
 
   openFile(runId: string, path: string): void {
@@ -143,7 +173,7 @@ export class WorkspaceService {
 
   /** Drops tabs of a run whose worktree is gone. */
   closeRun(runId: string): void {
-    for (const t of this.tabs()) if (t.kind !== 'compare' && t.runId === runId) this.close(tabKey(t));
+    for (const t of this.tabs()) if ((t.kind === 'file' || t.kind === 'changes') && t.runId === runId) this.close(tabKey(t));
   }
 }
 

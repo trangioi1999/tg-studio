@@ -22,10 +22,41 @@ interface Row {
     <div class="panel-head">
       <span class="label">EXPLORER</span>
       <span class="spacer"></span>
-      @if (run(); as r) { <tg-agent-avatar [agent]="r.agent" [size]="14" /> }
+      @if (run(); as r) {
+        <div class="segmented" role="group" aria-label="Xem tệp của">
+          <button [class.active]="view() === 'project'" [attr.aria-pressed]="view() === 'project'" (click)="choice.set('project')">Dự án</button>
+          <button [class.active]="view() === 'draft'" [attr.aria-pressed]="view() === 'draft'" (click)="choice.set('draft')">Bản nháp</button>
+        </div>
+        <tg-agent-avatar [agent]="r.agent" [size]="14" />
+      }
+      @if (view() === 'project' && workspace.folder()) { <button class="btn ghost sm" aria-label="Tải lại danh sách tệp" title="Tải lại danh sách tệp" (click)="workspace.reloadProjectFiles()">↻</button> }
     </div>
     <div class="tree" role="tree" aria-label="Tệp trong worktree" [style.--agent]="color()">
-      @if (run(); as r) {
+      @if (view() === 'project') {
+        @if (!workspace.folder()) {
+          <div class="pad">
+            <p class="dim">Chưa mở dự án nào.</p>
+            <button class="btn primary sm" (click)="workspace.pickFolder()">Mở thư mục</button>
+          </div>
+        } @else if (workspace.projectFilesError(); as e) {
+          <p class="error-text pad" role="alert">{{ e }}</p>
+        } @else {
+          @for (row of rows(); track row.key) {
+            @if (row.dir) {
+              <button class="tree-row" role="treeitem" [attr.aria-expanded]="!collapsed().has(row.path)" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">
+                <span class="twisty" aria-hidden="true">{{ collapsed().has(row.path) ? '▸' : '▾' }}</span>
+                <span class="ellipsis">{{ row.name }}</span>
+              </button>
+            } @else {
+              <button class="tree-row" role="treeitem" [class.active]="row.key === activeKey()" [style.padding-left.px]="22 + row.depth * 12" (click)="workspace.openSource(row.path)">
+                <span class="ellipsis">{{ row.name }}</span>
+              </button>
+            }
+          } @empty {
+            <p class="dim pad">Thư mục này chưa có tệp nào.</p>
+          }
+        }
+      } @else if (run(); as r) {
         @for (row of rows(); track row.key) {
           @if (row.dir) {
             <button class="tree-row" role="treeitem" [attr.aria-expanded]="!collapsed().has(row.path)" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">
@@ -46,28 +77,21 @@ interface Row {
         } @empty {
           <p class="dim pad">Worktree chưa có tệp.</p>
         }
-      } @else if (!workspace.folder()) {
-        <div class="pad">
-          <p class="dim">Chưa mở dự án nào.</p>
-          <button class="btn primary sm" (click)="workspace.pickFolder()">Mở thư mục</button>
-        </div>
-      } @else {
-        <p class="dim pad">Chọn một task Sửa code (ở mục Worktrees bên dưới hoặc tab Runs) để xem tệp của nó. Giao việc ở ô bên phải.</p>
       }
     </div>
-    <div class="panel-head worktrees-head"><span class="label">WORKTREES</span><span class="dim">{{ tasks().length }}</span></div>
-    <div class="worktrees">
-      @for (t of tasks(); track t.id) {
-        <button class="tree-row" [class.active]="t.id === run()?.id" (click)="runs.selectedId.set(t.id)">
-          <tg-agent-avatar [agent]="t.agent" [size]="14" />
-          <span class="ellipsis">{{ t.prompt || meta[t.agent].name }}</span>
-          <span class="spacer"></span>
-          <span class="status" [attr.data-status]="t.status">{{ statusLabel[t.status] }}</span>
-        </button>
-      } @empty {
-        <p class="dim pad">Chưa có worktree nào.</p>
-      }
-    </div>
+    @if (tasks().length) {
+      <div class="panel-head worktrees-head"><span class="label">WORKTREES</span><span class="dim">{{ tasks().length }}</span></div>
+      <div class="worktrees">
+        @for (t of tasks(); track t.id) {
+          <button class="tree-row" [class.active]="t.id === run()?.id" (click)="runs.selectedId.set(t.id); choice.set('draft')">
+            <tg-agent-avatar [agent]="t.agent" [size]="14" />
+            <span class="ellipsis">{{ t.prompt || meta[t.agent].name }}</span>
+            <span class="spacer"></span>
+            <span class="status" [attr.data-status]="t.status">{{ statusLabel[t.status] }}</span>
+          </button>
+        }
+      </div>
+    }
   `,
 })
 export class Explorer {
@@ -82,6 +106,9 @@ export class Explorer {
     return r?.task ? r : null;
   });
   protected readonly tasks = computed(() => this.runs.runs().filter((r) => r.task));
+  /** Which files to show when a task is selected. Without a task only the project has files. */
+  protected readonly choice = signal<'project' | 'draft'>('draft');
+  protected readonly view = computed(() => (this.run() ? this.choice() : 'project'));
   protected readonly color = computed(() => (this.run() ? AGENT_META[this.run()!.agent].color : null));
   protected readonly activeKey = computed(() => this.workspace.activeKey());
   private readonly activity = computed(() => {
@@ -91,14 +118,14 @@ export class Explorer {
   protected readonly hereLabel = computed(() => (this.activity()?.editing ? 'đang sửa' : 'đang xem'));
 
   protected readonly rows = computed<Row[]>(() => {
-    const r = this.run();
-    if (!r) return [];
-    const files = this.workspace.files()[r.id] ?? [];
-    const status = new Map((this.workspace.diffs()[r.id] ?? []).map((f) => [f.path, f.status]));
+    const r = this.view() === 'draft' ? this.run() : null;
+    const root = this.workspace.folder();
+    const files = r ? (this.workspace.files()[r.id] ?? []) : this.workspace.projectFiles();
+    const status = new Map(r ? (this.workspace.diffs()[r.id] ?? []).map((f) => [f.path, f.status]) : []);
     // Deleted files are not on disk but still belong in the tree.
     const all = [...new Set([...files, ...status.keys()])].sort(byFolderThenName);
-    const a = this.activity();
-    const here = a ? this.workspace.relative(r.id, a.path) : null;
+    const a = r ? this.activity() : null;
+    const here = r && a ? this.workspace.relative(r.id, a.path) : null;
     const rows: Row[] = [];
     const seen = new Set<string>();
     const hidden = this.collapsed();
@@ -116,7 +143,7 @@ export class Explorer {
       }
       if (skip) continue;
       rows.push({
-        key: tabKey({ kind: 'file', runId: r.id, path }), depth: parts.length - 1, name: parts.at(-1)!, path, dir: false,
+        key: tabKey(r ? { kind: 'file', runId: r.id, path } : { kind: 'source', root, path }), depth: parts.length - 1, name: parts.at(-1)!, path, dir: false,
         status: status.get(path) ?? null, here: path === here,
       });
     }

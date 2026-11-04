@@ -16,6 +16,10 @@ class FakeBackend extends MockBackend {
   override async pickFolder() {
     return this.picked;
   }
+  list: (root: string) => Promise<string[]> = async () => [];
+  override listProjectFiles(root: string) {
+    return this.list(root);
+  }
 }
 
 async function setup(saved: string | null, configure: (b: FakeBackend) => void = () => {}) {
@@ -108,6 +112,50 @@ describe('WorkspaceService folders', () => {
     backend.picked = '/picked';
     await service.pickFolder();
     expect(service.folder()).toBe('/picked');
+  });
+});
+
+describe('WorkspaceService source files', () => {
+  afterEach(() => localStorage.removeItem(KEY));
+
+  it('lists the files of the opened project', async () => {
+    const { backend, service } = await setup(null);
+    backend.list = async (root) => [`${root.slice(1)}.ts`];
+    await service.setFolder('/demo');
+    await service.filesLoaded;
+    expect(service.projectFiles()).toEqual(['demo.ts']);
+    expect(service.projectFilesError()).toBeNull();
+  });
+
+  it('shows why the list failed and keeps the project open', async () => {
+    const { backend, service } = await setup(null);
+    backend.list = async () => { throw new Error('không đọc được'); };
+    await service.setFolder('/demo');
+    await service.filesLoaded;
+    expect(service.folder()).toBe('/demo');
+    expect(service.projectFiles()).toEqual([]);
+    expect(service.projectFilesError()).toContain('không đọc được');
+  });
+
+  it('ignores the list of a project that is no longer open', async () => {
+    const { backend, service } = await setup(null);
+    let finish!: (files: string[]) => void;
+    backend.list = (root) => (root === '/old' ? new Promise((r) => (finish = r)) : Promise.resolve(['new.ts']));
+    await service.setFolder('/old');
+    const stale = service.filesLoaded;
+    await service.setFolder('/new');
+    await service.filesLoaded;
+    finish(['old.ts']);
+    await stale;
+    expect(service.projectFiles()).toEqual(['new.ts']);
+  });
+
+  it('opens a source tab once and activates it', async () => {
+    const { service } = await setup('/demo');
+    service.openSource('src/a.ts');
+    service.openSource('src/a.ts');
+    expect(service.tabs()).toEqual([{ kind: 'source', root: '/demo', path: 'src/a.ts' }]);
+    expect(service.active()).toEqual({ kind: 'source', root: '/demo', path: 'src/a.ts' });
   });
 });
 
