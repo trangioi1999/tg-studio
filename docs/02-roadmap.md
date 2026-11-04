@@ -12,7 +12,7 @@ Thiết kế: `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Thứ t�
 - [ ] **M1** Mở dự án đầy đủ: dự án gần đây, chuẩn bị Git (đã xong: xem source chỉ đọc)
 - [x] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
 - [ ] **M3** Chat trong một phiên agent (đã xong với chế độ Sửa code, kiểm chứng với Claude thật; còn chế độ Chỉ hỏi nối phiên, kiểm chứng Codex, phạm vi thư mục)
-- [ ] **M4** Bố cục mới
+- [ ] **M4** Bố cục mới (đã xong: chat ở giữa, cây dự án → cuộc trò chuyện, panel phải; còn bảng `threads`, lưu trữ, phạm vi thư mục)
 - [ ] **M5** Dọn thuật ngữ, thông báo, tài liệu, nghiệm thu
 
 ## Giai đoạn 0 — Nền móng (tuần 1–2)

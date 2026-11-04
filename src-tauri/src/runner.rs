@@ -107,6 +107,7 @@ pub async fn start_agent(
     agent: AgentKind,
     prompt: String,
     cwd: String,
+    thread: Option<String>,
 ) -> Result<String, String> {
     let unsupported = || format!("{} chưa chạy được ở chế độ Chỉ đọc trong bản này.", agent.display_name());
     if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
@@ -157,6 +158,7 @@ pub async fn start_agent(
         started_at: now_ms(),
     }));
 
+    if let Some(thread) = &thread { log_store_error(app.state::<Store>().set_run_thread(&run_id, thread)); }
     let mut started = AgentEvent::new(&run_id, agent, "started");
     started.line = Some(format!("{} · {}", bin.display(), cwd));
     publish(&app, started);

@@ -250,7 +250,7 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>) -> Result<String, String> {
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>) -> Result<String, String> {
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -284,6 +284,9 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     };
     let (id, wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse).await?;
     let pid = child.id();
+    if let Some(thread) = &thread {
+        if let Err(e) = app.state::<Store>().set_run_thread(&id, thread) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
+    }
     let sink = Arc::new(AppSink(app.clone()));
     let rules = Arc::new(RepoRules { app: app.clone(), repo: repo.to_string_lossy().into_owned(), agent });
     let session = match TaskSession::new(&id, agent, &wt.path, sink.clone(), rules) {

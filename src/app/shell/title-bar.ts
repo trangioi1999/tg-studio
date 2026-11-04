@@ -3,6 +3,7 @@ import { fmtTokens, fmtUsd } from '../core/format';
 import { IS_MAC } from '../core/keys';
 import { AGENT_META } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
+import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 
@@ -35,6 +36,9 @@ import { AgentAvatar } from './agent-avatar';
       <button class="btn ghost sm" (click)="pick()">Mở thư mục</button>
       @if (workspace.folderError(); as e) { <span class="error-text ellipsis" role="alert" [title]="e">{{ e }}</span> }
       <span class="spacer" data-tauri-drag-region></span>
+      @if (ui.screen() === 'chat') {
+        <button class="btn ghost sm" [class.on]="ui.sideOpen()" [attr.aria-pressed]="ui.sideOpen()" (click)="ui.sideOpen.set(!ui.sideOpen())">Tệp &amp; thay đổi</button>
+      }
       <div class="presence">
         @for (r of live(); track r.id) {
           <button class="chip" [style.--agent]="meta[r.agent].color" [class.attention]="r.permissions.length" (click)="runs.selectedId.set(r.id)">
@@ -51,6 +55,7 @@ import { AgentAvatar } from './agent-avatar';
 export class TitleBar {
   protected readonly runs = inject(RunsService);
   protected readonly workspace = inject(WorkspaceService);
+  protected readonly ui = inject(UiService);
   protected readonly isMac = IS_MAC;
   protected readonly meta = AGENT_META;
   protected readonly tok = fmtTokens;
