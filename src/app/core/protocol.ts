@@ -10,6 +10,8 @@ export interface DetectedAgent {
   version: string | null;
   /** True when the agent can run in headless mode today (phase 0). */
   headless: boolean;
+  /** `unknown`: this CLI has no way to tell, or did not answer. */
+  auth: 'ok' | 'none' | 'unknown';
 }
 
 export interface Usage {
@@ -115,6 +117,8 @@ export interface AgentMeta {
    */
   chart: string;
   install: string;
+  /** Run in a terminal to log in. */
+  login: string;
 }
 
 export interface NameValue {
@@ -177,10 +181,10 @@ export interface PriceRow {
 }
 
 export const AGENT_META: Record<AgentId, AgentMeta> = {
-  claude: { name: 'Claude Code', mono: 'CL', color: '#E07B53', chart: '#C9663E', install: 'npm i -g @anthropic-ai/claude-code' },
-  codex: { name: 'Codex', mono: 'CX', color: '#3FB68B', chart: '#2FAA7F', install: 'npm i -g @openai/codex' },
-  gemini: { name: 'Gemini CLI', mono: 'GM', color: '#6E9BF5', chart: '#3C64B9', install: 'npm i -g @google/gemini-cli' },
-  kiro: { name: 'Kiro CLI', mono: 'KR', color: '#A78BFA', chart: '#987CE9', install: 'Xem hướng dẫn cài tại kiro.dev' },
+  claude: { name: 'Claude Code', mono: 'CL', color: '#E07B53', chart: '#C9663E', install: 'npm i -g @anthropic-ai/claude-code', login: 'claude auth login' },
+  codex: { name: 'Codex', mono: 'CX', color: '#3FB68B', chart: '#2FAA7F', install: 'npm i -g @openai/codex', login: 'codex login' },
+  gemini: { name: 'Gemini CLI', mono: 'GM', color: '#6E9BF5', chart: '#3C64B9', install: 'npm i -g @google/gemini-cli', login: 'gemini' },
+  kiro: { name: 'Kiro CLI', mono: 'KR', color: '#A78BFA', chart: '#987CE9', install: 'Xem hướng dẫn cài tại kiro.dev', login: 'kiro-cli login' },
 };
 
 export const AGENT_IDS: AgentId[] = ['claude', 'codex', 'gemini', 'kiro'];
