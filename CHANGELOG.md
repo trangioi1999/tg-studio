@@ -4,6 +4,10 @@
 
 ## [Chưa phát hành]
 
+### Bố cục mới
+- Chat ở giữa; cột trái là cây dự án và cuộc trò chuyện, mở nhiều dự án cùng lúc, có dự án gần đây; tệp và thay đổi nằm ở panel phải, tự mở một lần khi có thay đổi đầu tiên.
+- Thẻ duyệt luôn hiện đủ, kể cả ở cửa sổ nhỏ nhất. Có thẻ tóm tắt "Đã đổi N tệp". Bỏ activity bar và tab Runs.
+
 ### Sửa lỗi từ review
 - "Luôn cho phép" trên Windows không còn hiểu sai `node.exe`, `git.exe push`.
 - Sửa tay chưa lưu không còn mất khi chuyển sang tab Thay đổi hoặc So sánh.

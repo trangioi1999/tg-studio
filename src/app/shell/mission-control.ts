@@ -113,7 +113,7 @@ const TIMELINE_RUNS = 12;
             }
           </div>
         } @empty {
-          <p class="dim pad">Giao việc ở màn Agents để thấy các agent ở đây.</p>
+          <p class="dim pad">Giao việc ở ô chat để thấy các agent ở đây.</p>
         }
       </section>
     </div>
