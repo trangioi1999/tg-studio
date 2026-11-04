@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
 import { KEYS } from '../core/keys';
+import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
 import { estimateCost } from '../core/pricing';
 import { AGENT_IDS, AGENT_META, AgentId } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
@@ -9,7 +10,9 @@ import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
 
-type Mode = 'task' | 'parallel' | 'read';
+type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
+
+const PIPELINE_KEY = 'tg.pipeline';
 
 const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: '7 ngày' };
 
@@ -33,7 +36,23 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
       @switch (tab()) {
         @case ('thread') {
           @if (run(); as r) {
-            <h2 class="ap-title">{{ r.prompt || meta[r.agent].name }}</h2>
+            @if (pipelineOf(); as po) {
+              <h2 class="ap-title">{{ po.pipeline.task }}</h2>
+              <ol class="stepper" aria-label="Các bước pipeline">
+                @for (s of po.pipeline.steps; track $index; let i = $index) {
+                  <li [attr.data-state]="stepState(po.pipeline, i)" [style.--agent]="meta[s.agent].color" [class.current]="i === po.step">
+                    <button [disabled]="!po.pipeline.runIds[i]" (click)="runs.selectedId.set(po.pipeline.runIds[i]!)">
+                      <span class="stepper-bar"></span>
+                      <tg-agent-avatar [agent]="s.agent" [size]="14" />
+                      <span class="stepper-name ellipsis">{{ s.name }}</span>
+                    </button>
+                  </li>
+                }
+              </ol>
+              @if (po.pipeline.error) { <p class="error-text">{{ po.pipeline.error }}</p> }
+            } @else {
+              <h2 class="ap-title">{{ r.prompt || meta[r.agent].name }}</h2>
+            }
             <section class="ap-card" aria-label="Usage của task">
               <div class="ap-card-head"><span class="label">USAGE · TASK NÀY</span><span class="spacer"></span><strong>{{ usd(taskCost()) }}</strong><span class="dim">{{ tok(taskTokens()) }} tok</span></div>
               @for (t of taskRuns(); track t.id) {
@@ -117,6 +136,7 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
         <select aria-label="Chế độ" [value]="mode()" (change)="mode.set($any($event.target).value)">
           <option value="task">Sửa code</option>
           <option value="parallel">Song song</option>
+          <option value="pipeline">Pipeline</option>
           <option value="read">Chỉ đọc</option>
         </select>
         @if (mode() === 'parallel') {
@@ -128,15 +148,37 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
               </label>
             }
           </div>
+        } @else if (mode() === 'pipeline') {
+          <button class="btn ghost sm" [attr.aria-expanded]="editSteps()" (click)="editSteps.set(!editSteps())">{{ editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
         } @else {
-          <select aria-label="Agent" [value]="agent()" (change)="chosen.set($any($event.target).value)">
-            @for (a of choices(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
+          <select aria-label="Agent" (change)="chosen.set($any($event.target).value)">
+            @for (a of choices(); track a.id) { <option [value]="a.id" [selected]="a.id === agent()">{{ a.name }}</option> }
             @if (!choices().length) { <option value="">Chưa có agent</option> }
           </select>
         }
         <span class="spacer"></span>
         <button class="btn primary sm" [disabled]="!canRun()" [title]="blocked() ?? ''" (click)="send()">Chạy<span class="kbd">{{ keys.enter }}</span></button>
       </div>
+      @if (mode() === 'pipeline') {
+        <ol class="pipe-steps" aria-label="Các bước">
+          @for (s of steps(); track $index; let i = $index) {
+            <li>
+              <div class="pipe-step">
+                <span class="pipe-name">{{ s.name }}</span>
+                <select [attr.aria-label]="'Agent cho bước ' + s.name" (change)="setStep(i, { agent: $any($event.target).value })">
+                  @for (a of choices(); track a.id) { <option [value]="a.id" [selected]="a.id === s.agent">{{ a.name }}</option> }
+                </select>
+              </div>
+              @if (editSteps()) {
+                <textarea class="mono" rows="4" [attr.aria-label]="'Mẫu prompt bước ' + s.name" [value]="s.template" (input)="setStep(i, { template: $any($event.target).value })"></textarea>
+              }
+            </li>
+          }
+        </ol>
+        @if (editSteps()) {
+          <p class="dim ap-hint"><code>{{ '{{task}}' }}</code> yêu cầu · <code>{{ '{{previous}}' }}</code> tin nhắn cuối của bước trước · <code>{{ '{{diff}}' }}</code> diff hiện tại. <button class="link" (click)="resetSteps()">Khôi phục mặc định</button></p>
+        }
+      }
       @if (blocked(); as b) { <p class="dim ap-hint">{{ b }}</p> }
       @if (error()) { <p class="error-text">{{ error() }}</p> }
     </section>
@@ -145,6 +187,7 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
 export class AgentPanel {
   protected readonly runs = inject(RunsService);
   private readonly agents = inject(AgentsService);
+  private readonly pipelines = inject(PipelineService);
   private readonly workspace = inject(WorkspaceService);
   protected readonly meta = AGENT_META;
   protected readonly keys = KEYS;
@@ -176,6 +219,7 @@ export class AgentPanel {
     });
     return parts.length ? `Hạn mức gói: ${parts.join(' | ')}` : null;
   });
+  protected readonly pipelineOf = computed(() => this.pipelines.of(this.run()?.id));
   protected readonly otherApprovals = computed(() => this.runs.runs().filter((r) => r.permissions.length && r.id !== this.run()?.id));
 
   // Composer
@@ -205,9 +249,51 @@ export class AgentPanel {
     if (!this.workspace.folder().trim()) return 'Chọn thư mục làm việc ở thanh trên cùng.';
     if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: đổi thư mục ở thanh trên cùng, hoặc dùng Chỉ đọc.';
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
+    if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
   });
   protected readonly canRun = computed(() => !this.blocked() && !!this.text());
+
+  // Pipeline steps, remembered for the next task.
+  protected readonly editSteps = signal(false);
+  private readonly savedSteps = signal<PipelineStep[] | null>(loadSteps());
+  protected readonly steps = computed<PipelineStep[]>(() => {
+    const saved = this.savedSteps();
+    if (saved) return saved;
+    const ids = this.choices().map((a) => a.id);
+    const pick = (i: number): AgentId => (ids[i % Math.max(ids.length, 1)] ?? 'claude') as AgentId;
+    return [
+      { name: 'Plan', agent: pick(0), template: DEFAULT_TEMPLATES.plan },
+      { name: 'Build', agent: pick(1), template: DEFAULT_TEMPLATES.build },
+      { name: 'Review', agent: pick(2), template: DEFAULT_TEMPLATES.review },
+    ];
+  });
+
+  protected setStep(i: number, change: Partial<PipelineStep>): void {
+    const next = this.steps().map((s, j) => (j === i ? { ...s, ...change } : s));
+    this.savedSteps.set(next);
+    try {
+      localStorage.setItem(PIPELINE_KEY, JSON.stringify(next));
+    } catch {
+      /* remembered for this session only */
+    }
+  }
+
+  protected resetSteps(): void {
+    this.savedSteps.set(null);
+    try {
+      localStorage.removeItem(PIPELINE_KEY);
+    } catch {
+      /* nothing saved */
+    }
+  }
+
+  protected stepState(p: { runIds: (string | null)[]; current: number; status: string }, i: number): string {
+    const id = p.runIds[i];
+    const run = id ? this.runs.runs().find((r) => r.id === id) : null;
+    if (!run) return i < p.current ? 'done' : 'pending';
+    return run.status === 'running' ? 'running' : run.status === 'done' ? 'done' : 'failed';
+  }
 
   protected costOf(r: Run): number | null {
     return r.usage ? (r.usage.costUsd ?? estimateCost(r.agent, r.usage)) : null;
@@ -229,7 +315,9 @@ export class AgentPanel {
     const cwd = this.mode() === 'read' ? this.workspace.folder().trim() : (this.workspace.repo()?.root ?? this.workspace.folder().trim());
     this.error.set(null);
     try {
-      if (this.mode() === 'parallel') {
+      if (this.mode() === 'pipeline') {
+        await this.pipelines.start(text, cwd, this.steps());
+      } else if (this.mode() === 'parallel') {
         const failed = await this.runs.startParallel(this.picked(), text, cwd);
         if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
       } else if (agent) {
@@ -241,5 +329,15 @@ export class AgentPanel {
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
     }
+  }
+}
+
+function loadSteps(): PipelineStep[] | null {
+  try {
+    const raw = localStorage.getItem(PIPELINE_KEY);
+    const steps = raw ? (JSON.parse(raw) as PipelineStep[]) : null;
+    return Array.isArray(steps) && steps.every((s) => s && typeof s.name === 'string' && typeof s.template === 'string') ? steps : null;
+  } catch {
+    return null;
   }
 }

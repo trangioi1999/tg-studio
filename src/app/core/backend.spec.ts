@@ -11,9 +11,11 @@ describe('Tauri task commands', () => {
     const backend = new TauriBackend();
     vi.mocked(invoke).mockResolvedValue('result');
     expect(await backend.startTask('codex', 'change', '/repo')).toBe('result');
-    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'codex', prompt: 'change', repo: '/repo', group: null });
+    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'codex', prompt: 'change', repo: '/repo', group: null, reuse: null });
     await backend.startTask('claude', 'change', '/repo', 'g-1');
-    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'claude', prompt: 'change', repo: '/repo', group: 'g-1' });
+    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'claude', prompt: 'change', repo: '/repo', group: 'g-1', reuse: null });
+    await backend.startTask('gemini', 'review', '/repo', null, 'run-1');
+    expect(invoke).toHaveBeenLastCalledWith('start_task', { agent: 'gemini', prompt: 'review', repo: '/repo', group: null, reuse: 'run-1' });
     await backend.respondPermission('run', 'request', 'allow', true);
     expect(invoke).toHaveBeenLastCalledWith('respond_permission', { runId: 'run', requestId: 'request', optionId: 'allow', always: true });
     await backend.getDiff('run');
