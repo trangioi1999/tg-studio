@@ -22,6 +22,8 @@ export abstract class AgentBackend {
   /** Applies every pending change of the run at once; returns the number of files. */
   abstract acceptAll(runId: string): Promise<number>;
   abstract rejectHunk(runId: string, path: string, hunkId: string): Promise<void>;
+  /** Every staged file of the run's repository: what a commit would include. */
+  abstract stagedFiles(runId: string): Promise<string[]>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
   /** Builds a composite worktree from hunks picked across runs of one group. */
@@ -88,6 +90,9 @@ export class TauriBackend extends AgentBackend {
   }
   startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null) {
     return invoke<string>('start_task', { agent, prompt, repo, group, reuse });
+  }
+  stagedFiles(runId: string) {
+    return invoke<string[]>('staged_files', { runId });
   }
   respondPermission(runId: string, requestId: string, optionId: string, always: boolean) {
     return invoke<void>('respond_permission', { runId, requestId, optionId, always });

@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
@@ -134,7 +134,17 @@ export class RunsService {
     ),
   );
 
+  /** Time for live durations; only ticks while a run is running. */
+  readonly now = signal(Date.now());
+  private readonly anyRunning = computed(() => this.running().length > 0);
+
   constructor() {
+    effect((onCleanup) => {
+      if (!this.anyRunning()) return;
+      this.now.set(Date.now());
+      const timer = setInterval(() => this.now.set(Date.now()), 1000);
+      onCleanup(() => clearInterval(timer));
+    });
     void this.backend.onEvent((e) => this.apply(e));
     void this.hydrate();
     void this.loadLimits();
@@ -190,6 +200,11 @@ export class RunsService {
     this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true }));
     this.selectedId.set(id);
     return id;
+  }
+
+  /** Everything `git commit` would include in the run's repository. */
+  stagedFiles(runId: string): Promise<string[]> {
+    return this.backend.stagedFiles(runId);
   }
 
   /**
