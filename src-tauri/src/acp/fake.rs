@@ -40,7 +40,21 @@ pub fn spawn(steps: Vec<Step>) -> (Reader, Writer, Log) {
     spawn_with_version(1, steps)
 }
 
+/// An agent that reports it can reopen earlier sessions.
+pub fn spawn_loadable(steps: Vec<Step>) -> (Reader, Writer, Log) {
+    spawn_with(1, json!({ "loadSession": true }), Value::Null, steps)
+}
+
+/// An agent whose new sessions report these permission modes.
+pub fn spawn_with_modes(modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
+    spawn_with(1, json!({}), modes, steps)
+}
+
 pub fn spawn_with_version(version: u64, steps: Vec<Step>) -> (Reader, Writer, Log) {
+    spawn_with(version, json!({}), Value::Null, steps)
+}
+
+fn spawn_with(version: u64, capabilities: Value, modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
     let (client_side, agent_side) = tokio::io::duplex(1 << 16);
     let (client_reader, client_writer) = tokio::io::split(client_side);
     let (agent_reader, mut agent_writer) = tokio::io::split(agent_side);
@@ -67,14 +81,20 @@ pub fn spawn_with_version(version: u64, steps: Vec<Step>) -> (Reader, Writer, Lo
                 Some("initialize") => {
                     let result = json!({
                         "protocolVersion": version,
-                        "agentCapabilities": {},
+                        "agentCapabilities": capabilities,
                         "authMethods": [],
                     });
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
                 }
                 Some("session/new") => {
-                    let result = json!({ "sessionId": SESSION_ID });
+                    let result = json!({ "sessionId": SESSION_ID, "modes": modes });
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
+                }
+                Some("session/set_mode") => {
+                    send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
+                }
+                Some("session/load") => {
+                    send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
                 }
                 Some("session/prompt") => {
                     for step in steps.clone() {

@@ -150,7 +150,7 @@ export class RunsService {
     void this.loadLimits();
   }
 
-  private async loadLimits(): Promise<void> {
+  async loadLimits(): Promise<void> {
     try {
       const saved = await this.backend.accountLimits();
       // A live report may already have arrived; keep whichever is newer.
@@ -195,11 +195,16 @@ export class RunsService {
    * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
    * `title` is what the UI shows when the prompt sent to the agent is long.
    */
-  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string } = {}): Promise<string> {
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null);
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string } = {}): Promise<string> {
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null);
     this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true }));
     this.selectedId.set(id);
     return id;
+  }
+
+  /** The next message of the run's open session. */
+  sendMessage(runId: string, text: string): Promise<void> {
+    return this.backend.sendMessage(runId, text);
   }
 
   /** Everything `git commit` would include in the run's repository. */
@@ -293,7 +298,7 @@ export class RunsService {
     const source = this.runs().find((r) => r.id === h.runId);
     const files = h.files.length ? `\n\nTệp liên quan: ${h.files.join(', ')}` : '';
     const prompt = `${h.task}${files}\n\n(Chuyển từ ${AGENT_META[h.from].name} qua tg-bridge.)`;
-    const reuse = source?.task && source.status === 'done' ? source.id : undefined;
+    const reuse = source?.task && (source.status === 'done' || source.status === 'idle') ? source.id : undefined;
     const runId = await this.startTask(h.agent, prompt, repo, { reuse, title: h.task });
     this.dismissHandoff(id);
     return runId;
@@ -416,6 +421,15 @@ export class RunsService {
           }
           return { ...run, lines };
         }
+        case 'user':
+          return { ...run, status: 'running', endedAt: null, exitCode: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
+        case 'turn_end': {
+          this.stopping.delete(run.id);
+          this.forget(run.id);
+          void this.loadLimits();
+          const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
+          return { ...run, status: 'idle', endedAt: e.atMs, permissions: [], waits };
+        }
         case 'exit': {
           const stopped = this.stopping.delete(run.id);
           const reported = e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data)
@@ -423,6 +437,7 @@ export class RunsService {
           const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
             ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
           this.forget(run.id);
+          void this.loadLimits();
           const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
           return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [], waits };
         }
@@ -490,6 +505,7 @@ function toConsoleLine(agent: AgentId, kind: StoredRun['lines'][number]['kind'],
   if (kind === 'started') return { text: line ?? 'started', tone: 'muted' };
   if (!line) return null;
   if (kind === 'message') return { text: line, tone: 'text', key: MESSAGE_KEY };
+  if (kind === 'user') return { text: line, tone: 'user' };
   return kind === 'log' ? describeLine(agent, line) : { text: line, tone: 'error' };
 }
 
@@ -529,12 +545,22 @@ function applyPlan(lines: ConsoleLine[], update: Json): ConsoleLine[] {
   return lines.some((l) => l.key === 'plan') ? lines.map((l) => (l.key === 'plan' ? line : l)) : [...lines, line];
 }
 
+const RECAP_LIMIT = 8000;
+
+/** What a new session is told about a conversation it cannot reopen. Newest text wins the space. */
+export function recapOf(run: { prompt: string; lines: ConsoleLine[] }): string {
+  const said = run.lines.filter((l) => l.tone === 'user' || l.tone === 'text').map((l) => `${l.tone === 'user' ? 'Người dùng' : 'Agent'}: ${l.text}`);
+  const body = [`Người dùng: ${run.prompt}`, ...said].join('\n');
+  const kept = body.length > RECAP_LIMIT ? `…${body.slice(-RECAP_LIMIT)}` : body;
+  return `Tóm tắt cuộc trò chuyện trước. Thư mục này có thể đã có các thay đổi từ cuộc trò chuyện đó:\n${kept}`;
+}
+
 function restoreRun(s: StoredRun): Run {
   const lines = s.lines.reduce<ConsoleLine[]>((all, l) => addLine(all, toConsoleLine(s.agent, l.kind, l.line)), []);
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
-  // A run still marked running belongs to this app session: the UI was only reloaded.
+  // A run still marked running or idle belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [], progress: null };
+  return { ...run, lines, restored: s.status !== 'running' && s.status !== 'idle', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [], progress: null };
 }
 
 /**

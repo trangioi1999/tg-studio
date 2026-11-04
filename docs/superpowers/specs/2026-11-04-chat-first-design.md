@@ -311,7 +311,9 @@ Lệnh mới `send_message(threadId, agent, prompt) -> { runId, spawned }`:
 | Agent khác, chưa có phiên trong cuộc trò chuyện | Spawn trên cùng worktree (`reuse`), gửi kèm tóm tắt | Có |
 | Phiên đã mất (adapter chết, dọn vì rảnh, app mở lại) | Spawn lại. Agent báo `loadSession` thì nối đúng phiên bằng `session/load`; không thì gửi kèm tóm tắt. Luồng ghi một dòng | Có |
 
-**[Cần kiểm chứng]** `session/load` trên `claude-agent-acp` và codex-acp. Gói Codex 0.16.0 báo `loadSession: true`, còn hành vi thật chưa thử.
+**Đã kiểm chứng (2026-11-05):** `session/load` với `claude-agent-acp@0.100.0` nối lại được và agent còn nhớ. Token trong kết quả `session/prompt` là của riêng lượt đó; chi phí trong `usage_update` cộng dồn theo phiên, kể cả sau khi nối lại. **[Cần kiểm chứng]** các điều này với codex-acp.
+
+**Đã phát hiện:** adapter kế thừa `defaultMode` trong thiết lập của CLI. Với `auto`, thẻ duyệt không bao giờ hiện, nên phiên do app mở phải đặt `session/set_mode` về chế độ xin duyệt.
 
 **Tóm tắt:** tối đa 6 lượt gần nhất của nhánh đang tiếp tục (yêu cầu + tin nhắn cuối), giới hạn 8 000 ký tự, nói rõ bản nháp có thể đã có thay đổi. Luồng hiện một dòng "Phiên mới, đã gửi tóm tắt N lượt trước". **[Đề xuất]**
 

@@ -115,7 +115,7 @@ export class PipelineService {
       const diff = previousId ? diffText(await this.runs.getDiff(previousId)) : '(chưa có thay đổi)';
       const prompt = render(step.template, { task: p.task, previous: previous?.lastMessage || '(bước trước không để lại tin nhắn)', diff });
       this.patch(id, { current: index });
-      const runId = await this.runs.startTask(step.agent, prompt, p.repo, { reuse: previousId ?? undefined, title: `${step.name} · ${p.task}` });
+      const runId = await this.runs.startTask(step.agent, prompt, p.repo, { singleTurn: true, reuse: previousId ?? undefined, title: `${step.name} · ${p.task}` });
       this.patch(id, { runIds: this.get(id)!.runIds.map((r, i) => (i === index ? runId : r)) });
     } catch (e) {
       this.patch(id, { status: 'failed', error: `Không chạy được bước ${step.name}: ${e instanceof Error ? e.message : String(e)}` });

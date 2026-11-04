@@ -1,5 +1,6 @@
 //! ACP request routing without a desktop runtime, shared by real and fake agents.
 use std::{collections::{HashMap, VecDeque}, path::Path, sync::{Arc, Mutex}};
+use std::sync::atomic::{AtomicBool,Ordering};
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
 use crate::{acp::{client::{ClientHandler, HandlerFuture, method_not_found}, handlers::{Sandbox, Terminals}}, adapters::AgentKind, policy::{self, Verdict}, runner::AgentEvent};
@@ -26,13 +27,20 @@ pub struct TaskSession {
     events_idle: tokio::sync::Notify,
     operation_gate: Arc<tokio::sync::Mutex<bool>>,
     last_cost: Mutex<Option<f64>>,
+    /// Tokens of the finished turns of this run; the adapter reports each turn on its own.
+    totals: Mutex<(u64,u64,u64)>,
+    /// A reopened session keeps counting cost from where it was; this run owes only the rest.
+    cost_base: Mutex<f64>,
+    /// While a reopened session replays itself, nothing of it belongs to this run.
+    muted: AtomicBool,
+    busy: AtomicBool,
 }
 fn cancelled() -> Value { json!({"outcome":{"outcome":"cancelled"}}) }
 fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","optionId":option}}) }
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None)})
+        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     pub fn agent(&self) -> AgentKind { self.agent }
@@ -92,10 +100,26 @@ impl TaskSession {
         drop(permissions);
         self.flush_events();
     }
-    /// Token counts arrive only with the prompt result; keep the last reported cost with them.
+    pub fn set_muted(&self, muted:bool) { self.muted.store(muted,Ordering::SeqCst); }
+    pub fn set_cost_base(&self, base:f64) { *self.cost_base.lock().unwrap()=base; }
+    pub fn is_busy(&self) -> bool { self.busy.load(Ordering::SeqCst) }
+    pub fn set_busy(&self, busy:bool) { self.busy.store(busy,Ordering::SeqCst); }
+    /// True for the one caller that may start the next turn.
+    pub fn claim_turn(&self) -> bool { self.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_ok() }
+    fn with_totals(&self, mut usage:crate::usage::Usage) -> crate::usage::Usage {
+        let t=*self.totals.lock().unwrap();
+        usage.input_tokens=t.0; usage.cached_input_tokens=t.1; usage.output_tokens=t.2;
+        usage
+    }
+    /// Token counts arrive only with the prompt result, per turn; keep the last reported cost with them.
     pub fn turn_finished(&self, result:&Value) {
         let cost = *self.last_cost.lock().unwrap();
         if let Some(usage) = crate::usage::parse_acp_turn(result, cost) {
+            {
+                let mut t=self.totals.lock().unwrap();
+                t.0+=usage.input_tokens; t.1+=usage.cached_input_tokens; t.2+=usage.output_tokens;
+            }
+            let usage=self.with_totals(usage);
             let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
             event.usage = Some(usage); self.queue(event); self.flush_events();
         }
@@ -154,6 +178,7 @@ impl TaskSession {
 }
 impl ClientHandler for TaskSession {
     fn on_notification(&self, method:&str, params:Value) {
+        if self.muted.load(Ordering::SeqCst) { return; }
         if method != "session/update" {return;}
         let permissions=self.permissions.lock().unwrap();
         if permissions.closed {return;}
@@ -170,8 +195,11 @@ impl ClientHandler for TaskSession {
                 if let Some(windows) = crate::usage::parse_rate_limit(&update["_meta"]["_claude/rateLimit"]) {
                     self.queue_data("limits", json!({"windows": windows}));
                 }
-                if let Some(usage) = crate::usage::parse_acp(update) {
+                if let Some(mut usage) = crate::usage::parse_acp(update) {
+                    let base=*self.cost_base.lock().unwrap();
+                    usage.cost_usd=usage.cost_usd.map(|c|(c-base).max(0.0));
                     *self.last_cost.lock().unwrap() = usage.cost_usd;
+                    let usage=self.with_totals(usage);
                     let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
                     event.usage = Some(usage); self.queue(event);
                 }

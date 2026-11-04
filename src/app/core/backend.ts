@@ -18,8 +18,13 @@ export abstract class AgentBackend {
   /** Reads a file of an opened project. There is no way to write through here. */
   abstract readProjectFile(root: string, path: string): Promise<string>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
-  /** `reuse`: continue in the worktree of this finished run (a later pipeline step). */
-  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null): Promise<string>;
+  /**
+   * `reuse`: continue in the worktree of this finished run. `singleTurn`: close the session
+   * after one turn (a pipeline step). `recap`: sent first unless the session can be reopened.
+   */
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null): Promise<string>;
+  /** Continues the run's open session; no new agent process starts. */
+  abstract sendMessage(runId: string, prompt: string): Promise<void>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
   abstract getDiff(runId: string): Promise<FileDiff[]>;
   abstract acceptHunk(runId: string, path: string, hunkId: string): Promise<void>;
@@ -98,8 +103,11 @@ export class TauriBackend extends AgentBackend {
   start(agent: AgentId, prompt: string, cwd: string) {
     return invoke<string>('start_agent', { agent, prompt, cwd });
   }
-  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null) {
-    return invoke<string>('start_task', { agent, prompt, repo, group, reuse });
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null) {
+    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap });
+  }
+  sendMessage(runId: string, prompt: string) {
+    return invoke<void>('send_message', { runId, prompt });
   }
   stagedFiles(runId: string) {
     return invoke<string[]>('staged_files', { runId });

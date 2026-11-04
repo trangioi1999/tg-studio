@@ -311,3 +311,91 @@ mod tests {
         assert!(parse_line(AgentKind::Kiro, r#"{"type":"result"}"#).is_none());
     }
 }
+
+/// Plan limits from one line of a Codex session log, which has `rate_limits` on its
+/// `token_count` events. A limit bucket with no windows yields nothing.
+pub fn codex_limits_from_line(line: &str) -> Option<Vec<LimitWindow>> {
+    if !line.contains("\"rate_limits\"") { return None; }
+    let value: Value = serde_json::from_str(line).ok()?;
+    let limits = &value["payload"]["rate_limits"];
+    let windows: Vec<LimitWindow> = ["primary", "secondary"].iter().filter_map(|key| {
+        let w = limits.get(*key).filter(|w| w.is_object())?;
+        let id = match w["window_minutes"].as_u64()? {
+            300 => "five_hour".to_string(),
+            10080 => "seven_day".to_string(),
+            minutes => format!("{minutes}_minutes"),
+        };
+        Some(LimitWindow {
+            id,
+            utilization: w["used_percent"].as_f64().filter(|p| p.is_finite() && *p >= 0.0)? / 100.0,
+            resets_at: w["resets_at"].as_u64().map(|s| s * 1000),
+            status: None,
+        })
+    }).collect();
+    (!windows.is_empty()).then_some(windows)
+}
+
+/// The newest Codex plan limits on this machine, with when they were written (epoch ms).
+/// Reads the most recent session logs only; a log without limits falls through to the next.
+pub fn latest_codex_limits(sessions: &std::path::Path) -> Option<(Vec<LimitWindow>, u64)> {
+    let mut logs = Vec::new();
+    let mut folders = vec![sessions.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                folders.push(path);
+            } else if kind.is_file() && path.extension().is_some_and(|e| e == "jsonl") {
+                let modified = entry.metadata().and_then(|m| m.modified()).ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_millis() as u64);
+                logs.push((modified, path));
+            }
+        }
+    }
+    logs.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    logs.into_iter().take(10).find_map(|(modified, path)| {
+        let text = std::fs::read(&path).ok()?;
+        let text = String::from_utf8_lossy(&text);
+        text.lines().rev().find_map(codex_limits_from_line).map(|windows| (windows, modified))
+    })
+}
+
+#[cfg(test)]
+mod codex_limit_tests {
+    use super::*;
+
+    const LINE: &str = r#"{"timestamp":"2026-11-05T00:00:00Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","primary":{"used_percent":99.0,"window_minutes":300,"resets_at":1793828266},"secondary":{"used_percent":32.0,"window_minutes":10080,"resets_at":1794332459},"plan_type":"plus"}}}"#;
+    const EMPTY: &str = r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"premium","primary":null,"secondary":null}}}"#;
+
+    #[test]
+    fn reads_both_windows() {
+        let windows = codex_limits_from_line(LINE).unwrap();
+        assert_eq!(windows.len(), 2);
+        assert_eq!((windows[0].id.as_str(), windows[0].utilization, windows[0].resets_at), ("five_hour", 0.99, Some(1793828266000)));
+        assert_eq!((windows[1].id.as_str(), windows[1].utilization), ("seven_day", 0.32));
+    }
+
+    #[test]
+    fn ignores_buckets_without_windows_and_other_lines() {
+        assert_eq!(codex_limits_from_line(EMPTY), None);
+        assert_eq!(codex_limits_from_line("not json with \"rate_limits\""), None);
+        assert_eq!(codex_limits_from_line(r#"{"type":"message"}"#), None);
+    }
+
+    #[test]
+    fn finds_the_newest_limits_and_skips_a_log_without_any() {
+        let root = std::env::temp_dir().join(format!("tg-codex-limits-{}", uuid::Uuid::new_v4()));
+        let day = root.join("2026/11/05");
+        std::fs::create_dir_all(&day).unwrap();
+        assert_eq!(latest_codex_limits(&root), None);
+        std::fs::write(day.join("old.jsonl"), format!("{LINE}\n{EMPTY}\n")).unwrap();
+        let (windows, at) = latest_codex_limits(&root).unwrap();
+        assert_eq!(windows.len(), 2);
+        assert!(at > 0);
+        std::fs::remove_dir_all(root).unwrap();
+        assert_eq!(latest_codex_limits(std::path::Path::new("/khong/ton/tai")), None);
+    }
+}
