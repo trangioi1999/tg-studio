@@ -100,14 +100,40 @@ export interface AgentMeta {
   name: string;
   mono: string;
   color: string;
+  /**
+   * The same hue at a lightness validated for charts on the dark surface
+   * (dataviz validate_palette.js: band, chroma, CVD ΔE ≥ 8, contrast). Charts only.
+   */
+  chart: string;
   install: string;
 }
 
+/** One run in the usage ledger. Keep in sync with store.rs `UsageRow`. */
+export interface UsageRow {
+  id: string;
+  agent: AgentId;
+  prompt: string;
+  startedAt: number;
+  endedAt: number | null;
+  status: RunStatus;
+  group: string | null;
+  usage: Usage | null;
+}
+
+/** USD per 1M tokens from `fromMs` on; all null means "no price" from then on. */
+export interface PriceRow {
+  agent: AgentId;
+  fromMs: number;
+  input: number | null;
+  cachedInput: number | null;
+  output: number | null;
+}
+
 export const AGENT_META: Record<AgentId, AgentMeta> = {
-  claude: { name: 'Claude Code', mono: 'CL', color: '#E07B53', install: 'npm i -g @anthropic-ai/claude-code' },
-  codex: { name: 'Codex', mono: 'CX', color: '#3FB68B', install: 'npm i -g @openai/codex' },
-  gemini: { name: 'Gemini CLI', mono: 'GM', color: '#6E9BF5', install: 'npm i -g @google/gemini-cli' },
-  kiro: { name: 'Kiro CLI', mono: 'KR', color: '#A78BFA', install: 'Xem hướng dẫn cài tại kiro.dev' },
+  claude: { name: 'Claude Code', mono: 'CL', color: '#E07B53', chart: '#C9663E', install: 'npm i -g @anthropic-ai/claude-code' },
+  codex: { name: 'Codex', mono: 'CX', color: '#3FB68B', chart: '#2FAA7F', install: 'npm i -g @openai/codex' },
+  gemini: { name: 'Gemini CLI', mono: 'GM', color: '#6E9BF5', chart: '#3C64B9', install: 'npm i -g @google/gemini-cli' },
+  kiro: { name: 'Kiro CLI', mono: 'KR', color: '#A78BFA', chart: '#987CE9', install: 'Xem hướng dẫn cài tại kiro.dev' },
 };
 
 export const AGENT_IDS: AgentId[] = ['claude', 'codex', 'gemini', 'kiro'];

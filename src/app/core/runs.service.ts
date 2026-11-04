@@ -99,7 +99,7 @@ export class RunsService {
         acc.cachedInputTokens += r.usage.cachedInputTokens;
         acc.outputTokens += r.usage.outputTokens;
         const reported = r.usage.costUsd;
-        const cost = reported ?? estimateCost(agent, r.usage);
+        const cost = reported ?? estimateCost(agent, r.usage, r.startedAt);
         if (cost !== null) acc.costUsd = (acc.costUsd ?? 0) + cost;
         const source = reported !== null ? 'reported' : cost !== null ? 'estimated' : 'unpriced';
         acc.costSource = acc.costSource === 'none' || acc.costSource === source ? source : 'estimated';

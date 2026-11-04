@@ -47,12 +47,12 @@ Plan: `docs/superpowers/plans/2026-11-04-phase-2-parallel.md`.
 
 **XK:** 3 agent chạy song song cùng 1 task, chọn/ghép kết quả, merge.
 
-## Giai đoạn 3 — Usage & tích hợp (tuần 9–11)
+## Giai đoạn 3 — Usage & tích hợp (tuần 9–11) · *đang làm*
 
 Chi tiết: `04-usage-and-cost.md`, `05-mcp-skills-plugins.md`.
 
-- [ ] Usage Ledger SQLite + màn Usage (KPI, biểu đồ, bảng phiên, export CSV)
-- [ ] Bảng giá chỉnh trong app; ngân sách theo task/ngày/tuần; cảnh báo; tự dừng
+- [x] Usage Ledger SQLite + màn Usage (KPI, biểu đồ theo ngày theo agent, bảng lượt chạy, xuất CSV vào Downloads)
+- [x] Bảng giá chỉnh trong app (có lịch sử: đổi giá không đổi số cũ); ngân sách theo task/ngày; cảnh báo 80 %; tự dừng khi đã có số chi phí. Chưa có ngân sách tuần
 - [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn) — **đã có cho Claude**: cửa sổ 5 giờ / 7 ngày từ `rate_limit_event` của lượt Chỉ đọc, lưu lại qua các lần mở app. Còn thiếu: lượt Sửa code (adapter ACP bỏ event này nếu nó đến trước phản hồi đầu tiên), Codex/Gemini/Kiro chưa có nguồn
 - [ ] Registry MCP: thêm server, ma trận bật/tắt, sinh config từng agent
 - [ ] Skills: thư viện SKILL.md, đồng bộ sang agent hỗ trợ

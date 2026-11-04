@@ -18,7 +18,7 @@
     </nav>
     @switch (ui.screen()) {
       @case ('mission') { <tg-mission-control class="center" /> }
-      @case ('usage') { <tg-usage-panel class="center usage-screen" /> }
+      @case ('usage') { <tg-usage-screen class="center" /> }
       @default {
         @if (ui.sidebar() === 'agents') { <tg-agents-panel class="sidebar" /> } @else { <tg-explorer class="sidebar" /> }
         <tg-workbench class="center" />

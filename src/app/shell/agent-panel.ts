@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
+import { BudgetService } from '../core/budget.service';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
 import { KEYS } from '../core/keys';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
@@ -188,6 +189,7 @@ export class AgentPanel {
   protected readonly runs = inject(RunsService);
   private readonly agents = inject(AgentsService);
   private readonly pipelines = inject(PipelineService);
+  private readonly budget = inject(BudgetService);
   private readonly workspace = inject(WorkspaceService);
   protected readonly meta = AGENT_META;
   protected readonly keys = KEYS;
@@ -245,6 +247,7 @@ export class AgentPanel {
   private readonly text = computed(() => (this.mention()?.rest ?? this.prompt()).trim());
   /** Why Run is disabled, in words. */
   protected readonly blocked = computed(() => {
+    if (this.budget.blockReason()) return this.budget.blockReason();
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
     if (!this.workspace.folder().trim()) return 'Chọn thư mục làm việc ở thanh trên cùng.';
     if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: đổi thư mục ở thanh trên cùng, hoặc dùng Chỉ đọc.';
@@ -296,7 +299,7 @@ export class AgentPanel {
   }
 
   protected costOf(r: Run): number | null {
-    return r.usage ? (r.usage.costUsd ?? estimateCost(r.agent, r.usage)) : null;
+    return r.usage ? (r.usage.costUsd ?? estimateCost(r.agent, r.usage, r.startedAt)) : null;
   }
 
   protected duration(r: Run): string {
