@@ -66,35 +66,31 @@ impl AgentKind {
         let batch = program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
         if !batch || !prompt.contains(['\r', '\n']) { return self.headless_args(prompt).map(|args| (args, None)); }
         let args: Vec<&str> = match self {
-            AgentKind::Claude => vec!["-p", "--output-format", "stream-json", "--verbose"],
-            AgentKind::Codex => vec!["exec", "--json", "-"],
-            AgentKind::Gemini => vec!["--output-format", "stream-json"],
-            AgentKind::Kiro => return None,
+            AgentKind::Claude => vec!["-p", "--permission-mode", "plan", "--output-format", "stream-json", "--verbose"],
+            AgentKind::Codex => vec!["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "-"],
+            AgentKind::Gemini | AgentKind::Kiro => return None,
         };
         Some((args.into_iter().map(String::from).collect(), Some(prompt.to_string())))
     }
 
-    /// Arguments for a one-shot headless run that prints JSON lines.
-    /// `None` means the agent is only reachable through ACP (phase 1).
+    /// Arguments for a one-shot read-only run that prints JSON lines. It runs in the user's
+    /// real folder, so writing must be blocked by the CLI: its own defaults come from the
+    /// user's settings, where approvals may be off. `None`: no blocking flag has been
+    /// verified for this agent, so it is reachable through ACP tasks only.
     pub fn headless_args(self, prompt: &str) -> Option<Vec<String>> {
         let p = prompt.to_string();
         match self {
             AgentKind::Claude => Some(vec![
                 "-p".into(),
                 p,
+                "--permission-mode".into(),
+                "plan".into(),
                 "--output-format".into(),
                 "stream-json".into(),
                 "--verbose".into(),
             ]),
-            AgentKind::Codex => Some(vec!["exec".into(), "--json".into(), p]),
-            // Check `gemini --help` if your version names the streaming format differently.
-            AgentKind::Gemini => Some(vec![
-                "-p".into(),
-                p,
-                "--output-format".into(),
-                "stream-json".into(),
-            ]),
-            AgentKind::Kiro => None,
+            AgentKind::Codex => Some(vec!["exec".into(), "--json".into(), "--sandbox".into(), "read-only".into(), "--skip-git-repo-check".into(), p]),
+            AgentKind::Gemini | AgentKind::Kiro => None,
         }
     }
 }
@@ -105,13 +101,26 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn read_only_runs_are_blocked_from_writing_by_the_cli() {
+        for shim in ["/usr/bin/agent", "agent.cmd"] {
+            for prompt in ["một dòng", "một\nhai"] {
+                let (claude, _) = AgentKind::Claude.headless_invocation(prompt, Path::new(shim)).unwrap();
+                assert!(claude.windows(2).any(|w| w == ["--permission-mode", "plan"]), "{claude:?}");
+                let (codex, _) = AgentKind::Codex.headless_invocation(prompt, Path::new(shim)).unwrap();
+                assert!(codex.windows(2).any(|w| w == ["--sandbox", "read-only"]), "{codex:?}");
+            }
+        }
+        assert_eq!(AgentKind::Gemini.headless_args("x"), None, "chưa kiểm chứng được cờ chặn ghi");
+        assert_eq!(AgentKind::Kiro.headless_args("x"), None);
+    }
+
+    #[test]
     fn line_breaks_reach_a_batch_shim_through_stdin() {
         let shim = Path::new(r"C:\npm\claude.cmd");
         let (args, stdin) = AgentKind::Claude.headless_invocation("một\nhai", shim).unwrap();
-        assert_eq!(args, ["-p", "--output-format", "stream-json", "--verbose"]);
+        assert_eq!(args, ["-p", "--permission-mode", "plan", "--output-format", "stream-json", "--verbose"]);
         assert_eq!(stdin.as_deref(), Some("một\nhai"));
-        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap().0, ["exec", "--json", "-"]);
-        assert_eq!(AgentKind::Gemini.headless_invocation("một\nhai", Path::new("gemini.bat")).unwrap().0, ["--output-format", "stream-json"]);
+        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap().0, ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "-"]);
         assert_eq!(AgentKind::Kiro.headless_invocation("một\nhai", shim), None);
     }
 

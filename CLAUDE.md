@@ -50,8 +50,9 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Usage nhiều câu:** đo trên adapter Claude thật: token báo theo từng câu, chi phí cộng dồn theo phiên. `TaskSession` cộng token và luôn phát `cumulative: true`; phiên nối lại lấy chi phí trừ `cost_base`.
 - **Chế độ duyệt:** adapter kế thừa `defaultMode` trong thiết lập của CLI, có thể là tự duyệt, nên `AcpClient` đặt `session/set_mode` về `default` sau khi mở phiên. Không có bước này thì thẻ duyệt không hiện.
 - **Hạn mức:** Codex đọc từ `rate_limits` trong `~/.codex/sessions` (`usage::latest_codex_limits`), Claude từ event của lượt chạy. `StatusBar` hiện cho mọi agent có nguồn.
+- **Chỉ hỏi chạy trên thư mục thật:** `headless_args` phải luôn kèm cờ chặn ghi của CLI (Claude `--permission-mode plan`, Codex `--sandbox read-only`), vì mặc định của CLI theo thiết lập của người dùng, có thể là tự duyệt. Agent chưa kiểm chứng cờ thì trả về `None`. Test thật: `live_read_only_run_cannot_write`.
 - **Hàng chờ duyệt:** index của worktree có thể bị agent đổi bằng `git add`/`commit`, nên phần đã nhận lưu ở tệp `tg-accepted` trong git dir của worktree; `diff::pending` khôi phục index từ đó trước khi diff.
-- **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.
+- **Gemini, Kiro:** `headless_args` trả về `None`, `detect.rs` dựa vào đó để đặt cờ `headless`; hai agent này chỉ chạy qua ACP (Sửa code).
 - **Lịch sử:** `runner.rs` ghi event vào SQLite (`store.rs`) trước khi phát lên UI, và lỗi ghi không được làm hỏng lượt chạy. Lượt nạp lại có `restored: true`, nên logic usage của phiên phải dùng `sessionRuns`, không dùng `runs`.
 
 - **Task sửa code:** đi qua `acp_tasks.rs`, không qua `runner.rs`. Logic định tuyến nằm ở `TaskSession` (`acp_runner.rs`), test bằng agent giả `acp/fake.rs`. `stop_agent` dùng chung cho cả hai loại run. Token của task chỉ có trong kết quả `session/prompt`, không có trong `usage_update`.
