@@ -7,6 +7,7 @@ import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeli
 import { estimateCost } from '../core/pricing';
 import { AGENT_IDS, AGENT_META, AgentId, BridgeNote } from '../core/protocol';
 import { Run, RunsService, isQuiet, recapOf } from '../core/runs.service';
+import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
@@ -104,7 +105,13 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
                 <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button>
               </div>
             }
-            @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
+            @if (changed(); as c) {
+              <section class="ap-changed" aria-label="Thay đổi của agent">
+                <span>Đã đổi {{ c.files }} tệp, <span class="ok-text">+{{ c.added }}</span> <span class="err-text">−{{ c.removed }}</span></span>
+                <span class="spacer"></span>
+                <button class="btn primary sm" (click)="review(r.id)">Xem thay đổi</button>
+              </section>
+            }
             @for (h of taskHandoffs(); track h.id) {
               <section class="handoff" [style.--agent]="meta[h.agent].color" aria-label="Đề xuất chuyển việc">
                 <div class="handoff-head"><tg-agent-avatar [agent]="h.from" [size]="16" /> {{ meta[h.from].name }} đề xuất chuyển cho <tg-agent-avatar [agent]="h.agent" [size]="16" /> <strong>{{ meta[h.agent].name }}</strong></div>
@@ -149,23 +156,15 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
             }
           </div>
         }
-        @case ('runs') {
-          @for (r of runs.runs(); track r.id) {
-            <button class="ap-run" [class.active]="r.id === run()?.id" (click)="runs.selectedId.set(r.id); tab.set('thread')">
-              <tg-agent-avatar [agent]="r.agent" [size]="16" />
-              <span class="ellipsis">{{ r.prompt || meta[r.agent].name }}</span>
-              <span class="spacer"></span>
-              @if (r.group) { <span class="group-mark" title="Chạy song song">∥</span> }
-              @if (r.permissions.length) { <span class="needs" title="Cần bạn duyệt">!</span> }
-              <span class="status" [attr.data-status]="r.status">{{ statusLabel[r.status] }}</span>
-            </button>
-          } @empty {
-            <p class="dim pad">Chưa có lượt chạy nào.</p>
-          }
-        }
       }
     </div>
 
+    <!-- Pinned above the composer: an approval must never scroll out of sight. -->
+    @if (run()?.permissions?.length) {
+      <div class="ap-approvals">
+        @for (p of run()!.permissions; track p.requestId) { <tg-permission-card [runId]="run()!.id" [agent]="run()!.agent" [request]="p" /> }
+      </div>
+    }
     <section class="ap-composer" aria-label="Giao việc">
       <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
       <textarea id="prompt" rows="3" [placeholder]="placeholder()"
@@ -235,11 +234,12 @@ export class AgentPanel {
   private readonly pipelines = inject(PipelineService);
   private readonly budget = inject(BudgetService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
   protected readonly keys = KEYS;
   protected readonly tok = fmtTokens;
   protected readonly usd = fmtUsd;
-  protected readonly panelTabs = [{ id: 'thread', label: 'Thread' }, { id: 'plan', label: 'Plan' }, { id: 'runs', label: 'Runs' }] as const;
+  protected readonly panelTabs = [{ id: 'thread', label: 'Trò chuyện' }, { id: 'plan', label: 'Kế hoạch' }] as const;
   protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly planLabel: Record<string, string> = { completed: 'xong', in_progress: 'đang làm', pending: 'chưa làm' };
 
@@ -324,6 +324,15 @@ export class AgentPanel {
     const id = this.agent();
     const found = id ? this.agents.agents().find((a) => a.id === id) : null;
     return found?.auth === 'none' ? `${found.name} có thể chưa đăng nhập. Chạy trong terminal: ${AGENT_META[found.id].login}` : null;
+  });
+  /** What this conversation's agent has changed and is waiting on the user. */
+  protected readonly changed = computed(() => {
+    const r = this.run();
+    if (!r?.task || r.status === 'running') return null;
+    const files = this.workspace.diffs()[r.id] ?? [];
+    if (!files.length) return null;
+    const hunks = files.flatMap((f) => f.hunks);
+    return { files: files.length, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
   });
   protected readonly quiet = computed(() => {
     const r = this.run();
@@ -412,6 +421,10 @@ export class AgentPanel {
     this.picks.set(now.includes(id) ? now.filter((a) => a !== id) : [...now, id]);
   }
 
+  protected review(runId: string): void {
+    this.ui.openRun(runId, 'changes');
+  }
+
   protected onEnter(e: KeyboardEvent): void {
     // Enter while a Vietnamese input method is composing only commits the word.
     if (e.shiftKey || e.isComposing) return;
@@ -450,7 +463,7 @@ export class AgentPanel {
           // Same agent with an open session: just the next message. Anything else is a new
           // session in the same draft; the core reopens the old one if it was this agent's.
           if (agent === current.agent && current.status === 'idle') await this.runs.sendMessage(current.id, text);
-          else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current) });
+          else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current), thread: current.thread });
         } else if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd);
         else await this.runs.start(agent, text, cwd);
       }

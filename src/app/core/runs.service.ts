@@ -26,6 +26,10 @@ export interface Run {
   lastMessage: string;
   /** Shared by runs started together in parallel mode. */
   group: string | null;
+  /** The conversation it belongs to. */
+  thread: string;
+  /** The folder the conversation is about. */
+  project: string;
   /** Time spent waiting on approval cards; `to` is null while still waiting. Live runs only. */
   waits: { from: number; to: number | null }[];
   /** The agent's latest plan (ACP `plan` update). Live runs only. */
@@ -187,9 +191,9 @@ export class RunsService {
     if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
 
-  async start(agent: AgentId, prompt: string, cwd: string): Promise<void> {
-    const id = await this.backend.start(agent, prompt, cwd);
-    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd }));
+  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID()): Promise<void> {
+    const id = await this.backend.start(agent, prompt, cwd, thread);
+    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd }));
     this.selectedId.set(id);
   }
 
@@ -197,9 +201,10 @@ export class RunsService {
    * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
    * `title` is what the UI shows when the prompt sent to the agent is long.
    */
-  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string } = {}): Promise<string> {
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null);
-    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true }));
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string } = {}): Promise<string> {
+    const thread = opts.thread ?? crypto.randomUUID();
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread);
+    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo }));
     this.selectedId.set(id);
     return id;
   }
@@ -220,12 +225,12 @@ export class RunsService {
    */
   async startParallel(agents: AgentId[], prompt: string, repo: string): Promise<string[]> {
     const group = crypto.randomUUID();
-    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group)));
+    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group)));
     const errors: string[] = [];
     let first: string | null = null;
     results.forEach((result, i) => {
       if (result.status === 'fulfilled') {
-        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group }));
+        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo }));
         first ??= result.value;
       } else {
         errors.push(`${AGENT_META[agents[i]].name}: ${errorText(result.reason)}`);
@@ -301,7 +306,7 @@ export class RunsService {
     const files = h.files.length ? `\n\nTệp liên quan: ${h.files.join(', ')}` : '';
     const prompt = `${h.task}${files}\n\n(Chuyển từ ${AGENT_META[h.from].name} qua tg-bridge.)`;
     const reuse = source?.task && (source.status === 'done' || source.status === 'idle') ? source.id : undefined;
-    const runId = await this.startTask(h.agent, prompt, repo, { reuse, title: h.task });
+    const runId = await this.startTask(h.agent, prompt, repo, { reuse, title: h.task, thread: source?.thread });
     this.dismissHandoff(id);
     return runId;
   }
@@ -484,7 +489,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '', group: null, waits: [], plan: [], progress: null,
+        task: false, permissions: [], lastMessage: '', group: null, thread: id, project: '', waits: [], plan: [], progress: null,
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -570,7 +575,7 @@ function restoreRun(s: StoredRun): Run {
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running or idle belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running' && s.status !== 'idle', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [], progress: null };
+  return { ...run, thread: s.thread ?? s.group ?? s.id, lines, restored: s.status !== 'running' && s.status !== 'idle', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [], progress: null };
 }
 
 /**
