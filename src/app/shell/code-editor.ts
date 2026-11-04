@@ -303,7 +303,7 @@ export class CodeEditor implements OnDestroy {
       });
       return b;
     };
-    bar.append(avatar, label, count, spacer, button('Reject', KEYS.backspace, 'ghost', 'reject'), button('Accept', KEYS.enter, 'primary', 'accept'));
+    bar.append(avatar, label, count, spacer, button('Bỏ', KEYS.backspace, 'ghost', 'reject'), button('Nhận', KEYS.enter, 'primary', 'accept'));
     return bar;
   }
 

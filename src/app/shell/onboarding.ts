@@ -76,7 +76,7 @@ const SAMPLE = 'Giải thích cấu trúc thư mục này trong 5 gạch đầu 
               <div class="onb-actions"><button class="btn ghost sm" (click)="step.set(0)">Quay lại</button><span class="spacer"></span><button class="btn primary sm" (click)="step.set(2)">Tiếp</button></div>
             }
             @case (2) {
-              <p>Chọn thư mục dự án. Chế độ Sửa code cần một repo Git có ít nhất một commit; agent làm trong worktree riêng nên repo của bạn chỉ đổi khi bạn Accept.</p>
+              <p>Chọn thư mục dự án. Chế độ Sửa code cần một repo Git có ít nhất một commit; agent làm trong bản nháp riêng nên code thật chỉ đổi khi bạn Nhận.</p>
               <div class="onb-actions"><button class="btn primary sm" (click)="workspace.pickFolder()">Chọn thư mục…</button></div>
               <form class="onb-folder" (submit)="$event.preventDefault(); check()">
                 <input class="mono" aria-label="Thư mục dự án" [value]="folder()" (input)="folder.set($any($event.target).value)" spellcheck="false" />
@@ -88,7 +88,7 @@ const SAMPLE = 'Giải thích cấu trúc thư mục này trong 5 gạch đầu 
                 @switch (workspace.project()?.git) {
                   @case ('ready') { <p class="ok-text">Repo Git: <strong>{{ workspace.project()!.name }}</strong> · nhánh {{ workspace.project()!.branch ?? '(HEAD tách rời)' }}</p> }
                   @case ('no_commits') { <p class="dim">Repo Git này chưa có commit, nên chưa dùng được chế độ Sửa code. Hãy commit trong dự án trước, hoặc dùng Chỉ đọc.</p> }
-                  @case ('none') { <p class="dim">Không phải repo Git, nên chỉ dùng được chế độ Chỉ đọc ở đây.</p> }
+                  @case ('none') { <p class="dim">Không phải repo Git, nên chỉ dùng được chế độ Chỉ hỏi ở đây.</p> }
                 }
               }
               <div class="onb-actions"><button class="btn ghost sm" (click)="step.set(1)">Quay lại</button><span class="spacer"></span><button class="btn primary sm" [disabled]="!workspace.folder()" (click)="step.set(3)">Tiếp</button></div>
