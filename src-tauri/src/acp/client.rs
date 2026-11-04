@@ -14,7 +14,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use super::transport::{Incoming, RpcError, Transport};
 
 pub const PROTOCOL_VERSION: u64 = 1;
-const SETUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub type HandlerFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
 
@@ -28,12 +27,22 @@ pub trait ClientHandler: Send + Sync + 'static {
 #[derive(Clone)]
 pub struct AcpClient {
     transport: Transport,
+    setup_timeout: Duration,
 }
 
 impl AcpClient {
     pub fn close(&self) { self.transport.close(); }
 
+    #[cfg(test)]
     pub fn start<R, W>(reader: R, writer: W, handler: Arc<dyn ClientHandler>) -> AcpClient
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        Self::start_with_timeout(reader, writer, handler, Duration::from_secs(60))
+    }
+
+    pub fn start_with_timeout<R, W>(reader: R, writer: W, handler: Arc<dyn ClientHandler>, setup_timeout: Duration) -> AcpClient
     where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
@@ -57,7 +66,7 @@ impl AcpClient {
             }
             handler.on_closed();
         });
-        AcpClient { transport }
+        AcpClient { transport, setup_timeout }
     }
 
     pub async fn initialize(&self) -> Result<Value, String> {
@@ -77,7 +86,7 @@ impl AcpClient {
                         "version": env!("CARGO_PKG_VERSION"),
                     },
                 }),
-                Some(SETUP_TIMEOUT),
+                Some(self.setup_timeout),
             )
             .await
             .map_err(|e| format!("Agent không khởi tạo được: {e}"))?;
@@ -96,7 +105,7 @@ impl AcpClient {
             .request(
                 "session/new",
                 json!({ "cwd": cwd.to_string_lossy(), "mcpServers": mcp_servers }),
-                Some(SETUP_TIMEOUT),
+                Some(self.setup_timeout),
             )
             .await
             .map_err(|e| format!("Không mở được phiên: {e}"))?;
@@ -188,6 +197,25 @@ mod tests {
         let (reader, writer, log) = fake::spawn(steps);
         let client = AcpClient::start(reader, writer, Arc::new(Handler(recorder.clone())));
         (client, recorder, log)
+    }
+
+    #[tokio::test]
+    async fn setup_requests_use_the_configured_timeout() {
+        for initialize in [true, false] {
+            let recorder = Arc::new(Recorder::default());
+            let (io, _silent_agent) = tokio::io::duplex(4096);
+            let (reader, writer) = tokio::io::split(io);
+            let client = AcpClient::start_with_timeout(reader, writer, Arc::new(Handler(recorder)), Duration::from_millis(20));
+            let error = tokio::time::timeout(Duration::from_secs(2), async {
+                if initialize {
+                    client.initialize().await.unwrap_err()
+                } else {
+                    client.new_session(Path::new("/tmp"), json!([])).await.unwrap_err()
+                }
+            }).await.expect("setup must use the configured timeout");
+            assert!(error.contains("Hết thời gian chờ phản hồi ACP"), "{error}");
+            client.close();
+        }
     }
 
     #[tokio::test]

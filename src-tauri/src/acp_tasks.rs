@@ -1,10 +1,10 @@
 //! Tauri boundary and process lifetime for ACP tasks. Session routing stays UI-independent.
 
 use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Arc, Mutex}, time::Duration};
-use serde_json::json;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, sync::oneshot};
-use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
+use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::{AgentKind, setup_timeout}, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -73,7 +73,7 @@ fn bridge_enabled(store: &Store) -> bool {
 
 // Validate and spawn before inserting anything. A failed spawn leaves no run or worktree.
 /// `reuse`: run in an existing worktree (a later pipeline step); it is never removed here.
-async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>), group: Option<&str>, reuse: Option<Worktree>) -> Result<(Worktree, Child), String> {
+async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>), group: Option<&str>, reuse: Option<Worktree>) -> Result<(String, Worktree, Child), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let agent_name = serde_json::to_value(agent).unwrap();
     let shared = reuse.is_some();
@@ -105,7 +105,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
         let cleanup = cleanup(&wt);
         return Err(format!("Không lưu được lượt chạy: {e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
     }
-    Ok((wt, child))
+    Ok((id, wt, child))
 }
 
 // npx is a wrapper: its adapter descendants must stop along with the run.
@@ -126,6 +126,16 @@ async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
     }
     let _ = child.kill().await;
     let _ = child.wait().await;
+}
+
+fn turn_outcome(result: &Value) -> (&'static str, Option<String>) {
+    match result["stopReason"].as_str() {
+        Some("cancelled") => ("stopped", None),
+        Some("max_tokens") => ("failed", Some("Agent dừng vì đã hết giới hạn độ dài trả lời.".into())),
+        Some("max_turn_requests") => ("failed", Some("Agent dừng vì đã đạt giới hạn số bước trong một lượt.".into())),
+        Some("refusal") => ("failed", Some("Agent từ chối thực hiện yêu cầu này.".into())),
+        _ => ("done", None),
+    }
 }
 
 // No AppHandle or real adapter required to exercise cancellation and failure status.
@@ -161,7 +171,7 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
             ("stopped", None)
         }
         result = &mut turn => match result {
-            Ok(result) => { session.turn_finished(&result); ("done", None) }
+            Ok(result) => { session.turn_finished(&result); turn_outcome(&result) }
             Err(e) => ("failed", Some(format!("Phiên ACP thất bại: {e}"))),
         },
         _ = &mut dead => ("failed", Some("Adapter đã dừng trước khi hoàn tất yêu cầu.".into())),
@@ -192,8 +202,8 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
             Some(wt)
         }
     };
-    let (wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse).await?;
-    let id = wt.run_id.clone();
+    let timeout = setup_timeout(&command.0);
+    let (id, wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse).await?;
     let pid = child.id();
     let sink = Arc::new(AppSink(app.clone()));
     let rules = Arc::new(RepoRules { app: app.clone(), repo: repo.to_string_lossy().into_owned(), agent });
@@ -208,13 +218,16 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     let stdout = child.stdout.take().expect("piped stdout");
     let stdin = child.stdin.take().expect("piped stdin");
     let stderr = child.stderr.take().expect("piped stderr");
-    let client = AcpClient::start(stdout, stdin, session.clone());
+    let client = AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout);
     let (tx, rx) = oneshot::channel();
     app.state::<Runs>().0.lock().unwrap().insert(id.clone(), tx);
     app.state::<TaskRuns>().0.lock().unwrap().insert(id.clone(), session.clone());
     let mut started = AgentEvent::new(&id, agent, "started");
     started.line = Some(format!("{} · {}", agent.display_name(), wt.path.display()));
     sink.emit(started);
+    if timeout == Duration::from_secs(300) {
+        session.note("Đang chuẩn bị adapter. Lần đầu có thể mất vài phút để tải.".into());
+    }
     let stderr_sink = sink.clone();
     let stderr_id = id.clone();
     let stderr_task = tokio::spawn(async move {
@@ -368,6 +381,33 @@ mod tests {
             }
         }).await.unwrap();
     }
+    #[test]
+    fn turn_outcome_maps_stop_reasons() {
+        for (result, status, message) in [
+            (json!({"stopReason": "end_turn"}), "done", None),
+            (json!({}), "done", None),
+            (json!({"stopReason": "unknown"}), "done", None),
+            (json!({"stopReason": "cancelled"}), "stopped", None),
+            (json!({"stopReason": "max_tokens"}), "failed", Some("Agent dừng vì đã hết giới hạn độ dài trả lời.")),
+            (json!({"stopReason": "max_turn_requests"}), "failed", Some("Agent dừng vì đã đạt giới hạn số bước trong một lượt.")),
+            (json!({"stopReason": "refusal"}), "failed", Some("Agent từ chối thực hiện yêu cầu này.")),
+        ] {
+            assert_eq!(turn_outcome(&result), (status, message.map(str::to_string)), "{result}");
+        }
+    }
+
+    #[tokio::test]
+    async fn refusal_turn_is_failed_in_drive() {
+        use crate::acp::fake::{self, Step};
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new("r", AgentKind::Codex, &std::env::temp_dir(), sink, Arc::new(Rules)).unwrap());
+        let (reader, writer, _) = fake::spawn(vec![Step::End("refusal")]);
+        let client = AcpClient::start(reader, writer, session.clone());
+        let (_tx, rx) = oneshot::channel();
+        let result = drive(&client, &session, &std::env::temp_dir(), "p", &[], rx, std::future::pending()).await;
+        assert_eq!(result, ("failed", Some("Agent từ chối thực hiện yêu cầu này.".into())));
+    }
+
     #[tokio::test]
     async fn fake_prompt_completion_and_crash_have_distinct_statuses() {
         use crate::acp::fake::{self, Step};
@@ -539,10 +579,11 @@ mod tests {
 
     async fn run_live_with(store: &Store, repo: &Path, prompt: &str, group: Option<&str>, servers: &[McpServer]) -> LiveRun {
         let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
-        let (wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group, None).await.unwrap();
+        let timeout = setup_timeout(&command.0);
+        let (id, wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group, None).await.unwrap();
         let pid = child.id();
         let sink = Arc::new(Recorder::default());
-        let session = Arc::new(TaskSession::new(&wt.run_id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
+        let session = Arc::new(TaskSession::new(&id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
         let traffic = Arc::new(Mutex::new(Vec::new()));
         let (client_in, tee_out) = tokio::io::duplex(1 << 20);
         let (tee_in, client_out) = tokio::io::duplex(1 << 20);
@@ -553,7 +594,7 @@ mod tests {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await { eprintln!("[adapter] {line}"); }
         });
-        let client = AcpClient::start(client_in, tee_in, session.clone());
+        let client = AcpClient::start_with_timeout(client_in, tee_in, session.clone(), timeout);
         // Plays the user: allow every card once and remember which tools asked.
         let approver = {
             let (sink, session) = (sink.clone(), session.clone());
@@ -668,21 +709,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reused_worktree_survives_a_failed_spawn_and_is_shared() {
+    async fn reused_worktree_run_keeps_its_own_id() {
         let repo = Repo::new();
         let store = Store::open_in_memory().unwrap();
         let wt = repo.wt();
         store.insert_run_with_worktree(&NewRun { id: &wt.run_id, agent: AgentKind::Claude, prompt: "plan", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), &wt, None).unwrap();
+        store.finish_run(&wt.run_id, "done", Some(0), 2).unwrap();
         let missing = repo.0.join("missing-adapter");
         assert!(prepare(&store, AgentKind::Codex, "build", &repo.0, (missing, vec![]), None, Some(wt.clone())).await.is_err());
         assert!(wt.path.exists(), "a failed later step must not delete the shared worktree");
         assert_eq!(store.list_runs(10).unwrap().len(), 1);
-        let (_, mut child) = prepare(&store, AgentKind::Codex, "build", &repo.0, (PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![]), None, Some(wt.clone())).await.unwrap();
+        let (id, shared_wt, mut child) = prepare(&store, AgentKind::Codex, "build", &repo.0, (PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![]), None, Some(wt.clone())).await.unwrap();
+        assert_ne!(id, wt.run_id);
+        assert_eq!(shared_wt, wt);
+        assert_eq!(store.run_worktree(&id).unwrap().1.run_id, wt.run_id);
+        store.finish_run(&id, "failed", None, 3).unwrap();
         let _ = child.wait().await;
         let runs = store.list_runs(10).unwrap();
         assert_eq!(runs.len(), 2);
         assert!(runs.iter().all(|r| r.worktree.as_deref() == wt.path.to_str()));
-        let later = runs.iter().find(|r| r.id != wt.run_id).unwrap();
+        let original = runs.iter().find(|r| r.id == wt.run_id).unwrap();
+        assert_eq!(original.status, "done");
+        assert_eq!(original.prompt, "plan");
+        let later = runs.iter().find(|r| r.id == id).unwrap();
+        assert_eq!(later.status, "failed");
+        assert_eq!(later.prompt, "build");
         let (root, shared) = store.run_worktree(&later.id).unwrap();
         worktree::remove(&root, &shared, true).unwrap();
         store.clear_run_worktree(&later.id).unwrap();
