@@ -399,3 +399,27 @@ mod codex_limit_tests {
         assert_eq!(latest_codex_limits(std::path::Path::new("/khong/ton/tai")), None);
     }
 }
+
+/// The CLI's own session id, from the first lines of a headless run.
+pub fn headless_session_id(agent: AgentKind, line: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(line).ok()?;
+    let id = match agent {
+        AgentKind::Claude => value.get("session_id"),
+        AgentKind::Codex if value["type"] == "thread.started" => value.get("thread_id"),
+        _ => None,
+    };
+    id?.as_str().filter(|s| !s.is_empty()).map(String::from)
+}
+
+#[cfg(test)]
+mod headless_session_tests {
+    use super::*;
+
+    #[test]
+    fn finds_the_session_of_each_cli() {
+        assert_eq!(headless_session_id(AgentKind::Claude, r#"{"type":"system","subtype":"init","session_id":"abc"}"#).as_deref(), Some("abc"));
+        assert_eq!(headless_session_id(AgentKind::Codex, r#"{"type":"thread.started","thread_id":"t1"}"#).as_deref(), Some("t1"));
+        assert_eq!(headless_session_id(AgentKind::Codex, r#"{"type":"turn.started"}"#), None);
+        assert_eq!(headless_session_id(AgentKind::Claude, "không phải json"), None);
+    }
+}

@@ -108,6 +108,7 @@ pub async fn start_agent(
     prompt: String,
     cwd: String,
     thread: Option<String>,
+    resume_from: Option<String>,
 ) -> Result<String, String> {
     let unsupported = || format!("{} chưa chạy được ở chế độ Chỉ đọc trong bản này.", agent.display_name());
     if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
@@ -120,6 +121,12 @@ pub async fn start_agent(
         .ok_or_else(|| format!("Không tìm thấy `{}` trong PATH.", agent.binary()))?;
 
     let (mut args, input) = agent.headless_invocation(&prompt, &bin).ok_or_else(unsupported)?;
+    // The next question of a conversation continues the CLI's session, if it was this agent's.
+    if let Some((owner, Some(session), _)) = resume_from.as_deref().and_then(|run| app.state::<Store>().session_of(run).ok()) {
+        if serde_json::to_value(agent).ok().and_then(|v| v.as_str().map(|s| s == owner)).unwrap_or(false) {
+            args = agent.resume_args(args, &session);
+        }
+    }
     // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
     if agent == AgentKind::Claude {
         if let Some(config) = crate::mcp::claude_config(&crate::mcp::load(&app.state::<Store>())) {
@@ -168,7 +175,14 @@ pub async fn start_agent(
         let id = run_id.clone();
         tauri::async_runtime::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
+            let mut session_saved = false;
             while let Ok(Some(line)) = lines.next_line().await {
+                if !session_saved {
+                    if let Some(session) = usage::headless_session_id(agent, &line) {
+                        log_store_error(app.state::<Store>().set_acp_session(&id, &session));
+                        session_saved = true;
+                    }
+                }
                 if let Some(u) = usage::parse_line(agent, &line) {
                     let mut ev = AgentEvent::new(&id, agent, "usage");
                     ev.usage = Some(u);

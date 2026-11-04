@@ -186,7 +186,7 @@ export class MockBackend extends AgentBackend {
     return `// ${path}\n// Nội dung mẫu của mock mode.\n`;
   }
 
-  async start(agent: AgentId, prompt: string, _cwd?: string): Promise<string> {
+  async start(agent: AgentId, prompt: string, _cwd?: string, _thread: string | null = null, _resumeFrom: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
     this.runs.set(runId, run);

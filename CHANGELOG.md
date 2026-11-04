@@ -4,6 +4,9 @@
 
 ## [Chưa phát hành]
 
+### Cuộc trò chuyện
+- Hiện cả cuộc trò chuyện khi có nhiều agent nối tiếp. Chỉ hỏi cũng hỏi tiếp được, nối đúng phiên của CLI.
+
 ### An toàn
 - Chế độ Chỉ hỏi chặn ghi bằng cờ của CLI. Trước đây, nếu Claude Code trên máy đặt `defaultMode: auto`, chế độ này ghi được vào code thật. Gemini tạm không có chế độ Chỉ hỏi vì chưa kiểm chứng được cờ chặn ghi.
 
