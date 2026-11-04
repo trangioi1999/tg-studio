@@ -57,12 +57,12 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
               <h2 class="ap-title">{{ r.prompt || meta[r.agent].name }}</h2>
             }
             <section class="ap-card" aria-label="Usage của task">
-              <div class="ap-card-head"><span class="label">USAGE · TASK NÀY</span><span class="spacer"></span><strong>{{ usd(taskCost()) }}</strong><span class="dim">{{ tok(taskTokens()) }} tok</span></div>
+              <div class="ap-card-head"><span class="label">CHI PHÍ</span><span class="spacer"></span><strong>{{ usd(taskCost()) }}</strong><span class="dim">{{ tok(taskTokens()) }} tok</span></div>
               @for (t of taskRuns(); track t.id) {
                 <div class="ap-usage-row">
                   <tg-agent-avatar [agent]="t.agent" [size]="16" />
                   <div class="ap-usage-main">
-                    <div>{{ meta[t.agent].name }} <span class="src" [attr.data-src]="t.usage?.costUsd != null ? 'reported' : 'unpriced'">{{ t.usage?.costUsd != null ? 'reported' : t.status === 'running' ? 'đang chạy' : 'chưa có giá' }}</span></div>
+                    <div>{{ meta[t.agent].name }} <span class="src" [attr.data-src]="t.usage?.costUsd != null ? 'reported' : 'unpriced'">{{ t.usage?.costUsd != null ? 'CLI báo' : t.status === 'running' ? 'đang chạy' : 'chưa có giá' }}</span></div>
                     <div class="mono dim">in {{ tok(t.usage?.inputTokens ?? 0) }} · cache {{ tok(t.usage?.cachedInputTokens ?? 0) }} · out {{ tok(t.usage?.outputTokens ?? 0) }}</div>
                   </div>
                   <strong class="mono">{{ usd(costOf(t)) }}</strong>
@@ -174,9 +174,9 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
       <div class="ap-composer-row">
         <select aria-label="Chế độ" [value]="mode()" (change)="mode.set($any($event.target).value)">
           <option value="task">Sửa code</option>
-          <option value="parallel">Song song</option>
-          <option value="pipeline">Pipeline</option>
-          <option value="read">Chỉ đọc</option>
+          <option value="parallel">Thử với nhiều agent</option>
+          <option value="pipeline">Theo các bước</option>
+          <option value="read">Chỉ hỏi</option>
         </select>
         @if (mode() === 'parallel') {
           <div class="picks" role="group" aria-label="Agent chạy song song">
@@ -344,9 +344,9 @@ export class AgentPanel {
     if (this.mode() === 'task' && this.run()?.task && this.run()?.status === 'running') return 'Agent đang chạy. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
     if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
-    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: bấm Khởi tạo Git, hoặc dùng Chỉ đọc.';
-    if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: bấm Tạo commit đầu tiên, hoặc dùng Chỉ đọc.';
-    if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
+    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: bấm Khởi tạo Git, hoặc dùng Chỉ hỏi.';
+    if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: bấm Tạo commit đầu tiên, hoặc dùng Chỉ hỏi.';
+    if (this.mode() === 'parallel' && this.picked().length < 2) return 'Cần chọn ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
   });

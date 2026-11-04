@@ -18,9 +18,9 @@ import { AgentAvatar } from './agent-avatar';
         @if (!running()) {
           @if (confirmingDiscard()) {
             <button class="btn ghost sm" [disabled]="busy()" (click)="confirmingDiscard.set(false)">Giữ lại</button>
-            <button class="btn warn sm" [disabled]="busy()" (click)="discard()">Xác nhận bỏ worktree</button>
+            <button class="btn warn sm" [disabled]="busy()" (click)="discard()">Xác nhận bỏ bản nháp</button>
           } @else {
-            <button class="btn ghost sm" [disabled]="busy()" (click)="confirmingDiscard.set(true)">Bỏ worktree</button>
+            <button class="btn ghost sm" [disabled]="busy()" (click)="confirmingDiscard.set(true)">Bỏ bản nháp</button>
           }
         }
       </div>
@@ -57,8 +57,8 @@ import { AgentAvatar } from './agent-avatar';
                 <span class="mono dim ellipsis">{{ h.header }}</span>
                 <span class="spacer"></span>
                 <span class="hunk-count"><span class="plus">+{{ h.added }}</span> <span class="minus">−{{ h.removed }}</span></span>
-                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">Reject<span class="kbd">{{ keys.backspace }}</span></button>
-                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">Accept<span class="kbd">{{ keys.enter }}</span></button>
+                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">Bỏ<span class="kbd">{{ keys.backspace }}</span></button>
+                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">Nhận<span class="kbd">{{ keys.enter }}</span></button>
               </div>
               <div class="hunk-body">
                 @for (line of h.lines; track $index) { <div class="diff-line" [attr.data-kind]="kindOf(line)">{{ line }}</div> }

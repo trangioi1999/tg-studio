@@ -4,6 +4,9 @@
 
 ## [Chưa phát hành]
 
+### Tiếng Việt
+- Đổi nhãn và thuật ngữ: Nhận/Bỏ, Cho phép lần này/Luôn cho phép/Từ chối, bản nháp, Chỉ hỏi, Thử với nhiều agent, Theo các bước, Chi phí.
+
 ### Mở dự án
 - Nút Khởi tạo Git và Tạo commit đầu tiên, xem trước số tệp và các dòng thêm vào `.gitignore`; bí mật và `node_modules` không bao giờ vào commit đầu.
 - Cảnh báo một lần khi có tệp chưa commit mà agent sẽ không thấy.

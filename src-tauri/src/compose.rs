@@ -136,7 +136,7 @@ pub fn compose_runs(store: State<'_, Store>, state: State<'_, Composites>, picks
     let mut sources = HashMap::new();
     for pick in &picks {
         if sources.contains_key(&pick.run_id) { continue; }
-        let (r, wt) = store.run_worktree(&pick.run_id).map_err(|e| format!("Không tìm thấy worktree của lượt chạy: {e}"))?;
+        let (r, wt) = store.run_worktree(&pick.run_id).map_err(|e| format!("Không tìm thấy bản nháp của lượt chạy: {e}"))?;
         if repo.as_ref().is_some_and(|known| known != &r) { return Err("Các bản thuộc những repo khác nhau.".into()); }
         repo = Some(r);
         sources.insert(pick.run_id.clone(), wt);

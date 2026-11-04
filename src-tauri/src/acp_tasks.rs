@@ -418,7 +418,7 @@ pub fn respond_permission(tasks: State<'_, TaskRuns>, run_id: String, request_id
     session.respond_permission(&request_id, &option_id, always)
 }
 fn stored_worktree(store: &Store, id: &str) -> Result<(PathBuf, Worktree), String> {
-    store.run_worktree(id).map_err(|e| format!("Không tìm thấy worktree của lượt chạy: {e}"))
+    store.run_worktree(id).map_err(|e| format!("Không tìm thấy bản nháp của lượt chạy: {e}"))
 }
 #[tauri::command]
 pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>, String> {
@@ -478,7 +478,7 @@ pub async fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns
     sharing.push(run_id.clone());
     for id in &sharing {
         if tasks.busy(id)? {
-            return Err("Hãy dừng lượt chạy (hoặc bước pipeline) đang dùng worktree này trước khi xóa.".into());
+            return Err("Hãy dừng agent đang dùng bản nháp này trước khi xóa.".into());
         }
     }
     // Sessions waiting for a next message have no more to do here. Windows cannot
@@ -493,7 +493,7 @@ pub async fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns
     }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     worktree::remove(&repo, &wt, true)?;
-    store.clear_run_worktree(&run_id).map_err(|e| format!("Đã xóa worktree nhưng không cập nhật được lịch sử: {e}"))
+    store.clear_run_worktree(&run_id).map_err(|e| format!("Đã xóa bản nháp nhưng không cập nhật được lịch sử: {e}"))
 }
 
 #[cfg(test)]
