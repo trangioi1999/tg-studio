@@ -41,6 +41,6 @@ export class AgentsPanel implements OnInit {
   protected readonly agents = inject(AgentsService);
   protected readonly meta = AGENT_META;
   ngOnInit() {
-    void this.agents.refresh();
+    if (!this.agents.agents().length && !this.agents.loading()) void this.agents.refresh();
   }
 }

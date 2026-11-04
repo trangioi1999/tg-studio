@@ -1,6 +1,8 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { AGENT_META, AgentId, FileDiff, Hunk } from '../core/protocol';
+import { KEYS } from '../core/keys';
 import { RunsService } from '../core/runs.service';
+import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 
 /** Reviews a task's worktree one hunk at a time; only accepted hunks reach the user's repo. */
@@ -51,8 +53,8 @@ import { AgentAvatar } from './agent-avatar';
                 <span class="mono dim ellipsis">{{ h.header }}</span>
                 <span class="spacer"></span>
                 <span class="hunk-count"><span class="plus">+{{ h.added }}</span> <span class="minus">−{{ h.removed }}</span></span>
-                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">Reject<span class="kbd">⌘⌫</span></button>
-                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">Accept<span class="kbd">⌘↵</span></button>
+                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">Reject<span class="kbd">{{ keys.backspace }}</span></button>
+                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">Accept<span class="kbd">{{ keys.enter }}</span></button>
               </div>
               <div class="hunk-body">
                 @for (line of h.lines; track $index) { <div class="diff-line" [attr.data-kind]="kindOf(line)">{{ line }}</div> }
@@ -65,7 +67,9 @@ import { AgentAvatar } from './agent-avatar';
   `,
 })
 export class DiffViewer {
+  protected readonly keys = KEYS;
   private readonly runs = inject(RunsService);
+  private readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
   readonly running = input(false);
@@ -126,6 +130,7 @@ export class DiffViewer {
       }
       this.committed.set(null);
       this.files.set(await this.runs.getDiff(id));
+      void this.workspace.refresh(id);
     });
   }
 

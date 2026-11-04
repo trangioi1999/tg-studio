@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, Pick, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, Pick, RepoInfo, StoredRun, Usage } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -94,6 +94,12 @@ export class MockBackend extends AgentBackend {
 
   async homeDir(): Promise<string | null> {
     return '/Users/you/projects/demo';
+  }
+
+  async repoInfo(path: string): Promise<RepoInfo> {
+    const root = path.replace(/[\\/]+$/, '');
+    if (!root) throw new Error('Thư mục không phải kho Git.');
+    return { root, name: root.split(/[\\/]/).pop() ?? root, branch: 'main' };
   }
 
   async start(agent: AgentId, prompt: string, _cwd?: string): Promise<string> {

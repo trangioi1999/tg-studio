@@ -66,6 +66,7 @@ pub fn run() {
             runner::stop_agent,
             store::list_runs,
             store::account_limits,
+            worktree::repo_info,
             acp_tasks::start_task,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,

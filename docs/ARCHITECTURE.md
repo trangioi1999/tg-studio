@@ -63,6 +63,8 @@ Adapter Claude (`claude-agent-acp`) tự sửa file và chạy lệnh bằng too
 
 Usage của task: `usage_update` chỉ có chi phí (và độ đầy context), token nằm trong `usage` của kết quả `session/prompt`. `TaskSession::turn_finished` ghép hai nguồn thành một event `usage` cumulative.
 
+Layout IDE (theo mockup trong `06-design-system.md`): Explorer cây thư mục của worktree đang chọn (chấm màu agent + M/A, nhãn "đang sửa"), các tab ở giữa (tệp, Thay đổi, So sánh), log từng agent ở dưới, panel agent bên phải (usage của task, transcript, thẻ duyệt, plan, danh sách run, ô giao việc có `@mention`). Thanh tiêu đề cho đổi thư mục làm việc (`repo_info` trả về tên repo và nhánh).
+
 Editor: `workspace.rs` liệt kê, đọc và ghi file trong worktree (đường dẫn tương đối, không đụng `.git`, từ chối symlink ra ngoài). Ghi bị từ chối khi agent đang chạy. Vạch màu tính ở UI từ hunk của `get_diff` (`line-marks.ts`). Monaco bundle cục bộ, tải lazy, chỉ có worker cơ bản và tô màu Monarch. Khi agent đang chạy, editor đi theo `RunsService.activity` (tệp agent vừa đọc/sửa, từ event `tool`) và nạp lại tệp ngay khi tool sửa file hoàn tất.
 
 Chạy song song: chế độ *Song song* gọi `start_task` cho từng agent với cùng một `group` (lưu ở cột `task_id`). Mỗi run vẫn có worktree, nhánh và tiến trình adapter riêng; `worktree::create` khóa trong tiến trình để các lần tạo cùng lúc không ghi đè `info/exclude`. Màn So sánh gọi `accept_all`: áp toàn bộ thay đổi của một run (cả file nhị phân) thành một patch, kiểm tra trước trên cả repo và worktree, nên hoặc áp hết hoặc không áp gì. Lựa chọn của nhóm nằm trong `RunsService.choices`, nên rời màn So sánh không làm mất bước commit.

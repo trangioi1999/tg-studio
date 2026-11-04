@@ -154,6 +154,19 @@ export interface CheckResult {
   durationMs: number;
 }
 
+export interface RepoInfo {
+  root: string;
+  name: string;
+  /** null on a detached HEAD. */
+  branch: string | null;
+}
+
+export interface PlanEntry {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | string;
+  priority?: string;
+}
+
 export interface Worktree {
   runId: string;
   path: string;
