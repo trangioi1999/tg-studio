@@ -90,7 +90,7 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
             Err(e) => { session.finish().await; return ("failed", Some(e)); }
         }
     };
-    let turn = client.prompt(&session_id, prompt);
+    let turn = client.prompt_turn(&session_id, prompt);
     tokio::pin!(turn);
     let result = tokio::select! {
         biased;
@@ -103,7 +103,7 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
             ("stopped", None)
         }
         result = &mut turn => match result {
-            Ok(_) => ("done", None),
+            Ok(result) => { session.turn_finished(&result); ("done", None) }
             Err(e) => ("failed", Some(format!("Phiên ACP thất bại: {e}"))),
         },
         _ = &mut dead => ("failed", Some("Adapter đã dừng trước khi hoàn tất yêu cầu.".into())),
@@ -360,6 +360,110 @@ mod tests {
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(worktree::list(&repo.0).unwrap().is_empty());
         assert!(worktree::git(&repo.0, &["branch", "--list", "tg/*"], None).unwrap().is_empty());
+    }
+
+    // Copies each JSON-RPC line between the client and a real adapter into `log`.
+    fn tee<R, W>(from: R, mut to: W, dir: &'static str, log: Arc<Mutex<Vec<serde_json::Value>>>) -> tokio::task::JoinHandle<()>
+    where R: tokio::io::AsyncRead + Unpin + Send + 'static, W: tokio::io::AsyncWrite + Unpin + Send + 'static {
+        use tokio::io::AsyncWriteExt;
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(from).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                    log.lock().unwrap().push(json!({"dir": dir, "msg": value}));
+                }
+                if to.write_all(format!("{line}\n").as_bytes()).await.is_err() { break; }
+                let _ = to.flush().await;
+            }
+            let _ = to.shutdown().await;
+        })
+    }
+
+    /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
+    /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
+    /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_edit_permission_diff_accept_commit() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = Repo::new();
+        repo.write("hello.txt", "Hello world\n");
+        worktree::git(&repo.0, &["add", "."], None).unwrap();
+        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
+        let prompt = "Edit hello.txt so that its only line reads exactly `Hello ACP` (keep the trailing newline). Then run the shell command `echo checked > checked.txt` with your terminal tool, and finally tell me the exact contents of hello.txt. Do not commit.";
+        let (wt, mut child) = prepare(&store, AgentKind::Claude, prompt, &repo.0, command).await.unwrap();
+        let pid = child.id();
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new(&wt.run_id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
+        let traffic = Arc::new(Mutex::new(Vec::new()));
+        let (client_in, tee_out) = tokio::io::duplex(1 << 20);
+        let (tee_in, client_out) = tokio::io::duplex(1 << 20);
+        let _down = tee(child.stdout.take().unwrap(), tee_out, "agent", traffic.clone());
+        let _up = tee(client_out, child.stdin.take().unwrap(), "client", traffic.clone());
+        let stderr = child.stderr.take().unwrap();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await { eprintln!("[adapter] {line}"); }
+        });
+        let client = AcpClient::start(client_in, tee_in, session.clone());
+        // Plays the user: allow every card once and remember which tools asked.
+        let approver = {
+            let (sink, session) = (sink.clone(), session.clone());
+            tokio::spawn(async move {
+                let mut seen = std::collections::HashSet::new();
+                let mut asked = Vec::new();
+                loop {
+                    let cards: Vec<_> = sink.0.lock().unwrap().iter().filter(|e| e.kind == "permission").filter_map(|e| e.data.clone()).collect();
+                    for card in cards {
+                        let id = card["requestId"].as_str().unwrap().to_string();
+                        if !seen.insert(id.clone()) { continue; }
+                        let option = card["options"].as_array().unwrap().iter()
+                            .find(|o| o["kind"] == "allow_once").or_else(|| card["options"].as_array().unwrap().iter().find(|o| o["kind"] == "allow_always"))
+                            .expect("thẻ duyệt không có lựa chọn cho phép")["optionId"].as_str().unwrap().to_string();
+                        eprintln!("[duyệt] {} → {option}", card["toolCall"]["title"]);
+                        asked.push(card["toolCall"].clone());
+                        session.respond_permission(&id, &option, false).unwrap();
+                    }
+                    if seen.len() > 20 { break asked; }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    if sink.0.lock().unwrap().iter().any(|e| e.kind == "exit") { break asked; }
+                }
+            })
+        };
+        let (_tx, rx) = oneshot::channel();
+        let (status, error) = tokio::time::timeout(Duration::from_secs(300), drive(&client, &session, &wt.path, prompt, rx, async { std::future::pending::<()>().await })).await.expect("quá 5 phút");
+        client.close();
+        terminate_adapter(&mut child, pid).await;
+        sink.emit(AgentEvent::new(&wt.run_id, AgentKind::Claude, "exit"));
+        let asked = approver.await.unwrap();
+        if let Ok(path) = std::env::var("TG_ACP_FIXTURE") {
+            let text: String = traffic.lock().unwrap().iter().map(|v| format!("{v}\n")).collect();
+            std::fs::write(path, text).unwrap();
+        }
+        let events = sink.0.lock().unwrap().clone();
+        let message: String = events.iter().filter(|e| e.kind == "message").filter_map(|e| e.data.as_ref()?["text"].as_str().map(String::from)).collect();
+        eprintln!("status={status} error={error:?}\nmessage={message}\nkinds={:?}", events.iter().map(|e| e.kind).collect::<Vec<_>>());
+        assert_eq!(status, "done", "{error:?}");
+        assert!(events.iter().any(|e| e.kind == "tool"), "không có tool update");
+        assert!(asked.iter().any(|t| t["kind"] == "execute"), "lệnh shell phải qua thẻ duyệt: {asked:?}");
+        assert!(message.contains("Hello ACP"), "agent không báo lại output: {message}");
+        assert!(asked.iter().any(|t| t["kind"] == "execute" && t["rawInput"]["command"].as_str().is_some_and(|c| c.contains("checked.txt"))), "thẻ duyệt lệnh phải có rawInput.command");
+        let usage = events.iter().rev().find_map(|e| e.usage.clone()).expect("phải có usage");
+        assert!(usage.output_tokens > 0 && usage.cost_usd.is_some(), "{usage:?}");
+        // Nothing reaches the user's repo before review.
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello world\n");
+        let pending = diff::pending(&wt).unwrap();
+        assert!(pending.iter().any(|f| f.path == "hello.txt"), "diff phải có hello.txt: {pending:?}");
+        assert!(pending.iter().any(|f| f.path == "checked.txt" && f.status == "A"), "diff phải có checked.txt: {pending:?}");
+        for file in &pending { for hunk in &file.hunks { diff::accept_hunk(&repo.0, &wt, &file.path, &hunk.id).unwrap(); } }
+        assert!(diff::pending(&wt).unwrap().is_empty());
+        let hash = diff::commit(&repo.0, "Đổi lời chào").unwrap();
+        assert!(!hash.is_empty());
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello ACP\n");
+        assert_eq!(std::fs::read_to_string(repo.0.join("checked.txt")).unwrap().trim(), "checked");
+        worktree::remove(&repo.0, &wt, true).unwrap();
     }
 
     #[tokio::test]
