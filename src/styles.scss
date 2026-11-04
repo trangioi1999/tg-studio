@@ -195,6 +195,24 @@ tg-diff-viewer, tg-code-editor, tg-compare { flex: 1; min-height: 0; display: fl
 .compare-msg { margin: 0; padding-top: 8px; border-top: 1px solid var(--line-soft); color: var(--text-2); font-size: 12px; }
 .compare-actions { display: flex; align-items: center; gap: 6px; }
 
+/* Mixer (hand-picked composite) */
+.mixer { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.mix-body { display: flex; flex-direction: column; }
+.mix-file { padding: 8px 12px 4px; color: var(--text); font-size: 12px; border-top: 1px solid var(--line-soft); }
+.mix-hunk { display: flex; align-items: center; gap: 8px; padding: 2px 12px 2px 20px; }
+.mix-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; cursor: pointer; }
+.mix-pick input { accent-color: var(--agent); }
+.mixer .hunk-body { margin: 2px 12px 6px 20px; border: 1px solid var(--line-soft); border-radius: 6px; }
+.mix-result { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-top: 1px solid var(--line); background: var(--panel); }
+.mix-line { display: flex; align-items: flex-end; gap: 8px; }
+.mix-line .plus, .mixer .plus { color: var(--ok); }
+.mix-line .minus, .mixer .minus { color: var(--err); }
+.check-result { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid #4a2a26; border-radius: 6px; background: #1a1110; }
+.check-result[data-ok='true'] { border-color: #1f4a3a; background: #0f1a15; }
+.check-result strong { color: var(--err); }
+.check-result[data-ok='true'] strong { color: var(--ok); }
+.check-result pre { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--text-2); }
+
 /* Mission control */
 .mission { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 16px; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }

@@ -140,9 +140,11 @@ export class MissionControl implements OnDestroy {
       }
     }
     for (const [group, choice] of Object.entries(choices)) {
-      const run = session.find((r) => r.id === choice.runId);
+      // A composite has no run of its own: show it under the group's first run.
+      const run = session.find((r) => (choice.runId ? r.id === choice.runId : r.group === group));
       if (run && !choice.commit) {
-        items.push({ key: `c:${group}`, kind: 'commit', run, detail: `${choice.files} tệp đã áp dụng`, view: 'compare' });
+        const what = choice.compositeId ? 'bản ghép' : 'đã áp dụng';
+        items.push({ key: `c:${group}`, kind: 'commit', run, detail: `${choice.files} tệp ${what}`, view: 'compare' });
       }
     }
     // A parallel group needs one review, not one per agent.

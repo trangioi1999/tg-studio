@@ -124,7 +124,7 @@ pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
     Ok(parse_unified(&patch))
 }
 
-fn selected_patch(wt: &Worktree, path: &str, id: &str) -> Result<String, String> {
+pub(crate) fn selected_patch(wt: &Worktree, path: &str, id: &str) -> Result<String, String> {
     let files = pending(wt)?;
     let file = files.iter().find(|f| f.path == path).ok_or("Không tìm thấy tệp trong thay đổi đang chờ.")?;
     if file.binary { return Err("Không thể duyệt từng hunk của tệp nhị phân.".into()); }

@@ -392,7 +392,7 @@ describe('RunsService parallel mode', () => {
     expect(service.groupRuns(group).map((r) => r.status)).toEqual(['done', 'done']);
     await expect(service.commitChoice(group!, 'x')).rejects.toThrow('Chưa chọn');
     await service.useRun(group!, runs[0].id);
-    expect(service.choices()[group!]).toEqual({ runId: runs[0].id, files: 2, commit: null });
+    expect(service.choices()[group!]).toEqual({ runId: runs[0].id, compositeId: null, files: 2, commit: null });
     expect(await service.getDiff(runs[0].id)).toEqual([]);
     await expect(service.useRun(group!, runs[1].id)).rejects.toThrow('đã chọn');
     expect(await service.commitChoice(group!, 'dùng bản của Claude')).toMatch(/^[0-9a-f]+$/);
@@ -431,5 +431,41 @@ describe('RunsService plan limits', () => {
     await flush();
     expect(service.limits().claude?.at).toBe(500);
     expect(service.limits().codex?.at).toBe(50);
+  });
+});
+
+describe('RunsService composites', () => {
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('mixes hunks from two runs, checks, uses and commits the mix', async () => {
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
+    const service = TestBed.inject(RunsService);
+    await service.startParallel(['claude', 'gemini'], 'p', '/repo');
+    const group = service.selected()!.group!;
+    await wait(300);
+    for (const r of service.groupRuns(group)) await service.respondPermission(r.id, r.permissions[0].requestId, 'allow', false);
+    await wait(800);
+    const [claude, gemini] = service.groupRuns(group);
+    const a = await service.getDiff(claude.id);
+    const b = await service.getDiff(gemini.id);
+    // The same lines from both runs cannot be mixed.
+    await expect(service.compose(group, [
+      { runId: claude.id, path: a[0].path, hunkId: a[0].hunks[0].id },
+      { runId: gemini.id, path: b[0].path, hunkId: b[0].hunks[0].id },
+    ])).rejects.toThrow('trùng chỗ sửa');
+    const mix = await service.compose(group, [
+      { runId: claude.id, path: a[0].path, hunkId: a[0].hunks[0].id },
+      { runId: gemini.id, path: b[0].path, hunkId: b[0].hunks[1].id },
+      { runId: gemini.id, path: b[1].path, hunkId: b[1].hunks[0].id },
+    ]);
+    expect(mix.files.map((f) => [f.path, f.hunks.length])).toEqual([['src/app/app.ts', 2], ['docs/ghi chú mới.md', 1]]);
+    expect((await service.checkComposite(group, 'npm test')).code).toBe(0);
+    expect((await service.checkComposite(group, 'npm run fail')).code).toBe(1);
+    expect(service.checkCommand()).toBe('npm run fail');
+    await service.useComposite(group);
+    expect(service.choices()[group]).toEqual({ runId: null, compositeId: mix.id, files: 2, commit: null });
+    expect(await service.commitChoice(group, 'ghép')).toBe('mix5678def1234');
+    await service.dropComposite(group);
+    expect(service.composites()[group]).toBeUndefined();
   });
 });

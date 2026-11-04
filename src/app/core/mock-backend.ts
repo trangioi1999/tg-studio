@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentId, DetectedAgent, FileDiff, LimitWindow, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, Pick, StoredRun, Usage } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -18,11 +18,15 @@ interface MockTask {
 
 /** Each agent gets a slightly different result, so the compare view has something to compare. */
 function mockDiff(agent: AgentId = 'claude'): FileDiff[] {
-  const hunk = (id: string, header: string, lines: string[]) => ({
-    id, header, oldStart: 10, oldLines: 3, newStart: 10, newLines: 4, lines,
-    added: lines.filter((l) => l.startsWith('+')).length,
-    removed: lines.filter((l) => l.startsWith('-')).length,
-  });
+  // Ranges come from the header, like the core's parser.
+  const hunk = (id: string, header: string, lines: string[]) => {
+    const [, oldStart, oldLines, newStart, newLines] = /@@ -(\d+),(\d+) \+(\d+),(\d+) @@/.exec(header)!.map(Number);
+    return {
+      id, header, oldStart, oldLines, newStart, newLines, lines,
+      added: lines.filter((l) => l.startsWith('+')).length,
+      removed: lines.filter((l) => l.startsWith('-')).length,
+    };
+  };
   return [
     {
       path: 'src/app/app.ts', status: 'M', binary: false, patchHeader: '',
@@ -76,6 +80,7 @@ export class MockBackend extends AgentBackend {
   readonly mode = 'mock' as const;
   private runs = new Map<string, MockRun>();
   private tasks = new Map<string, MockTask>();
+  private composites = new Map<string, FileDiff[]>();
   private handlers: ((e: AgentEvent) => void)[] = [];
 
   async detectAgents(): Promise<DetectedAgent[]> {
@@ -232,6 +237,61 @@ export class MockBackend extends AgentBackend {
     if (this.runs.get(runId)?.active) throw new Error('Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.');
     if (!task.contents.has(path)) throw new Error(`${path} không còn trong worktree.`);
     task.contents.set(path, content);
+  }
+
+  async composeRuns(picks: Pick[]): Promise<Composite> {
+    if (!picks.length) throw new Error('Hãy chọn ít nhất một thay đổi để ghép.');
+    const byPath = new Map<string, FileDiff>();
+    for (const p of picks) {
+      const file = this.task(p.runId).files.find((f) => f.path === p.path);
+      const hunk = file?.hunks.find((h) => h.id === p.hunkId);
+      if (!file || !hunk) throw new Error('Hunk đã thay đổi hoặc không tồn tại; hãy tải lại.');
+      const into = byPath.get(p.path) ?? { ...file, hunks: [] };
+      // Two hunks for the same lines cannot both apply, like `git apply` in the core.
+      if (into.hunks.some((h) => h.oldStart === hunk.oldStart)) {
+        throw new Error(`Thay đổi ở ${p.path} không ghép được với các thay đổi đã chọn trước đó (trùng chỗ sửa).`);
+      }
+      into.hunks = [...into.hunks, hunk];
+      byPath.set(p.path, into);
+    }
+    const id = crypto.randomUUID();
+    const files = [...byPath.values()];
+    this.composites.set(id, files);
+    return { id, files };
+  }
+
+  async checkComposite(id: string, command: string): Promise<CheckResult> {
+    this.composite(id);
+    if (!command.trim()) throw new Error('Hãy nhập lệnh kiểm tra, ví dụ npm test.');
+    const failed = command.includes('fail');
+    await new Promise((r) => setTimeout(r, 300));
+    return {
+      code: failed ? 1 : 0,
+      output: `> ${command}\n${failed ? '✕ 1 test failed: tiêu đề sai' : '✓ 12 tests passed'}\n`,
+      truncated: false,
+      durationMs: 300,
+    };
+  }
+
+  async applyComposite(id: string): Promise<number> {
+    return this.composite(id).length;
+  }
+
+  async commitComposite(id: string, message: string): Promise<string> {
+    this.composite(id);
+    if (!message.trim()) throw new Error('Cần nhập nội dung commit.');
+    return 'mix5678def1234';
+  }
+
+  async discardComposite(id: string): Promise<void> {
+    this.composite(id);
+    this.composites.delete(id);
+  }
+
+  private composite(id: string): FileDiff[] {
+    const c = this.composites.get(id);
+    if (!c) throw new Error('Bản ghép không còn. Hãy tạo lại.');
+    return c;
   }
 
   private task(runId: string): MockTask {

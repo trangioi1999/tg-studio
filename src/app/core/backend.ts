@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AccountLimits, AgentEvent, AgentId, DetectedAgent, FileDiff, StoredRun } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, Pick, StoredRun } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -19,6 +19,13 @@ export abstract class AgentBackend {
   abstract rejectHunk(runId: string, path: string, hunkId: string): Promise<void>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
+  /** Builds a composite worktree from hunks picked across runs of one group. */
+  abstract composeRuns(picks: Pick[]): Promise<Composite>;
+  /** Runs the user's command (e.g. npm test) in the composite. */
+  abstract checkComposite(id: string, command: string): Promise<CheckResult>;
+  abstract applyComposite(id: string): Promise<number>;
+  abstract commitComposite(id: string, message: string): Promise<string>;
+  abstract discardComposite(id: string): Promise<void>;
   /** Paths relative to the task's worktree, sorted. */
   abstract listFiles(runId: string): Promise<string[]>;
   abstract readFile(runId: string, path: string): Promise<string>;
@@ -69,6 +76,21 @@ export class TauriBackend extends AgentBackend {
   }
   discardWorktree(runId: string) {
     return invoke<void>('discard_worktree', { runId });
+  }
+  composeRuns(picks: Pick[]) {
+    return invoke<Composite>('compose_runs', { picks });
+  }
+  checkComposite(id: string, command: string) {
+    return invoke<CheckResult>('check_composite', { id, command });
+  }
+  applyComposite(id: string) {
+    return invoke<number>('apply_composite', { id });
+  }
+  commitComposite(id: string, message: string) {
+    return invoke<string>('commit_composite', { id, message });
+  }
+  discardComposite(id: string) {
+    return invoke<void>('discard_composite', { id });
   }
   listFiles(runId: string) {
     return invoke<string[]>('list_worktree_files', { runId });

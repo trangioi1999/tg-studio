@@ -133,6 +133,27 @@ export interface FileDiff {
   hunks: Hunk[];
 }
 
+/** One hunk picked from a run for a composite. */
+export interface Pick {
+  runId: string;
+  path: string;
+  hunkId: string;
+}
+
+/** Hunks from several runs applied on their shared base, ready to test. Keep in sync with compose.rs. */
+export interface Composite {
+  id: string;
+  files: FileDiff[];
+}
+
+export interface CheckResult {
+  /** null: stopped by timeout or a signal. */
+  code: number | null;
+  output: string;
+  truncated: boolean;
+  durationMs: number;
+}
+
 export interface Worktree {
   runId: string;
   path: string;
