@@ -108,8 +108,15 @@ impl AcpClient {
 
     /// Runs one turn and returns its `stopReason`. No timeout: a turn can wait
     /// on the user or run for a long time, and ends when the agent answers or dies.
+    #[cfg(test)]
     pub async fn prompt(&self, session_id: &str, text: &str) -> Result<String, String> {
-        let result = self
+        let result = self.prompt_turn(session_id, text).await?;
+        Ok(result["stopReason"].as_str().unwrap_or("end_turn").to_string())
+    }
+
+    /// The whole `session/prompt` result: `stopReason` plus optional `usage`.
+    pub async fn prompt_turn(&self, session_id: &str, text: &str) -> Result<Value, String> {
+        self
             .transport
             .request(
                 "session/prompt",
@@ -117,8 +124,7 @@ impl AcpClient {
                 None,
             )
             .await
-            .map_err(|e| e.to_string())?;
-        Ok(result["stopReason"].as_str().unwrap_or("end_turn").to_string())
+            .map_err(|e| e.to_string())
     }
 
     pub fn cancel(&self, session_id: &str) -> Result<(), String> {

@@ -125,6 +125,18 @@ export class RunsService {
     return this.backend.getDiff(runId);
   }
 
+  listFiles(runId: string): Promise<string[]> {
+    return this.backend.listFiles(runId);
+  }
+
+  readFile(runId: string, path: string): Promise<string> {
+    return this.backend.readFile(runId, path);
+  }
+
+  writeFile(runId: string, path: string, content: string): Promise<void> {
+    return this.backend.writeFile(runId, path, content);
+  }
+
   acceptHunk(runId: string, path: string, hunkId: string): Promise<void> {
     return this.backend.acceptHunk(runId, path, hunkId);
   }

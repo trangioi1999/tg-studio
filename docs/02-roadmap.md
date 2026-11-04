@@ -17,20 +17,22 @@ Ký hiệu: `[x]` xong · `[ ]` chưa · **XK** = tiêu chí "xong khi".
 
 **XK:** mở app, thấy agent đã cài, chạy 1 yêu cầu chỉ-đọc với Claude/Codex/Gemini, thấy token & chi phí.
 
-## Giai đoạn 1 — Một agent chạy trọn vẹn (tuần 3–5) · *đang làm*
+## Giai đoạn 1 — Một agent chạy trọn vẹn (tuần 3–5) · *gần xong: còn Kiro*
 
 Phụ thuộc: GĐ0. Chi tiết kỹ thuật: `03-agent-integration.md`.
 
 - [x] ACP client trong Rust (JSON-RPC 2.0 qua stdio): initialize, session mới, prompt, cancel, nhận update (kiểm chứng bằng agent giả)
-- [ ] Adapter ACP cho Claude Code; đọc usage song song (headless hoặc từ update) — đã viết, **chưa chạy với adapter thật**
+- [x] Adapter ACP cho Claude Code; usage lấy token từ kết quả `session/prompt`, chi phí từ `usage_update` — kiểm chứng với `claude-agent-acp@0.100.0` thật (test `live_claude_*`, fixture `tests/fixtures/claude-agent-acp/0.100.0/`)
 - [x] Thẻ xin duyệt ↔ `request_permission`; policy "Always allow" theo repo
 - [x] Git worktree manager: tạo / liệt kê / dọn worktree theo run
 - [x] Diff viewer; Accept/Reject theo hunk
-- [ ] Editor Monaco
+- [x] Editor Monaco: mở file trong worktree, vạch màu agent ở dòng thay đổi, sửa tay rồi lưu vào worktree (đi vào hàng chờ duyệt)
 - [x] Commit từ app (message do agent đề xuất, người dùng sửa)
-- [ ] Kiro CLI qua `kiro-cli acp` — đã viết, chưa thử vì máy chưa cài Kiro
+- [ ] Kiro CLI qua `kiro-cli acp` — đã viết, chưa thử: cần máy có Kiro và tài khoản đăng nhập (AWS Builder ID)
 
 **XK:** giao 1 task sửa code cho Claude → duyệt lệnh → xem diff → accept → commit, không rời app.
+
+Đã kiểm chứng: lõi Rust với Claude thật (sửa file, thẻ duyệt Edit + lệnh shell, diff, accept, commit) và UI ở mock mode bằng Playwright. Còn lại: bấm thử trọn luồng trong app desktop với Claude thật trên macOS và Windows.
 
 ## Giai đoạn 2 — Nhiều agent (tuần 6–8)
 

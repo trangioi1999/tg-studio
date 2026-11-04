@@ -32,6 +32,21 @@ pub fn parse_acp(update: &Value) -> Option<Usage> {
     Some(Usage {cost_usd:Some(cost),source:"reported",cumulative:true,..Default::default()})
 }
 
+/// Token counts from a `session/prompt` result (`usage`: input, output, cache read/write).
+/// Cache writes count as input, as for Claude headless. `cost` is the last `usage_update` cost.
+pub fn parse_acp_turn(result: &Value, cost: Option<f64>) -> Option<Usage> {
+    let u = result.get("usage").filter(|u| u.is_object())?;
+    Some(Usage {
+        input_tokens: n(&u["inputTokens"]) + n(&u["cachedWriteTokens"]),
+        cached_input_tokens: n(&u["cachedReadTokens"]),
+        output_tokens: n(&u["outputTokens"]),
+        cost_usd: cost,
+        source: if cost.is_some() { "reported" } else { "tokens" },
+        // One prompt per task, so the turn total is the run total.
+        cumulative: true,
+    })
+}
+
 pub fn parse_line(agent: AgentKind, line: &str) -> Option<Usage> {
     let line = line.trim();
     if !line.starts_with('{') {
@@ -134,6 +149,27 @@ mod tests {
         for v in [json!({"used":100}),json!({"cost":{"currency":"EUR","amount":1}}),json!({"cost":{"currency":"USD","amount":-1}})] {
             let mut v=v; v["sessionUpdate"]=json!("usage_update"); assert!(parse_acp(&v).is_none());
         }
+    }
+
+    #[test]
+    fn acp_turn_usage_from_prompt_result() {
+        let u = parse_acp_turn(&serde_json::json!({"stopReason":"end_turn","usage":{"inputTokens":6,"cachedWriteTokens":100,"cachedReadTokens":50,"outputTokens":7}}), None).unwrap();
+        assert_eq!((u.input_tokens,u.cached_input_tokens,u.output_tokens,u.cost_usd,u.source,u.cumulative), (106,50,7,None,"tokens",true));
+        assert!(parse_acp_turn(&serde_json::json!({"stopReason":"end_turn"}), Some(1.0)).is_none());
+        assert!(parse_acp_turn(&serde_json::json!({"usage":null}), Some(1.0)).is_none());
+    }
+
+    #[test]
+    fn acp_claude_fixture_usage() {
+        // Recorded from @agentclientprotocol/claude-agent-acp@0.100.0: one edit, one shell command.
+        let fixture = include_str!("../tests/fixtures/claude-agent-acp/0.100.0/edit-session.jsonl");
+        let messages: Vec<Value> = fixture.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["msg"].clone()).collect();
+        let cost = messages.iter().filter_map(|m| parse_acp(&m["params"]["update"])).last().and_then(|u| u.cost_usd);
+        let result = messages.iter().find(|m| m["result"]["stopReason"].is_string()).unwrap();
+        let u = parse_acp_turn(&result["result"], cost).unwrap();
+        assert_eq!((u.input_tokens, u.cached_input_tokens, u.output_tokens), (8 + 10_444, 141_566, 575));
+        assert_eq!(u.source, "reported");
+        assert!((u.cost_usd.unwrap() - 0.00392936).abs() < 1e-9);
     }
 
     #[test]

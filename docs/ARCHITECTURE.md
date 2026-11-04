@@ -59,6 +59,12 @@ Nguồn số liệu từng agent:
 
 Mỗi task có một git worktree riêng trong `<repo>/.tg/worktrees/<run-id>` và một tiến trình adapter ACP. Hàng chờ duyệt là `git diff` trong worktree: accept một hunk sẽ áp nó vào repo người dùng và stage nó trong worktree, nên hunk đó tự rời hàng chờ. Reject bỏ hunk khỏi worktree.
 
+Adapter Claude (`claude-agent-acp`) tự sửa file và chạy lệnh bằng tool của Claude Code, không gọi `fs/*` hay `terminal/*` của app. File vẫn chỉ được ghi trong worktree vì `cwd` của phiên là worktree, và mọi lần sửa đều qua thẻ duyệt. Claude tự cho phép lệnh chỉ-đọc (`cat`, `ls`…) mà không hỏi app.
+
+Usage của task: `usage_update` chỉ có chi phí (và độ đầy context), token nằm trong `usage` của kết quả `session/prompt`. `TaskSession::turn_finished` ghép hai nguồn thành một event `usage` cumulative.
+
+Editor: `workspace.rs` liệt kê, đọc và ghi file trong worktree (đường dẫn tương đối, không đụng `.git`, từ chối symlink ra ngoài). Ghi bị từ chối khi agent đang chạy. Vạch màu tính ở UI từ hunk của `get_diff` (`line-marks.ts`). Monaco bundle cục bộ, tải lazy, chỉ có worker cơ bản và tô màu Monarch.
+
 Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh khớp rule "Always allow" được tự cho phép; lệnh ghép và các lệnh chạy được mã tùy ý (`bash`, `python`, `npx`…) không bao giờ có rule. UI không gửi option `allow_always` của agent, vì agent mới quyết định option đó bao trùm những gì.
 
 ## Lịch sử lượt chạy
