@@ -339,6 +339,7 @@ tg-agent-panel { display: flex; flex-direction: column; }
 .ap-note { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12.5px; }
 .ap-note p { margin: 4px 0 0; white-space: pre-wrap; color: var(--text-2); }
 .ap-note-head { display: flex; align-items: center; gap: 6px; }
+.ap-user { margin: 8px 0 8px auto; max-width: 90%; padding: 6px 10px; border-radius: 8px; background: var(--raised); color: var(--text); white-space: pre-wrap; word-break: break-word; font-size: 13px; }
 .ap-empty { margin: auto 0; padding: 12px; text-align: center; }
 .ap-plan { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .ap-plan li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12.5px; }

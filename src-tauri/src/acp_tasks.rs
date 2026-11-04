@@ -981,8 +981,8 @@ mod tests {
         worktree::remove(&repo.0, &wt, true).unwrap();
     }
 
-    /// Prints what a real adapter reports over two prompts of one session, and whether a
-    /// respawned adapter remembers it through session/load. `TG_LIVE_AGENT=claude|codex`.
+    /// Two prompts in one session remember each other, and so does a respawned adapter
+    /// through session/load. Prints what it reports. `TG_LIVE_AGENT=claude|codex`.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
     async fn live_two_turns_probe() {
@@ -1015,6 +1015,7 @@ mod tests {
             eprintln!("RESULT stop={} usage={} costs={costs:?}\nMESSAGE={}", result["stopReason"], result["usage"], message_of(&events));
             drop(events);
         }
+        assert!(message_of(&sink.0.lock().unwrap()).contains("PINEAPPLE"), "câu sau phải nhớ câu trước");
         eprintln!("pid alive across turns: {:?}", child.id());
         client.close();
         let pid = child.id(); terminate_adapter(&mut child, pid).await;
@@ -1031,6 +1032,7 @@ mod tests {
             let events = sink.0.lock().unwrap();
             let costs: Vec<_> = events.iter().filter(|e| e.kind == "usage").filter_map(|e| e.usage.as_ref()?.cost_usd).collect();
             eprintln!("AFTER LOAD usage={} costs={costs:?} MESSAGE={}", result["usage"], message_of(&events));
+            assert!(message_of(&events).contains("PINEAPPLE"), "phiên nối lại phải nhớ");
             drop(events);
         }
         client.close();
