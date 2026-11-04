@@ -3,7 +3,7 @@
 Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
 Giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **Giai đoạn 1** — giao task sửa code qua ACP trong worktree riêng, duyệt lệnh, xem diff, accept từng hunk rồi commit. Luồng với adapter thật chưa được kiểm chứng; xem `docs/02-roadmap.md`.
+> Trạng thái: **Giai đoạn 1** — giao task sửa code qua ACP trong worktree riêng, duyệt lệnh, xem diff, sửa tay trong editor Monaco, accept từng hunk rồi commit. Lõi đã chạy với adapter Claude thật; Kiro chưa thử. Xem `docs/02-roadmap.md`.
 
 ## Cài môi trường (làm 1 lần trên macOS)
 
@@ -52,7 +52,8 @@ Gợi ý yêu cầu đầu tiên: *"Giải thích cấu trúc thư mục này tr
 src/app/
   core/           protocol (kiểu dữ liệu chung với Rust), backend (Tauri | mock),
                   agents.service, runs.service (signals), pricing, describe-line
-  shell/          title bar, agents panel, run console, usage panel, status bar
+  shell/          title bar, agents panel, run console, usage panel, status bar,
+                  permission card, diff viewer, code editor (Monaco)
 src-tauri/src/
   adapters.rs     danh sách agent + tham số chạy headless
   detect.rs       dò CLI trong PATH, đọc --version
@@ -60,6 +61,8 @@ src-tauri/src/
   usage.rs        chuẩn hóa token/chi phí của từng CLI (+ unit test)
   env.rs          lấy PATH từ login shell
   store.rs        lịch sử lượt chạy (SQLite)
+  acp/, acp_runner.rs, acp_tasks.rs   task sửa code qua ACP
+  worktree.rs, diff.rs, workspace.rs  worktree, hàng chờ hunk, file cho editor
 docs/ARCHITECTURE.md
 ```
 
