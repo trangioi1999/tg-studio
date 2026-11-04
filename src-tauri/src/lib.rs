@@ -4,10 +4,15 @@
 mod acp;
 mod acp_runner;
 mod adapters;
+mod compose;
 mod acp_tasks;
 mod detect;
+mod diagnostics;
 mod diff;
 mod env;
+mod ledger;
+mod mcp;
+mod skills;
 mod policy;
 mod runner;
 mod store;
@@ -52,6 +57,7 @@ pub fn run() {
         }))
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
+        .manage(compose::Composites::default())
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
             app.manage(open_store(path));
@@ -64,6 +70,22 @@ pub fn run() {
             runner::stop_agent,
             store::list_runs,
             store::account_limits,
+            ledger::usage_report,
+            ledger::list_prices,
+            ledger::add_price,
+            ledger::get_setting,
+            ledger::set_setting,
+            ledger::save_export,
+            diagnostics::diagnostics,
+            mcp::list_mcp_servers,
+            mcp::save_mcp_server,
+            mcp::delete_mcp_server,
+            skills::list_skills,
+            skills::save_skill,
+            skills::delete_skill,
+            skills::skill_targets,
+            skills::install_skill,
+            worktree::repo_info,
             acp_tasks::start_task,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,
@@ -74,7 +96,12 @@ pub fn run() {
             acp_tasks::list_worktree_files,
             acp_tasks::read_worktree_file,
             acp_tasks::write_worktree_file,
-            acp_tasks::discard_worktree
+            acp_tasks::discard_worktree,
+            compose::compose_runs,
+            compose::check_composite,
+            compose::apply_composite,
+            compose::commit_composite,
+            compose::discard_composite
         ])
         .run(tauri::generate_context!())
         .expect("error while running TG Studio");

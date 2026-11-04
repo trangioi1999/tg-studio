@@ -100,14 +100,78 @@ export interface AgentMeta {
   name: string;
   mono: string;
   color: string;
+  /**
+   * The same hue at a lightness validated for charts on the dark surface
+   * (dataviz validate_palette.js: band, chroma, CVD ΔE ≥ 8, contrast). Charts only.
+   */
+  chart: string;
   install: string;
 }
 
+export interface NameValue {
+  name: string;
+  value: string;
+}
+
+/** A registry MCP server, handed to every session of the agents it is enabled for. Keep in sync with mcp.rs. */
+export interface McpServer {
+  /** Empty for a new server; the core assigns one. */
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http';
+  command: string | null;
+  args: string[];
+  env: NameValue[];
+  url: string | null;
+  headers: NameValue[];
+  agents: AgentId[];
+}
+
+/** A SKILL.md in the app's library. Keep in sync with skills.rs. */
+export interface Skill {
+  name: string;
+  description: string;
+  content: string;
+}
+
+export interface SkillTarget {
+  scope: 'project' | 'user';
+  path: string;
+  state: 'missing' | 'same' | 'different';
+}
+
+export interface SkillInstalled {
+  path: string;
+  /** Where the replaced, different file was copied, if there was one. */
+  backup: string | null;
+}
+
+/** One run in the usage ledger. Keep in sync with store.rs `UsageRow`. */
+export interface UsageRow {
+  id: string;
+  agent: AgentId;
+  prompt: string;
+  startedAt: number;
+  endedAt: number | null;
+  status: RunStatus;
+  group: string | null;
+  usage: Usage | null;
+}
+
+/** USD per 1M tokens from `fromMs` on; all null means "no price" from then on. */
+export interface PriceRow {
+  agent: AgentId;
+  fromMs: number;
+  input: number | null;
+  cachedInput: number | null;
+  output: number | null;
+}
+
 export const AGENT_META: Record<AgentId, AgentMeta> = {
-  claude: { name: 'Claude Code', mono: 'CL', color: '#E07B53', install: 'npm i -g @anthropic-ai/claude-code' },
-  codex: { name: 'Codex', mono: 'CX', color: '#3FB68B', install: 'npm i -g @openai/codex' },
-  gemini: { name: 'Gemini CLI', mono: 'GM', color: '#6E9BF5', install: 'npm i -g @google/gemini-cli' },
-  kiro: { name: 'Kiro CLI', mono: 'KR', color: '#A78BFA', install: 'Xem hướng dẫn cài tại kiro.dev' },
+  claude: { name: 'Claude Code', mono: 'CL', color: '#E07B53', chart: '#C9663E', install: 'npm i -g @anthropic-ai/claude-code' },
+  codex: { name: 'Codex', mono: 'CX', color: '#3FB68B', chart: '#2FAA7F', install: 'npm i -g @openai/codex' },
+  gemini: { name: 'Gemini CLI', mono: 'GM', color: '#6E9BF5', chart: '#3C64B9', install: 'npm i -g @google/gemini-cli' },
+  kiro: { name: 'Kiro CLI', mono: 'KR', color: '#A78BFA', chart: '#987CE9', install: 'Xem hướng dẫn cài tại kiro.dev' },
 };
 
 export const AGENT_IDS: AgentId[] = ['claude', 'codex', 'gemini', 'kiro'];
@@ -131,6 +195,40 @@ export interface FileDiff {
   binary: boolean;
   patchHeader: string;
   hunks: Hunk[];
+}
+
+/** One hunk picked from a run for a composite. */
+export interface Pick {
+  runId: string;
+  path: string;
+  hunkId: string;
+}
+
+/** Hunks from several runs applied on their shared base, ready to test. Keep in sync with compose.rs. */
+export interface Composite {
+  id: string;
+  files: FileDiff[];
+}
+
+export interface CheckResult {
+  /** null: stopped by timeout or a signal. */
+  code: number | null;
+  output: string;
+  truncated: boolean;
+  durationMs: number;
+}
+
+export interface RepoInfo {
+  root: string;
+  name: string;
+  /** null on a detached HEAD. */
+  branch: string | null;
+}
+
+export interface PlanEntry {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | string;
+  priority?: string;
 }
 
 export interface Worktree {

@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentId, DetectedAgent, FileDiff, LimitWindow, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -18,11 +18,15 @@ interface MockTask {
 
 /** Each agent gets a slightly different result, so the compare view has something to compare. */
 function mockDiff(agent: AgentId = 'claude'): FileDiff[] {
-  const hunk = (id: string, header: string, lines: string[]) => ({
-    id, header, oldStart: 10, oldLines: 3, newStart: 10, newLines: 4, lines,
-    added: lines.filter((l) => l.startsWith('+')).length,
-    removed: lines.filter((l) => l.startsWith('-')).length,
-  });
+  // Ranges come from the header, like the core's parser.
+  const hunk = (id: string, header: string, lines: string[]) => {
+    const [, oldStart, oldLines, newStart, newLines] = /@@ -(\d+),(\d+) \+(\d+),(\d+) @@/.exec(header)!.map(Number);
+    return {
+      id, header, oldStart, oldLines, newStart, newLines, lines,
+      added: lines.filter((l) => l.startsWith('+')).length,
+      removed: lines.filter((l) => l.startsWith('-')).length,
+    };
+  };
   return [
     {
       path: 'src/app/app.ts', status: 'M', binary: false, patchHeader: '',
@@ -76,6 +80,14 @@ export class MockBackend extends AgentBackend {
   readonly mode = 'mock' as const;
   private runs = new Map<string, MockRun>();
   private tasks = new Map<string, MockTask>();
+  private composites = new Map<string, FileDiff[]>();
+  private prices: PriceRow[] = [];
+  private mcp: McpServer[] = [];
+  private skills = new Map<string, string>();
+  private installed = new Map<string, string>();
+  private settings = new Map<string, string>();
+  /** Runs of this browser session, so the ledger also shows what was just run. */
+  private ledger = new Map<string, UsageRow>();
   private handlers: ((e: AgentEvent) => void)[] = [];
 
   async detectAgents(): Promise<DetectedAgent[]> {
@@ -89,6 +101,12 @@ export class MockBackend extends AgentBackend {
 
   async homeDir(): Promise<string | null> {
     return '/Users/you/projects/demo';
+  }
+
+  async repoInfo(path: string): Promise<RepoInfo> {
+    const root = path.replace(/[\\/]+$/, '');
+    if (!root) throw new Error('Thư mục không phải kho Git.');
+    return { root, name: root.split(/[\\/]/).pop() ?? root, branch: 'main' };
   }
 
   async start(agent: AgentId, prompt: string, _cwd?: string): Promise<string> {
@@ -120,11 +138,15 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null): Promise<string> {
+    const previous = reuse ? this.task(reuse) : null;
+    if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
     const runId = crypto.randomUUID();
     const run: MockRun = { agent, timers: [], active: true };
     this.runs.set(runId, run);
-    this.tasks.set(runId, { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, pending: true });
+    this.tasks.set(runId, previous
+      ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, pending: true }
+      : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
@@ -234,6 +256,61 @@ export class MockBackend extends AgentBackend {
     task.contents.set(path, content);
   }
 
+  async composeRuns(picks: Pick[]): Promise<Composite> {
+    if (!picks.length) throw new Error('Hãy chọn ít nhất một thay đổi để ghép.');
+    const byPath = new Map<string, FileDiff>();
+    for (const p of picks) {
+      const file = this.task(p.runId).files.find((f) => f.path === p.path);
+      const hunk = file?.hunks.find((h) => h.id === p.hunkId);
+      if (!file || !hunk) throw new Error('Hunk đã thay đổi hoặc không tồn tại; hãy tải lại.');
+      const into = byPath.get(p.path) ?? { ...file, hunks: [] };
+      // Two hunks for the same lines cannot both apply, like `git apply` in the core.
+      if (into.hunks.some((h) => h.oldStart === hunk.oldStart)) {
+        throw new Error(`Thay đổi ở ${p.path} không ghép được với các thay đổi đã chọn trước đó (trùng chỗ sửa).`);
+      }
+      into.hunks = [...into.hunks, hunk];
+      byPath.set(p.path, into);
+    }
+    const id = crypto.randomUUID();
+    const files = [...byPath.values()];
+    this.composites.set(id, files);
+    return { id, files };
+  }
+
+  async checkComposite(id: string, command: string): Promise<CheckResult> {
+    this.composite(id);
+    if (!command.trim()) throw new Error('Hãy nhập lệnh kiểm tra, ví dụ npm test.');
+    const failed = command.includes('fail');
+    await new Promise((r) => setTimeout(r, 300));
+    return {
+      code: failed ? 1 : 0,
+      output: `> ${command}\n${failed ? '✕ 1 test failed: tiêu đề sai' : '✓ 12 tests passed'}\n`,
+      truncated: false,
+      durationMs: 300,
+    };
+  }
+
+  async applyComposite(id: string): Promise<number> {
+    return this.composite(id).length;
+  }
+
+  async commitComposite(id: string, message: string): Promise<string> {
+    this.composite(id);
+    if (!message.trim()) throw new Error('Cần nhập nội dung commit.');
+    return 'mix5678def1234';
+  }
+
+  async discardComposite(id: string): Promise<void> {
+    this.composite(id);
+    this.composites.delete(id);
+  }
+
+  private composite(id: string): FileDiff[] {
+    const c = this.composites.get(id);
+    if (!c) throw new Error('Bản ghép không còn. Hãy tạo lại.');
+    return c;
+  }
+
   private task(runId: string): MockTask {
     const task = this.tasks.get(runId);
     if (!task) throw new Error('Không tìm thấy worktree mô phỏng.');
@@ -270,12 +347,143 @@ export class MockBackend extends AgentBackend {
     return [];
   }
 
+  /** Two weeks of plausible history plus this session's runs. */
+  async usageReport(since: number): Promise<UsageRow[]> {
+    const day = 86_400_000;
+    const start = new Date();
+    start.setHours(9, 0, 0, 0);
+    const history: UsageRow[] = [];
+    let seed = 7;
+    const rand = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+    for (let d = 1; d <= 20; d++) {
+      for (const agent of ['claude', 'codex', 'gemini'] as AgentId[]) {
+        const n = Math.floor(rand() * 3);
+        for (let i = 0; i < n; i++) {
+          const startedAt = start.getTime() - d * day + i * 3_600_000;
+          const input = 2000 + Math.round(rand() * 9000);
+          history.push({
+            id: `hist-${d}-${agent}-${i}`, agent, prompt: ['Sửa lỗi đăng nhập', 'Thêm test', 'Đổi tên biến', 'Viết README'][i % 4],
+            startedAt, endedAt: startedAt + 90_000, status: 'done', group: null,
+            usage: { inputTokens: input, cachedInputTokens: input * 6, outputTokens: Math.round(input / 4),
+              costUsd: agent === 'claude' ? Math.round(input * 0.00003 * 100) / 100 : null, source: agent === 'claude' ? 'reported' : 'tokens', cumulative: true },
+          });
+        }
+      }
+    }
+    return [...this.ledger.values(), ...history].filter((r) => r.startedAt >= since).sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  async listPrices(): Promise<PriceRow[]> {
+    return [...this.prices];
+  }
+
+  async addPrice(price: PriceRow): Promise<void> {
+    if ([price.input, price.cachedInput, price.output].some((v) => v !== null && (!Number.isFinite(v) || v < 0))) throw new Error('Giá phải là số không âm.');
+    this.prices = [...this.prices.filter((p) => !(p.agent === price.agent && p.fromMs === price.fromMs)), price];
+  }
+
+  async getSetting(key: 'budgets'): Promise<string | null> {
+    return this.settings.get(key) ?? null;
+  }
+
+  async setSetting(key: 'budgets', value: string): Promise<void> {
+    JSON.parse(value);
+    this.settings.set(key, value);
+  }
+
+  async diagnostics(): Promise<Record<string, unknown>> {
+    return {
+      app: { name: 'TG Studio', version: 'mock' }, os: { family: 'browser', arch: 'n/a' }, generatedAt: Date.now(),
+      agents: await this.detectAgents(), runs: [...this.ledger.values()].slice(0, 30), mcpServers: this.mcp.map((s) => ({ name: s.name, transport: s.transport, agents: s.agents })),
+    };
+  }
+
+  async listMcpServers(): Promise<McpServer[]> {
+    return this.mcp.map((s) => ({ ...s }));
+  }
+
+  /** Same rules as mcp.rs `validate`. */
+  async saveMcpServer(server: McpServer): Promise<McpServer> {
+    const s = { ...server, id: server.id || crypto.randomUUID() };
+    if (!/^[A-Za-z0-9_-]+$/.test(s.name)) throw new Error('Tên server chỉ gồm chữ, số, - và _.');
+    if (this.mcp.some((o) => o.id !== s.id && o.name === s.name)) throw new Error(`Đã có server tên ${s.name}.`);
+    if (s.transport === 'stdio' && !s.command?.trim()) throw new Error('Server stdio cần lệnh chạy.');
+    if (s.transport === 'http' && !/^https?:\/\//.test(s.url ?? '')) throw new Error('Server http cần URL bắt đầu bằng http:// hoặc https://.');
+    this.mcp = this.mcp.some((o) => o.id === s.id) ? this.mcp.map((o) => (o.id === s.id ? s : o)) : [...this.mcp, s];
+    return { ...s };
+  }
+
+  async deleteMcpServer(id: string): Promise<void> {
+    this.mcp = this.mcp.filter((s) => s.id !== id);
+  }
+
+  async listSkills(): Promise<Skill[]> {
+    return [...this.skills.values()].map(parseSkill).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async saveSkill(content: string): Promise<Skill> {
+    const skill = parseSkill(content);
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(skill.name)) throw new Error('name chỉ gồm chữ thường, số và -, tối đa 64 ký tự.');
+    this.skills.set(skill.name, content);
+    return skill;
+  }
+
+  async deleteSkill(name: string): Promise<void> {
+    this.skills.delete(name);
+  }
+
+  async skillTargets(name: string, repo: string | null): Promise<SkillTarget[]> {
+    const content = this.skills.get(name);
+    if (content === undefined) throw new Error('Không có skill này trong thư viện.');
+    const where = (scope: 'project' | 'user') => (scope === 'project' ? `${repo}/.claude/skills/${name}/SKILL.md` : `~/.claude/skills/${name}/SKILL.md`);
+    return (repo ? (['project', 'user'] as const) : (['user'] as const)).map((scope) => {
+      const existing = this.installed.get(where(scope));
+      return { scope, path: where(scope), state: existing === undefined ? 'missing' : existing === content ? 'same' : 'different' };
+    });
+  }
+
+  async installSkill(name: string, scope: 'project' | 'user', repo: string | null): Promise<SkillInstalled> {
+    const target = (await this.skillTargets(name, repo)).find((t) => t.scope === scope);
+    if (!target) throw new Error('Chọn một repo Git để cài ở mức project.');
+    this.installed.set(target.path, this.skills.get(name)!);
+    return { path: target.path, backup: target.state === 'different' ? `${target.path}.bak-${Date.now()}` : null };
+  }
+
+  async saveExport(name: string, content: string): Promise<string> {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return `Downloads/${name}`;
+  }
+
   async onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {
     this.handlers.push(handler);
     return () => (this.handlers = this.handlers.filter((h) => h !== handler));
   }
 
   private emit(e: AgentEvent) {
+    const row = this.ledger.get(e.runId) ?? { id: e.runId, agent: e.agent, prompt: '', startedAt: e.atMs, endedAt: null, status: 'running' as const, group: null, usage: null };
+    if (e.kind === 'usage' && e.usage) row.usage = e.usage;
+    if (e.kind === 'exit') {
+      row.endedAt = e.atMs;
+      row.status = e.code === 0 ? 'done' : 'stopped';
+    }
+    this.ledger.set(e.runId, row);
     this.handlers.forEach((h) => h(e));
   }
+}
+
+/** Same rules as skills.rs `front_matter`. */
+function parseSkill(content: string): Skill {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  if (!m) throw new Error('SKILL.md phải bắt đầu bằng front matter (---).');
+  const field = (k: string) => new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(m[1])?.[1].trim().replace(/^"|"$/g, '') ?? '';
+  const name = field('name');
+  const description = field('description');
+  if (!name) throw new Error('Front matter thiếu name.');
+  if (!description) throw new Error('Front matter thiếu description.');
+  return { name, description, content };
 }

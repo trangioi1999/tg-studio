@@ -1,6 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
 import { AGENT_META } from '../core/protocol';
+import { UiService } from '../core/ui.service';
 import { AgentAvatar } from './agent-avatar';
 
 @Component({
@@ -9,6 +10,8 @@ import { AgentAvatar } from './agent-avatar';
   template: `
     <div class="panel-head">
       <span class="label">AGENTS</span>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" (click)="ui.onboarding.set(true)">Hướng dẫn</button>
       <button class="btn ghost sm" (click)="agents.refresh()" [disabled]="agents.loading()">
         {{ agents.loading() ? 'Đang dò…' : 'Dò lại' }}
       </button>
@@ -21,7 +24,7 @@ import { AgentAvatar } from './agent-avatar';
             <div class="agent-name">
               {{ a.name }}
               @if (a.path && a.headless) { <span class="tag ok">sẵn sàng</span> }
-              @else if (a.path) { <span class="tag">ACP · giai đoạn 1</span> }
+              @else if (a.path) { <span class="tag" title="Agent này chưa có chế độ chỉ-đọc; dùng được ở Sửa code, Song song và Pipeline">chỉ Sửa code</span> }
               @else { <span class="tag warn">chưa cài</span> }
             </div>
             @if (a.path) {
@@ -40,7 +43,8 @@ import { AgentAvatar } from './agent-avatar';
 export class AgentsPanel implements OnInit {
   protected readonly agents = inject(AgentsService);
   protected readonly meta = AGENT_META;
+  protected readonly ui = inject(UiService);
   ngOnInit() {
-    void this.agents.refresh();
+    if (!this.agents.agents().length && !this.agents.loading()) void this.agents.refresh();
   }
 }

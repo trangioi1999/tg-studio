@@ -73,8 +73,14 @@ fn valid_segment(value: &str) -> bool {
 }
 
 pub fn create(repo: &Path, agent: &str, title: &str, run_id: &str) -> Result<Worktree, String> {
+    create_at(repo, agent, title, run_id, None)
+}
+
+/// Like `create`, from a given commit instead of HEAD (a composite starts from its runs' base).
+pub fn create_at(repo: &Path, agent: &str, title: &str, run_id: &str, base: Option<&str>) -> Result<Worktree, String> {
     let repo = root(repo)?;
-    let base = git(&repo, &["rev-parse", "--verify", "HEAD^{commit}"], None)
+    let target = format!("{}^{{commit}}", base.unwrap_or("HEAD"));
+    let base = git(&repo, &["rev-parse", "--verify", &target], None)
         .map_err(|e| format!("Kho Git chưa có commit hợp lệ. {e}"))?.trim().to_owned();
     if !valid_segment(agent) || !valid_segment(run_id) {
         return Err("Tên agent hoặc mã lượt chạy không hợp lệ.".into());
@@ -106,6 +112,29 @@ pub fn create(repo: &Path, agent: &str, title: &str, run_id: &str) -> Result<Wor
         return Err(io_error(e));
     }
     Ok(Worktree { run_id: run_id.into(), path, branch, base })
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoInfo {
+    pub root: String,
+    pub name: String,
+    /// None on a detached HEAD.
+    pub branch: Option<String>,
+}
+
+/// Repository root, folder name and current branch, for the title bar.
+pub fn info(path: &Path) -> Result<RepoInfo, String> {
+    let root = root(path)?;
+    let branch = git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"], None).ok()
+        .map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
+    let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(RepoInfo { root: root.to_string_lossy().into_owned(), name, branch })
+}
+
+#[tauri::command]
+pub async fn repo_info(path: String) -> Result<RepoInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || info(Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
 pub fn list(repo: &Path) -> Result<Vec<Worktree>, String> {
@@ -178,6 +207,18 @@ pub(crate) mod tests {
         assert_eq!(w.base, git(&r.0, &["rev-parse", "HEAD"], None).unwrap().trim());
         assert!(w.path.join("file.txt").exists());
         assert!(git(&r.0, &["status", "--porcelain"], None).unwrap().is_empty());
+    }
+    #[test] fn info_reports_root_name_and_branch() {
+        let r = Repo::new();
+        fs::create_dir_all(r.0.join("sub dir")).unwrap();
+        let i = info(&r.0.join("sub dir")).unwrap();
+        assert_eq!(PathBuf::from(&i.root), dunce::canonicalize(&r.0).unwrap());
+        assert!(i.name.starts_with("tg-test-"));
+        assert!(i.branch.is_some());
+        let head = git(&r.0, &["rev-parse", "HEAD"], None).unwrap();
+        git(&r.0, &["checkout", "--detach", head.trim()], None).unwrap();
+        assert_eq!(info(&r.0).unwrap().branch, None);
+        assert!(info(&std::env::temp_dir().join(format!("none-{}", uuid::Uuid::new_v4()))).is_err());
     }
     #[test] fn parallel_creates_on_one_repo_all_succeed() {
         let r = Repo::new();

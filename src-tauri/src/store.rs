@@ -30,6 +30,31 @@ pub struct StoredLine {
     pub line: String,
 }
 
+/// USD per 1M tokens from `from_ms` on; all None means "no price" from then on.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceRow {
+    pub agent: AgentKind,
+    pub from_ms: u64,
+    pub input: Option<f64>,
+    pub cached_input: Option<f64>,
+    pub output: Option<f64>,
+}
+
+/// One run for the usage ledger: what it was and what it used in the end.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRow {
+    pub id: String,
+    pub agent: AgentKind,
+    pub prompt: String,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub status: String,
+    pub group: Option<String>,
+    pub usage: Option<Usage>,
+}
+
 /// The latest plan limits an agent's CLI reported, kept across app restarts.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,7 +122,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=3 => {},
+            1..=5 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -115,6 +140,23 @@ impl Store {
                     agent TEXT PRIMARY KEY, windows TEXT NOT NULL, at INTEGER NOT NULL
                 );
                 PRAGMA user_version = 3;")?;
+        }
+        if version < 4 {
+            // Pipeline steps after the first reuse the first step's worktree.
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN worktree_owner TEXT;
+                PRAGMA user_version = 4;")?;
+        }
+        if version < 5 {
+            tx.execute_batch("
+                CREATE TABLE prices (
+                    agent TEXT NOT NULL, from_ms INTEGER NOT NULL,
+                    input REAL, cached_input REAL, output REAL,
+                    PRIMARY KEY (agent, from_ms)
+                );
+                CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, config TEXT NOT NULL);
+                CREATE INDEX runs_started_at ON runs(started_at);
+                PRAGMA user_version = 5;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -160,6 +202,94 @@ impl Store {
         rows.collect()
     }
 
+    /// Runs started at or after `since` (epoch ms), newest first, with their final usage.
+    pub fn usage_rows(&self, since: u64) -> Result<Vec<UsageRow>> {
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        let mut rows = {
+            let mut stmt = tx.prepare("SELECT id, agent, prompt, started_at, ended_at, status, task_id FROM runs
+                WHERE started_at >= ?1 ORDER BY started_at DESC, id DESC")?;
+            let mapped = stmt.query_map([sql_integer(since)?], |row| {
+                let agent: String = row.get(1)?;
+                let agent = serde_json::from_value(serde_json::Value::String(agent))
+                    .map_err(|e| Error::FromSqlConversionFailure(1, Type::Text, Box::new(e)))?;
+                Ok(UsageRow {
+                    id: row.get(0)?, agent, prompt: row.get(2)?, started_at: unsigned(row.get(3)?, 3)?,
+                    ended_at: row.get::<_, Option<i64>>(4)?.map(|n| unsigned(n, 4)).transpose()?,
+                    status: row.get(5)?, group: row.get(6)?, usage: None,
+                })
+            })?;
+            mapped.collect::<Result<Vec<_>>>()?
+        };
+        {
+            let mut events = tx.prepare("SELECT input_tokens, cached_input_tokens, output_tokens, cost_usd, source, cumulative
+                FROM usage_events WHERE run_id = ?1 ORDER BY at ASC, id ASC")?;
+            for row in &mut rows {
+                row.usage = replay(events.query_map([&row.id], usage_from_row)?)?;
+            }
+        }
+        tx.commit()?;
+        Ok(rows)
+    }
+
+    pub fn prices(&self) -> Result<Vec<PriceRow>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT agent, from_ms, input, cached_input, output FROM prices ORDER BY agent, from_ms")?;
+        let rows = stmt.query_map([], |row| {
+            let agent: String = row.get(0)?;
+            let agent = serde_json::from_value(serde_json::Value::String(agent))
+                .map_err(|e| Error::FromSqlConversionFailure(0, Type::Text, Box::new(e)))?;
+            Ok(PriceRow { agent, from_ms: unsigned(row.get(1)?, 1)?, input: row.get(2)?, cached_input: row.get(3)?, output: row.get(4)? })
+        })?;
+        rows.collect()
+    }
+
+    /// A new price from `from_ms` on. Older runs keep the price they started under.
+    pub fn add_price(&self, price: &PriceRow) -> Result<()> {
+        let valid = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v >= 0.0);
+        if ![price.input, price.cached_input, price.output].into_iter().all(valid) { return Err(Error::InvalidQuery); }
+        self.connection()?.execute(
+            "INSERT OR REPLACE INTO prices (agent, from_ms, input, cached_input, output) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![agent_key(price.agent)?, sql_integer(price.from_ms)?, price.input, price.cached_input, price.output],
+        )?;
+        Ok(())
+    }
+
+    pub fn mcp_servers(&self) -> Result<Vec<String>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT config FROM mcp_servers ORDER BY rowid")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    pub fn save_mcp_server(&self, id: &str, config: &str) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO mcp_servers (id, config) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET config = excluded.config",
+            params![id, config],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_mcp_server(&self, id: &str) -> Result<()> {
+        self.connection()?.execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query([key])?;
+        rows.next()?.map(|r| r.get(0)).transpose()
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
     pub fn add_rule(&self, repo: &str, agent: AgentKind, rule: &str) -> Result<()> {
         let agent = agent_key(agent)?;
         self.connection()?.execute(
@@ -190,13 +320,33 @@ impl Store {
             "INSERT INTO runs (id, agent, prompt, cwd, started_at, status, task_id) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
             params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?, group],
         )?;
-        write_worktree(&tx, run.id, repo, wt)?;
+        if wt.run_id == run.id {
+            write_worktree(&tx, run.id, repo, wt)?;
+        } else {
+            // A shared worktree must still belong to its owner run in the same repo.
+            let path = wt.path.to_str().ok_or(Error::InvalidQuery)?;
+            let owned: i64 = tx.query_row("SELECT COUNT(*) FROM runs WHERE id = ?1 AND repo = ?2 AND worktree = ?3",
+                params![wt.run_id, repo, path], |r| r.get(0))?;
+            if owned != 1 { return Err(Error::QueryReturnedNoRows); }
+            tx.execute("UPDATE runs SET repo = ?2, worktree = ?3, branch = ?4, base = ?5, worktree_owner = ?6 WHERE id = ?1",
+                params![run.id, repo, path, wt.branch, wt.base, wt.run_id])?;
+        }
         tx.commit()
     }
 
+    /// Every run (this one included) that works in the same worktree as `run_id`.
+    pub fn runs_sharing_worktree(&self, run_id: &str) -> Result<Vec<String>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT id FROM runs WHERE worktree IS NOT NULL AND worktree = (SELECT worktree FROM runs WHERE id = ?1)")?;
+        let rows = stmt.query_map([run_id], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    /// Forgets the worktree for this run and every run that shared it.
     pub fn clear_run_worktree(&self, run_id: &str) -> Result<()> {
         self.connection()?.execute(
-            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL WHERE id = ?1",
+            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL, worktree_owner = NULL
+             WHERE worktree IS NOT NULL AND worktree = (SELECT worktree FROM runs WHERE id = ?1)",
             params![run_id],
         )?;
         Ok(())
@@ -204,10 +354,10 @@ impl Store {
 
     pub fn run_worktree(&self, run_id: &str) -> Result<(PathBuf, Worktree)> {
         self.connection()?.query_row(
-            "SELECT repo, worktree, branch, base FROM runs WHERE id = ?1 AND repo IS NOT NULL
+            "SELECT repo, worktree, branch, base, COALESCE(worktree_owner, id) FROM runs WHERE id = ?1 AND repo IS NOT NULL
                 AND worktree IS NOT NULL AND branch IS NOT NULL AND base IS NOT NULL",
             [run_id], |row| Ok((PathBuf::from(row.get::<_, String>(0)?), Worktree {
-                run_id: run_id.into(), path: PathBuf::from(row.get::<_, String>(1)?),
+                run_id: row.get(4)?, path: PathBuf::from(row.get::<_, String>(1)?),
                 branch: row.get(2)?, base: row.get(3)?,
             })),
         )
@@ -277,30 +427,8 @@ impl Store {
                 run.lines = lines.query_map([&run.id], |row| {
                     Ok(StoredLine { kind: row.get(0)?, line: row.get(1)? })
                 })?.collect::<Result<Vec<_>>>()?;
-                let usage = events.query_map([&run.id], |row| {
-                    let source: String = row.get(4)?;
-                    Ok(Usage {
-                        input_tokens: unsigned(row.get(0)?, 0)?, cached_input_tokens: unsigned(row.get(1)?, 1)?,
-                        output_tokens: unsigned(row.get(2)?, 2)?, cost_usd: row.get(3)?,
-                        source: if source == "reported" { "reported" } else { "tokens" },
-                        cumulative: row.get(5)?,
-                    })
-                })?;
-                for next in usage {
-                    let mut next = next?;
-                    if !next.cumulative {
-                        if let Some(prev) = &run.usage {
-                            next.input_tokens += prev.input_tokens;
-                            next.cached_input_tokens += prev.cached_input_tokens;
-                            next.output_tokens += prev.output_tokens;
-                            next.cost_usd = match (prev.cost_usd, next.cost_usd) {
-                                (None, None) => None,
-                                (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
-                            };
-                        }
-                    }
-                    run.usage = Some(next);
-                }
+                let usage = events.query_map([&run.id], usage_from_row)?;
+                run.usage = replay(usage)?;
             }
         }
         tx.commit()?;
@@ -316,6 +444,37 @@ pub async fn account_limits(store: State<'_, Store>) -> std::result::Result<Vec<
 #[tauri::command]
 pub async fn list_runs(store: State<'_, Store>) -> std::result::Result<Vec<StoredRun>, String> {
     store.list_runs(RESTORED_RUNS).map_err(|e| e.to_string())
+}
+
+/// Folds a run's usage events like the UI does: cumulative replaces, a turn adds.
+fn replay(events: impl Iterator<Item = Result<Usage>>) -> Result<Option<Usage>> {
+    let mut total: Option<Usage> = None;
+    for next in events {
+        let mut next = next?;
+        if !next.cumulative {
+            if let Some(prev) = &total {
+                next.input_tokens += prev.input_tokens;
+                next.cached_input_tokens += prev.cached_input_tokens;
+                next.output_tokens += prev.output_tokens;
+                next.cost_usd = match (prev.cost_usd, next.cost_usd) {
+                    (None, None) => None,
+                    (a, b) => Some(a.unwrap_or(0.0) + b.unwrap_or(0.0)),
+                };
+            }
+        }
+        total = Some(next);
+    }
+    Ok(total)
+}
+
+fn usage_from_row(row: &rusqlite::Row<'_>) -> Result<Usage> {
+    let source: String = row.get(4)?;
+    Ok(Usage {
+        input_tokens: unsigned(row.get(0)?, 0)?, cached_input_tokens: unsigned(row.get(1)?, 1)?,
+        output_tokens: unsigned(row.get(2)?, 2)?, cost_usd: row.get(3)?,
+        source: if source == "reported" { "reported" } else { "tokens" },
+        cumulative: row.get(5)?,
+    })
 }
 
 fn agent_key(agent: AgentKind) -> Result<String> {
@@ -370,6 +529,72 @@ mod tests {
         store.add_rule("/repo", AgentKind::Codex, "read:*").unwrap();
         assert!(store.run_worktree("old").is_err());
         assert!(store.all_limits().unwrap().is_empty());
+    }
+
+    #[test]
+    fn later_runs_can_share_a_worktree_and_clearing_any_clears_all() {
+        let store = Store::open_in_memory().unwrap();
+        let wt = crate::worktree::Worktree { run_id: "a".into(), path: "/wt/a".into(), branch: "b".into(), base: "c".into() };
+        store.insert_run_with_worktree(&NewRun { id: "a", agent: AgentKind::Claude, prompt: "plan", cwd: "/wt/a", started_at: 1 }, "/repo", &wt, None).unwrap();
+        store.insert_run_with_worktree(&NewRun { id: "b", agent: AgentKind::Codex, prompt: "build", cwd: "/wt/a", started_at: 2 }, "/repo", &wt, None).unwrap();
+        // The second run resolves to the owner's worktree, so removal finds it.
+        assert_eq!(store.run_worktree("b").unwrap(), (PathBuf::from("/repo"), wt.clone()));
+        // Sharing needs the owner in the same repo.
+        assert!(store.insert_run_with_worktree(&NewRun { id: "x", agent: AgentKind::Codex, prompt: "p", cwd: "/", started_at: 3 }, "/other", &wt, None).is_err());
+        let mut sharing = store.runs_sharing_worktree("b").unwrap();
+        sharing.sort();
+        assert_eq!(sharing, vec!["a", "b"]);
+        store.clear_run_worktree("b").unwrap();
+        assert!(store.run_worktree("a").is_err());
+        assert!(store.run_worktree("b").is_err());
+    }
+
+    #[test]
+    fn usage_rows_since_with_final_usage_and_group() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "old", 10);
+        insert(&store, "a", 100);
+        insert(&store, "b", 200);
+        store.add_usage("a", 101, &usage(5, 1, 2)).unwrap();
+        store.add_usage("a", 102, &usage(5, 1, 2)).unwrap();
+        store.add_usage("b", 201, &Usage { cumulative: true, cost_usd: Some(0.5), source: "reported", ..usage(9, 0, 1) }).unwrap();
+        let rows = store.usage_rows(100).unwrap();
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec!["b", "a"]);
+        assert_eq!(rows[1].usage, Some(usage(10, 2, 4)));
+        assert_eq!(rows[0].usage.as_ref().unwrap().cost_usd, Some(0.5));
+        assert!(rows.iter().all(|r| r.group.is_none()));
+    }
+
+    #[test]
+    fn prices_keep_history_and_reject_bad_numbers() {
+        let store = Store::open_in_memory().unwrap();
+        let p = |from_ms, input| PriceRow { agent: AgentKind::Codex, from_ms, input, cached_input: Some(0.1), output: Some(2.0) };
+        store.add_price(&p(10, Some(1.0))).unwrap();
+        store.add_price(&p(20, Some(1.5))).unwrap();
+        store.add_price(&p(30, None)).unwrap();
+        assert_eq!(store.prices().unwrap(), vec![p(10, Some(1.0)), p(20, Some(1.5)), p(30, None)]);
+        assert!(store.add_price(&p(40, Some(-1.0))).is_err());
+        assert!(store.add_price(&p(40, Some(f64::NAN))).is_err());
+    }
+
+    #[test]
+    fn mcp_servers_keep_insertion_order_and_update_in_place() {
+        let store = Store::open_in_memory().unwrap();
+        store.save_mcp_server("b", "{\"n\":1}").unwrap();
+        store.save_mcp_server("a", "{\"n\":2}").unwrap();
+        store.save_mcp_server("b", "{\"n\":3}").unwrap();
+        assert_eq!(store.mcp_servers().unwrap(), vec!["{\"n\":3}", "{\"n\":2}"]);
+        store.delete_mcp_server("b").unwrap();
+        assert_eq!(store.mcp_servers().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn settings_round_trip() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.setting("budgets").unwrap(), None);
+        store.set_setting("budgets", "{}").unwrap();
+        store.set_setting("budgets", "{\"daily\":5}").unwrap();
+        assert_eq!(store.setting("budgets").unwrap().as_deref(), Some("{\"daily\":5}"));
     }
 
     #[test]
@@ -437,7 +662,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 3);
+            assert_eq!(version, 5);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();

@@ -28,7 +28,7 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 
 **Luồng một lượt chạy**
 
-1. `RunConsole` gọi `RunsService.start()`, rồi `AgentBackend.start()` chuyển thành lệnh Tauri `start_agent`.
+1. Ô giao việc trong `AgentPanel` (panel phải) gọi `RunsService.start()`, rồi `AgentBackend.start()` chuyển thành lệnh Tauri `start_agent`.
 2. `runner.rs` lấy tham số từ `AgentKind::headless_args`, spawn tiến trình con và trả về `runId`.
 3. Mỗi dòng stdout đi qua `usage::parse_line`. Nếu dòng có usage, lõi phát thêm event `usage` trước event `log` của chính dòng đó.
 4. `RunsService.apply()` gộp event vào signal `runs`. `describeLine()` đổi JSON thô thành dòng console ở phía UI, nên Rust chỉ chuyển nguyên dòng.
@@ -38,7 +38,7 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Thứ tự event:** event `started` có thể đến trước khi `start()` nhận được `runId`. Vì vậy `upsert()` tạo run từ event đầu tiên, còn `prompt` và `cwd` được điền sau.
 - **Hai backend:** `app.config.ts` chọn `TauriBackend` hoặc `MockBackend` qua `isTauri()`. Thêm phương thức vào `AgentBackend` thì phải cài ở cả hai. Thêm lệnh Tauri thì đăng ký thêm trong `generate_handler!` ở `lib.rs`.
 - **Quy ước usage:** `inputTokens` luôn không gồm phần đọc từ cache. Codex và Gemini báo tổng nên phải trừ phần cache; Claude thì cộng `cache_creation_input_tokens` vào input. `cumulative` quyết định `mergeUsage` thay thế hay cộng dồn số cũ.
-- **Chi phí:** dùng `costUsd` do CLI báo nếu có, không thì ước tính từ `PRICES` trong `pricing.ts`. Bảng giá hiện đều là `null`, nên UI chỉ hiện token.
+- **Chi phí:** dùng `costUsd` do CLI báo nếu có, không thì ước tính bằng giá có hiệu lực lúc lượt chạy bắt đầu (`PRICE_HISTORY` trong `pricing.ts`, nạp từ SQLite, sửa ở màn Usage). Luôn truyền `startedAt` vào `estimateCost`/`costOf`. Biểu đồ dùng `AGENT_META[a].chart`, không dùng `color`.
 - **Trạng thái dừng:** `stop_agent` kill tiến trình và event `exit` có `code` là null. UI phân biệt `stopped` với `failed` bằng tập `stopping` trong `RunsService`, không phải bằng dữ liệu từ lõi.
 - **PATH:** mọi tiến trình con phải dùng `env::which` và `.env("PATH", env::login_path())`, nếu không app mở từ Finder sẽ không thấy CLI cài qua nvm hoặc Homebrew.
 - **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.
@@ -46,8 +46,13 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 
 - **Task sửa code:** đi qua `acp_tasks.rs`, không qua `runner.rs`. Logic định tuyến nằm ở `TaskSession` (`acp_runner.rs`), test bằng agent giả `acp/fake.rs`. `stop_agent` dùng chung cho cả hai loại run. Token của task chỉ có trong kết quả `session/prompt`, không có trong `usage_update`.
 - **Chạy song song:** các run cùng một yêu cầu có chung `group` (cột `task_id` trong SQLite). "Dùng bản này" đi qua `diff::accept_all`, không lặp `accept_hunk`, để không bao giờ áp dở một run. Lựa chọn của nhóm giữ ở `RunsService.choices`.
+- **Pipeline:** các bước nối tiếp dùng chung worktree qua `start_task(reuse)`; `run_worktree` trả về worktree của run gốc (`worktree_owner`). Điều phối nằm ở `PipelineService` phía UI.
+- **CSS của Monaco:** esbuild tách CSS mà Monaco import ra file lazy không ai nạp, nên `editor.main.css` được chép thành asset (`angular.json`) và `loadMonaco` tự gắn `<link>`. Kiểm tra editor trên bản build, đừng chỉ trên `ng serve`.
+- **MCP:** không ghi vào file cấu hình của agent; server đi vào từng phiên (`mcp::for_acp`, `mcp::claude_config`). Live test MCP dùng `src-tauri/tests/fixtures/mcp/ping-server.js`.
 - **Hạn mức gói:** event `limits` thuộc về tài khoản, không thuộc run; `RunsService.apply` xử lý nó trước `upsert`. Nguồn duy nhất hiện có là `rate_limit_event` của Claude headless.
-- **Màn hình:** `UiService` giữ màn hình (Agents / Mission control) và view của console; muốn mở một run từ chỗ khác thì gọi `ui.openRun(id, view)`.
+- **Layout IDE:** `Explorer` (trái) · `Workbench` (giữa: tab tệp/Thay đổi/So sánh + `Terminal`) · `AgentPanel` (phải: Thread/Plan/Runs + ô giao việc). `WorkspaceService` giữ thư mục/repo, các tab và bộ đệm tệp + diff của từng run (`refresh(runId)`); component nào Accept/Reject hay lưu tệp thì gọi `refresh` để các nơi khác cập nhật. `UiService` giữ màn hình (IDE / Mission control / Usage); mở một run từ chỗ khác bằng `ui.openRun(id, view)`.
+- **Thanh hunk trong editor:** view zone chỉ để giữ chỗ, thanh nút là content widget, vì lớp chữ của Monaco nằm trên view zone và nuốt click.
+- **Phím tắt:** nhãn lấy từ `core/keys.ts` (⌘ trên macOS, Ctrl nơi khác); handler nhận cả `meta` và `control`.
 - **Editor:** Monaco tải lazy qua `core/monaco.ts`; worker là `core/editor.worker.ts` (cần `webWorkerTsConfig` và loader `.ttf` trong `angular.json`). Import Monaco qua `monaco-editor/editor/editor.api.js`, không import `monaco-editor` (kéo theo language service).
 
 **Thêm agent mới:** làm theo `docs/ARCHITECTURE.md`.
@@ -56,4 +61,4 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 
 **Giao diện:** component trong `src/app/shell/` không có style riêng; toàn bộ CSS nằm trong `src/styles.scss`. Chuỗi hiển thị cho người dùng, kể cả lỗi trả về từ Rust, viết bằng tiếng Việt.
 
-Trạng thái hiện tại là giai đoạn 2 (đã có chạy song song + So sánh). Lộ trình nằm trong `docs/02-roadmap.md`.
+Trạng thái hiện tại là giai đoạn 4 (đóng gói); phần còn lại cần tài khoản/chứng chỉ của chủ repo. Lộ trình nằm trong `docs/02-roadmap.md`, hướng dẫn người dùng ở `docs/user-guide.md`. Phát hành: `npm run version:sync` rồi đẩy tag `vX.Y.Z` (xem `docs/07-release.md` §6).

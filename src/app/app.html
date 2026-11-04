@@ -2,24 +2,34 @@
   <tg-title-bar />
   <div class="body">
     <nav class="activity" aria-label="Màn hình">
-      <button class="act" [class.active]="ui.screen() === 'agents'" [attr.aria-pressed]="ui.screen() === 'agents'" aria-label="Agents" title="Agents" (click)="ui.screen.set('agents')">
+      <button class="act" [class.active]="ui.screen() === 'ide' && ui.sidebar() === 'files'" aria-label="Explorer" title="Explorer" (click)="show('ide', 'files')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6l2 2h8v12H4z" /></svg>
+      </button>
+      <button class="act" [class.active]="ui.screen() === 'ide' && ui.sidebar() === 'agents'" aria-label="Agents" title="Agents" (click)="show('ide', 'agents')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z" /></svg>
       </button>
       <button class="act" [class.active]="ui.screen() === 'mission'" [attr.aria-pressed]="ui.screen() === 'mission'" aria-label="Mission control" title="Mission control" (click)="ui.screen.set('mission')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M4 12h16M4 18h7" /><circle cx="18" cy="6" r="2" /><circle cx="15" cy="18" r="2" /></svg>
         @if (waiting()) { <span class="act-badge">{{ waiting() }}</span> }
       </button>
-      <button class="act" aria-label="Usage (giai đoạn 3)" title="Usage — giai đoạn 3" disabled>
+      <button class="act" [class.active]="ui.screen() === 'usage'" aria-label="Usage" title="Usage" (click)="ui.screen.set('usage')">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M12 20V4M19 20v-6" /></svg>
       </button>
+      <button class="act" [class.active]="ui.screen() === 'integrations'" aria-label="Integrations" title="Integrations: MCP và Skills" (click)="ui.screen.set('integrations')">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5M15 3v5M7 8h10v4a5 5 0 0 1-10 0zM12 17v4" /></svg>
+      </button>
     </nav>
-    <tg-agents-panel class="sidebar" />
-    @if (ui.screen() === 'mission') {
-      <tg-mission-control class="center" />
-    } @else {
-      <tg-run-console class="center" />
+    @switch (ui.screen()) {
+      @case ('mission') { <tg-mission-control class="center" /> }
+      @case ('usage') { <tg-usage-screen class="center" /> }
+      @case ('integrations') { <tg-integrations class="center" /> }
+      @default {
+        @if (ui.sidebar() === 'agents') { <tg-agents-panel class="sidebar" /> } @else { <tg-explorer class="sidebar" /> }
+        <tg-workbench class="center" />
+        <tg-agent-panel class="inspector" />
+      }
     }
-    <tg-usage-panel class="inspector" />
   </div>
   <tg-status-bar />
+  @if (ui.onboarding()) { <tg-onboarding (done)="ui.onboarding.set(false)" /> }
 </div>

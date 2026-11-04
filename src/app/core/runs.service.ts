@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -28,6 +28,8 @@ export interface Run {
   group: string | null;
   /** Time spent waiting on approval cards; `to` is null while still waiting. Live runs only. */
   waits: { from: number; to: number | null }[];
+  /** The agent's latest plan (ACP `plan` update). Live runs only. */
+  plan: PlanEntry[];
 }
 
 /** Where an agent is working right now, from its latest tool call that names a file. */
@@ -45,7 +47,9 @@ export interface AgentActivity {
 
 /** The run picked with "Use this" for a parallel group, kept while the user moves around. */
 export interface GroupChoice {
-  runId: string;
+  /** The run used whole, or null when a composite was used. */
+  runId: string | null;
+  compositeId: string | null;
   files: number;
   /** Short hash once committed. */
   commit: string | null;
@@ -75,6 +79,10 @@ export class RunsService {
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
   readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
   readonly choices = signal<Record<string, GroupChoice>>({});
+  /** The composite being built for a group, if any. */
+  readonly composites = signal<Record<string, Composite>>({});
+  /** Last check command typed, offered again for the next composite. */
+  readonly checkCommand = signal('');
   /** Latest plan limits per agent (Claude's 5-hour and weekly windows). */
   readonly limits = signal<Partial<Record<AgentId, AccountLimits>>>({});
   /** Per run: the file the agent touched last. Cleared when the run ends. */
@@ -91,7 +99,7 @@ export class RunsService {
         acc.cachedInputTokens += r.usage.cachedInputTokens;
         acc.outputTokens += r.usage.outputTokens;
         const reported = r.usage.costUsd;
-        const cost = reported ?? estimateCost(agent, r.usage);
+        const cost = reported ?? estimateCost(agent, r.usage, r.startedAt);
         if (cost !== null) acc.costUsd = (acc.costUsd ?? 0) + cost;
         const source = reported !== null ? 'reported' : cost !== null ? 'estimated' : 'unpriced';
         acc.costSource = acc.costSource === 'none' || acc.costSource === source ? source : 'estimated';
@@ -157,10 +165,15 @@ export class RunsService {
     this.selectedId.set(id);
   }
 
-  async startTask(agent: AgentId, prompt: string, repo: string): Promise<void> {
-    const id = await this.backend.startTask(agent, prompt, repo, null);
-    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd: repo, task: true }));
+  /**
+   * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
+   * `title` is what the UI shows when the prompt sent to the agent is long.
+   */
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string } = {}): Promise<string> {
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null);
+    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true }));
     this.selectedId.set(id);
+    return id;
   }
 
   /**
@@ -195,13 +208,46 @@ export class RunsService {
   async useRun(group: string, runId: string): Promise<void> {
     if (this.choices()[group]) throw new Error('Nhóm này đã chọn một bản.');
     const files = await this.backend.acceptAll(runId);
-    this.choices.update((c) => ({ ...c, [group]: { runId, files, commit: null } }));
+    this.choices.update((c) => ({ ...c, [group]: { runId, compositeId: null, files, commit: null } }));
+  }
+
+  /** Replaces the group's composite with one built from these picks. */
+  async compose(group: string, picks: Pick[]): Promise<Composite> {
+    await this.dropComposite(group);
+    const composite = await this.backend.composeRuns(picks);
+    this.composites.update((c) => ({ ...c, [group]: composite }));
+    return composite;
+  }
+
+  checkComposite(group: string, command: string): Promise<CheckResult> {
+    const composite = this.composites()[group];
+    if (!composite) return Promise.reject(new Error('Chưa có bản ghép.'));
+    this.checkCommand.set(command);
+    return this.backend.checkComposite(composite.id, command);
+  }
+
+  /** "Use the mix": applies the composite whole, as the group's choice. */
+  async useComposite(group: string): Promise<void> {
+    const composite = this.composites()[group];
+    if (!composite) throw new Error('Chưa có bản ghép.');
+    if (this.choices()[group]) throw new Error('Nhóm này đã chọn một bản.');
+    const files = await this.backend.applyComposite(composite.id);
+    this.choices.update((c) => ({ ...c, [group]: { runId: null, compositeId: composite.id, files, commit: null } }));
+  }
+
+  async dropComposite(group: string): Promise<void> {
+    const composite = this.composites()[group];
+    if (!composite) return;
+    await this.backend.discardComposite(composite.id);
+    this.composites.update(({ [group]: _, ...rest }) => rest);
   }
 
   async commitChoice(group: string, message: string): Promise<string> {
     const choice = this.choices()[group];
     if (!choice) throw new Error('Chưa chọn bản nào trong nhóm.');
-    const hash = await this.backend.commitAccepted(choice.runId, message);
+    const hash = choice.compositeId
+      ? await this.backend.commitComposite(choice.compositeId, message)
+      : await this.backend.commitAccepted(choice.runId!, message);
     this.choices.update((c) => ({ ...c, [group]: { ...choice, commit: hash.slice(0, 7) } }));
     return hash;
   }
@@ -276,8 +322,11 @@ export class RunsService {
         case 'tool':
           this.track(run.id, dataOf(e), e.atMs);
           return { ...run, task: true, lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
-        case 'plan':
-          return { ...run, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
+        case 'plan': {
+          const entries = dataOf(e)['entries'];
+          const plan = Array.isArray(entries) ? (entries as PlanEntry[]).filter((p) => typeof p?.content === 'string') : run.plan;
+          return { ...run, plan, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
+        }
         case 'permission': {
           const request = e.data as unknown as PermissionRequest;
           return { ...run, task: true, permissions: [...run.permissions, request], waits: [...run.waits, { from: e.atMs, to: null }] };
@@ -348,7 +397,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '', group: null, waits: [],
+        task: false, permissions: [], lastMessage: '', group: null, waits: [], plan: [],
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -416,7 +465,7 @@ function restoreRun(s: StoredRun): Run {
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [] };
+  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [] };
 }
 
 /**
@@ -439,6 +488,7 @@ function reattach(saved: Run, live: Run): Run {
     lastMessage: live.lastMessage || saved.lastMessage,
     group: saved.group ?? live.group,
     waits: live.waits,
+    plan: live.plan,
   };
 }
 

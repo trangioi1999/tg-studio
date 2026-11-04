@@ -1,0 +1,81 @@
+name: Release
+
+# Tag vX.Y.Z (matching package.json) → draft GitHub release with installers.
+# Run manually (Actions → Release → Run workflow) → installers as run artifacts, no release.
+# Builds are unsigned until the signing secrets in docs/07-release.md are added.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundle: src-tauri/target/universal-apple-darwin/release/bundle
+          - os: windows-latest
+            args: ''
+            rust_targets: ''
+            bundle: src-tauri/target/release/bundle
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run version:check
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json ($version). Run npm run version:sync." >&2
+            exit 1
+          fi
+      - run: npm test -- --watch=false
+      - run: cargo test
+        working-directory: src-tauri
+
+      - name: Build and attach to a draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: TG Studio ${{ github.ref_name }}
+          releaseBody: Xem CHANGELOG.md. Bản chưa ký số; xem docs/user-guide.md để cài.
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}
+
+      - name: Build installers
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npx tauri build ${{ matrix.args }}
+      - name: Upload installers
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tg-studio-${{ matrix.os }}
+          path: |
+            ${{ matrix.bundle }}/nsis/*.exe
+            ${{ matrix.bundle }}/msi/*.msi
+            ${{ matrix.bundle }}/dmg/*.dmg
+          if-no-files-found: error

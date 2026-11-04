@@ -3,7 +3,7 @@
 Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
 Giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **Giai đoạn 2** — giao task sửa code qua ACP trong worktree riêng, duyệt lệnh, xem diff, sửa tay trong editor Monaco, accept từng hunk rồi commit. Chế độ *Song song* giao cùng một yêu cầu cho nhiều agent rồi so sánh và chọn một bản. Lõi đã chạy với adapter Claude thật; Kiro, Codex và Gemini qua ACP chưa thử. Xem `docs/02-roadmap.md`.
+> Trạng thái: **Giai đoạn 4** (đóng gói). Đã có: task sửa code qua ACP trong worktree riêng, duyệt lệnh, review/accept từng hunk ngay trong editor, chạy song song + so sánh + ghép, pipeline Plan → Build → Review, Mission control, màn Usage (giá, ngân sách, CSV, hạn mức Claude), MCP + Skills, onboarding. Lõi đã chạy với Claude thật; Codex, Gemini, Kiro qua ACP chưa thử. Còn lại: ký số, tự cập nhật, beta. Xem `docs/02-roadmap.md`; cách dùng: `docs/user-guide.md`.
 
 ## Cài môi trường (làm 1 lần trên macOS)
 
@@ -36,13 +36,13 @@ Lần đầu `npm run dev` sẽ tải và biên dịch các crate Rust, mất v�
 
 Gợi ý yêu cầu đầu tiên: *"Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng"* — chỉ cần đọc file nên chạy trơn tru ở chế độ headless.
 
-## Lưu ý ở giai đoạn 0
+## Lưu ý
 
 - **Quyền:** chế độ *Chỉ đọc* chạy headless, nên thao tác cần duyệt sẽ bị từ chối. Chế độ *Sửa code* chạy qua ACP, có thẻ xin duyệt, và lần đầu tải adapter bằng `npx` nếu máy chưa có.
 - **Codex** yêu cầu thư mục làm việc là một git repo.
 - **Gemini CLI:** nếu phiên bản của bạn đặt tên định dạng stream khác, sửa trong `src-tauri/src/adapters.rs` (xem `gemini --help`).
-- **Kiro CLI:** mới dò được, chưa chạy — Kiro chạy qua ACP (`kiro-cli acp`) ở giai đoạn 1.
-- **Chi phí:** Claude Code tự báo `total_cost_usd`. Codex/Gemini chỉ có token — điền bảng giá trong `src/app/core/pricing.ts` nếu muốn ước tính tiền.
+- **Kiro CLI:** không có chế độ headless, nên chỉ dùng được ở Sửa code / Song song / Pipeline qua ACP (`kiro-cli acp`); chưa kiểm chứng với Kiro thật.
+- **Chi phí:** Claude Code tự báo `total_cost_usd`. Codex/Gemini chỉ có token — nhập bảng giá ở màn Usage nếu muốn ước tính tiền.
 - **PATH trên macOS:** app mở từ Finder không thấy PATH của terminal (nvm, Homebrew). Lõi Rust tự hỏi login shell để lấy PATH — xem `src-tauri/src/env.rs`.
 - Thư mục `src-tauri/icons/android` và `ios` do `tauri icon` tạo ra, không cần cho desktop, xóa được.
 
@@ -78,6 +78,8 @@ docs/ARCHITECTURE.md
 | [docs/06-design-system.md](docs/06-design-system.md) | Màu, chữ, khoảng cách, component, trợ năng |
 | [docs/07-release.md](docs/07-release.md) | Ký số, notarize, installer, tự cập nhật, CI |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Kiến trúc code hiện tại, hợp đồng sự kiện |
+| [docs/user-guide.md](docs/user-guide.md) | Hướng dẫn sử dụng cho người dùng |
+| [CHANGELOG.md](CHANGELOG.md) | Thay đổi theo phiên bản |
 
 ## Lộ trình
 
@@ -85,8 +87,8 @@ docs/ARCHITECTURE.md
 |---|---|
 | **0 — Nền móng** | Dò agent, chạy headless, log, usage theo agent |
 | 1 — Một agent trọn vẹn | ACP client, thẻ duyệt quyền, diff viewer, git worktree |
-| **2 — Nhiều agent** (đang ở đây) | Chạy song song, Mission control, so sánh kết quả, pipeline |
+| 2 — Nhiều agent | Chạy song song, Mission control, so sánh kết quả, pipeline |
 | 3 — Usage & tích hợp | Usage ledger (SQLite), ngân sách, quota gói, registry MCP/skills |
-| 4 — Đóng gói | Ký số + notarize macOS, installer Windows, tự cập nhật |
+| **4 — Đóng gói** (đang ở đây) | Ký số + notarize macOS, installer Windows, tự cập nhật |
 
 Chi tiết từng task: [docs/02-roadmap.md](docs/02-roadmap.md).
