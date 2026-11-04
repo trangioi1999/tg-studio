@@ -32,7 +32,7 @@ function mockDiff(agent: AgentId = 'claude'): FileDiff[] {
       path: 'src/app/app.ts', status: 'M', binary: false, patchHeader: '',
       hunks: [
         hunk('h1', '@@ -10,3 +10,4 @@ export class App', [' export class App {', '-  title = "cũ";', `+  title = "mới (${agent})";`, '+  ready = true;', ' }']),
-        hunk('h2', '@@ -40,2 +41,2 @@ run()', [' run() {', '-  return 1;', '+  return 2;']),
+        hunk('h2', '@@ -40,2 +41,2 @@ export function retries', [' export function retries(): number {', '-  return 1;', '+  return 2;']),
       ],
     },
     ...(agent === 'codex' ? [] : [{
@@ -47,9 +47,55 @@ function mockDiff(agent: AgentId = 'claude'): FileDiff[] {
  * app.ts are the agent's. Before the edit the worktree equals the base commit.
  */
 function mockContents(agent: AgentId, edited: boolean): Map<string, string> {
-  const app = Array.from({ length: 48 }, (_, i) => `// dòng ${i + 1}`);
+  // Plausible code around the two places the agent changes (lines 10–13 and 41–43).
+  const app = [
+    "import { Session, verify } from './auth';",
+    "import { Retry } from './retry';",
+    '',
+    '/** Trang chủ của ứng dụng demo. */',
+    "const DEFAULT_TITLE = 'TG Studio demo';",
+    '',
+    'interface AppState {',
+    '  user: Session | null;',
+    '}',
+    'export class App {', '  title = "cũ";', '  ready = false;', '}',
+    '',
+    'export function greet(state: AppState): string {',
+    "  return state.user ? `Xin chào, ${state.user.name}` : 'Xin chào';",
+    '}',
+    '',
+    'export async function login(token: string): Promise<AppState> {',
+    '  const user = await verify(token);',
+    '  if (!user) {',
+    "    throw new Error('Phiên đăng nhập hết hạn');",
+    '  }',
+    '  return { user };',
+    '}',
+    '',
+    'export function logout(): AppState {',
+    '  return { user: null };',
+    '}',
+    '',
+    '/** Chờ lâu dần khi mạng chập chờn: 2s, 4s, 8s… tối đa 30s. */',
+    'export function backoff(attempt: number): number {',
+    '  return Math.min(1000 * 2 ** attempt, 30_000);',
+    '}',
+    '',
+    'export function title(): string {',
+    '  return DEFAULT_TITLE;',
+    '}',
+    '',
+    '// Số lần thử lại khi đăng nhập',
+    'export function retries(): number {', '  return 1;', '}',
+    '',
+    'export const retry = new Retry(retries(), backoff);',
+    '',
+    'export function ready(app: App): boolean {',
+    '  return app.ready;',
+    '}',
+  ];
   app.splice(9, 4, 'export class App {', `  title = "mới (${agent})";`, '  ready = true;', '}');
-  app.splice(40, 3, 'run() {', '  return 2;', '}');
+  app.splice(40, 3, 'export function retries(): number {', '  return 2;', '}');
   if (!edited) {
     app.splice(10, 2, '  title = "cũ";');
     app[app.indexOf('  return 2;')] = '  return 1;';

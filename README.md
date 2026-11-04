@@ -5,6 +5,30 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 > Trạng thái: **Giai đoạn 4** (đóng gói). Đã có: task sửa code qua ACP trong worktree riêng, duyệt lệnh, review/accept từng hunk ngay trong editor, chạy song song + so sánh + ghép, pipeline Plan → Build → Review, Mission control, màn Usage (giá, ngân sách, CSV, hạn mức Claude), MCP + Skills, onboarding. Lõi đã chạy với Claude thật; Codex, Gemini, Kiro qua ACP chưa thử. Còn lại: ký số, tự cập nhật, beta. Xem `docs/02-roadmap.md`; cách dùng: `docs/user-guide.md`.
 
+## Giao diện
+
+**Agent đang sửa code:** editor tự mở tệp agent đang làm, con trỏ mang tên agent, Explorer đánh dấu "đang sửa".
+
+![Agent đang sửa code trong editor](docs/images/ide-agent-editing.png)
+
+**Review ngay trong editor:** mỗi thay đổi có thanh Accept / Reject; panel phải hiện usage của task, tiến độ và đề xuất chuyển việc qua tg-bridge.
+
+![Review từng thay đổi ngay trong editor](docs/images/ide-review.png)
+
+**Chạy song song và so sánh:** cùng một yêu cầu cho nhiều agent, chọn một bản hoặc ghép từng thay đổi rồi chạy test trên bản ghép.
+
+![So sánh và ghép kết quả của nhiều agent](docs/images/compare.png)
+
+**Mission control:** hàng chờ việc của bạn, timeline có đoạn chờ duyệt, một cột cho mỗi agent.
+
+![Mission control](docs/images/mission-control.png)
+
+**Usage:** chi phí và token theo ngày theo agent, bảng giá, ngân sách, hạn mức gói, xuất CSV.
+
+![Màn Usage](docs/images/usage.png)
+
+<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu.</sub>
+
 ## Cài môi trường (làm 1 lần trên macOS)
 
 ```bash
@@ -30,9 +54,9 @@ Lần đầu `npm run dev` sẽ tải và biên dịch các crate Rust, mất v�
 
 ## Dùng thử
 
-1. Cột trái tự dò các CLI đã cài. CLI nào thiếu sẽ hiện lệnh cài.
-2. Ở giữa: chọn agent, nhập yêu cầu, chọn thư mục làm việc, bấm **Chạy** (⌘↵).
-3. Cột phải: token (in / cache / out) và chi phí của từng agent trong phiên.
+1. Lần đầu mở, hướng dẫn 4 bước dò CLI, đăng nhập, chọn repo và chạy thử.
+2. Gõ yêu cầu ở ô bên phải, chọn chế độ (Chỉ đọc, Sửa code, Song song, Pipeline), bấm **Chạy** (Ctrl+↵ / ⌘↵).
+3. Duyệt lệnh khi agent hỏi, rồi Accept / Reject từng thay đổi và Commit. Chi tiết: [docs/user-guide.md](docs/user-guide.md).
 
 Gợi ý yêu cầu đầu tiên: *"Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng"* — chỉ cần đọc file nên chạy trơn tru ở chế độ headless.
 
