@@ -45,6 +45,7 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **PATH:** mọi tiến trình con phải dùng `env::which` và `.env("PATH", env::login_path())`, nếu không app mở từ Finder sẽ không thấy CLI cài qua nvm hoặc Homebrew.
 - **Tiến trình con:** luôn tạo bằng `env::command` / `env::std_command`, không dùng `Command::new`. Trên Windows nếu thiếu cờ `CREATE_NO_WINDOW`, mỗi tiến trình bật một cửa sổ cmd trống, đóng nó là chết agent. Có test chặn.
 - **Mở thư mục:** `project.rs` chuẩn hoá và kiểm tra đường dẫn; `WorkspaceService` chỉ lưu sau khi thành công. Mock mô phỏng lỗi qua chữ trong đường dẫn: `missing`, `nogit`, `nocommit`.
+- **Xem source:** Explorer có hai nguồn: dự án (`list_project_files`, tab `source`, `SourceViewer` chỉ đọc) và bản nháp của task. Lõi chỉ cho đọc các root đã qua `open_project` (`OpenedProjects`).
 - **Hàng chờ duyệt:** index của worktree có thể bị agent đổi bằng `git add`/`commit`, nên phần đã nhận lưu ở tệp `tg-accepted` trong git dir của worktree; `diff::pending` khôi phục index từ đó trước khi diff.
 - **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.
 - **Lịch sử:** `runner.rs` ghi event vào SQLite (`store.rs`) trước khi phát lên UI, và lỗi ghi không được làm hỏng lượt chạy. Lượt nạp lại có `restored: true`, nên logic usage của phiên phải dùng `sessionRuns`, không dùng `runs`.
