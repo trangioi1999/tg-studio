@@ -80,17 +80,27 @@ KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timelin
 - **MCP servers**: thêm server (stdio: lệnh + tham số + biến môi trường; http: URL + header), tick agent nào được dùng. App đưa server vào từng phiên của agent, không sửa tệp cấu hình của agent. Server http chỉ gửi cho agent báo hỗ trợ. Biến môi trường và header lưu trong máy, không mã hóa.
 - **Skills**: thư viện `SKILL.md`. Cài vào Claude Code ở mức repo (`.claude/skills`) hoặc mức máy (`~/.claude/skills`); bản khác sẵn có được sao lưu trước khi ghi.
 
-## 11. Dữ liệu và quyền riêng tư
+## 11. tg-bridge: các agent phối hợp
+
+Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cung cấp. Agent dùng nó để:
+- **báo tiến độ**: hiện thành thanh tiến độ ở Thread và cột agent trong Mission control;
+- **ghi chú chung**: agent cùng task (nhóm song song, các bước pipeline) đọc được; xem ở tab **Plan**;
+- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở Thread và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng worktree nếu task trước đã xong);
+- **xin duyệt** việc ngoài phạm vi: hiện thẻ duyệt như lệnh thường.
+
+tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở màn **Integrations** nếu không cần.
+
+## 12. Dữ liệu và quyền riêng tư
 
 - Lịch sử, giá, ngân sách, MCP nằm trong `tg-studio.db` ở thư mục dữ liệu của app. Thư viện skill ở `skills/` cạnh đó.
 - Worktree của task nằm trong `<repo>/.tg/worktrees/` (đã thêm vào `.git/info/exclude`).
 - App không gửi dữ liệu đi đâu ngoài chính các CLI bạn đã cài.
 
-## 12. Báo lỗi
+## 13. Báo lỗi
 
 Bấm **Chẩn đoán** ở thanh trạng thái: app lưu một tệp JSON vào Downloads (phiên bản, hệ điều hành, agent đã dò, các lượt chạy gần đây, lỗi gần đây; không có khóa hay mật khẩu). Xem lại nội dung rồi gửi kèm khi báo lỗi.
 
-## 13. Sự cố thường gặp
+## 14. Sự cố thường gặp
 
 | Hiện tượng | Cách xử lý |
 |---|---|

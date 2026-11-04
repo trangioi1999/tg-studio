@@ -14,6 +14,23 @@ pub fn usage_report(store: State<'_, Store>, since: u64) -> Result<Vec<UsageRow>
     store.usage_rows(since).map_err(|e| format!("Không đọc được dữ liệu usage: {e}"))
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeNote {
+    pub topic: String,
+    pub agent: String,
+    pub at: u64,
+    pub text: String,
+}
+
+/// tg-bridge notes of the task this run belongs to.
+#[tauri::command]
+pub fn bridge_notes(store: State<'_, Store>, run_id: String) -> Result<Vec<BridgeNote>, String> {
+    let scope = store.run_scope(&run_id).map_err(|_| "Không tìm thấy lượt chạy.".to_string())?;
+    let notes = store.notes(&scope, None).map_err(|e| format!("Không đọc được ghi chú: {e}"))?;
+    Ok(notes.into_iter().map(|(topic, agent, at, text)| BridgeNote { topic, agent, at, text }).collect())
+}
+
 #[tauri::command]
 pub fn list_prices(store: State<'_, Store>) -> Result<Vec<PriceRow>, String> {
     store.prices().map_err(|e| format!("Không đọc được bảng giá: {e}"))
