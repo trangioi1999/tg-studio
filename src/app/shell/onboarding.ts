@@ -79,14 +79,19 @@ const LOGIN: Record<string, string> = {
             }
             @case (2) {
               <p>Chọn thư mục dự án. Chế độ Sửa code cần một repo Git có ít nhất một commit; agent làm trong worktree riêng nên repo của bạn chỉ đổi khi bạn Accept.</p>
+              <div class="onb-actions"><button class="btn primary sm" (click)="workspace.pickFolder()">Chọn thư mục…</button></div>
               <form class="onb-folder" (submit)="$event.preventDefault(); check()">
                 <input class="mono" aria-label="Thư mục dự án" [value]="folder()" (input)="folder.set($any($event.target).value)" spellcheck="false" />
                 <button class="btn ghost sm" type="submit">Kiểm tra</button>
               </form>
-              @if (workspace.repo(); as r) {
-                <p class="ok-text">Repo Git: <strong>{{ r.name }}</strong> · nhánh {{ r.branch ?? '(HEAD tách rời)' }}</p>
-              } @else if (workspace.repoError()) {
-                <p class="dim">Không phải repo Git, nên chỉ dùng được chế độ Chỉ đọc ở đây. {{ workspace.repoError() }}</p>
+              @if (workspace.folderError(); as e) {
+                <p class="error-text" role="alert">{{ e }}</p>
+              } @else {
+                @switch (workspace.project()?.git) {
+                  @case ('ready') { <p class="ok-text">Repo Git: <strong>{{ workspace.project()!.name }}</strong> · nhánh {{ workspace.project()!.branch ?? '(HEAD tách rời)' }}</p> }
+                  @case ('no_commits') { <p class="dim">Repo Git này chưa có commit, nên chưa dùng được chế độ Sửa code. Hãy commit trong dự án trước, hoặc dùng Chỉ đọc.</p> }
+                  @case ('none') { <p class="dim">Không phải repo Git, nên chỉ dùng được chế độ Chỉ đọc ở đây.</p> }
+                }
               }
               <div class="onb-actions"><button class="btn ghost sm" (click)="step.set(1)">Quay lại</button><span class="spacer"></span><button class="btn primary sm" [disabled]="!workspace.folder()" (click)="step.set(3)">Tiếp</button></div>
             }
@@ -135,7 +140,7 @@ export class Onboarding {
   }
 
   protected async check(): Promise<void> {
-    await this.workspace.setFolder(this.folder().trim());
+    await this.workspace.setFolder(this.folder());
   }
 
   protected async runSample(): Promise<void> {

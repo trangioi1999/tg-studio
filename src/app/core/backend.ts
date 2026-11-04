@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
+import { open } from '@tauri-apps/plugin-dialog';
+import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -8,9 +9,10 @@ export type Unlisten = () => void;
 export abstract class AgentBackend {
   abstract readonly mode: 'native' | 'mock';
   abstract detectAgents(): Promise<DetectedAgent[]>;
-  abstract homeDir(): Promise<string | null>;
-  /** Root, name and branch of the Git repository containing `path`; rejects outside a repo. */
-  abstract repoInfo(path: string): Promise<RepoInfo>;
+  /** The operating system's folder dialog; null when cancelled. */
+  abstract pickFolder(): Promise<string | null>;
+  /** Normalizes and checks a typed or picked path; rejects with a message for the user. */
+  abstract openProject(path: string): Promise<Project>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
   /** `reuse`: continue in the worktree of this finished run (a later pipeline step). */
   abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null): Promise<string>;
@@ -74,11 +76,12 @@ export class TauriBackend extends AgentBackend {
   detectAgents() {
     return invoke<DetectedAgent[]>('detect_agents');
   }
-  homeDir() {
-    return invoke<string | null>('home_dir');
+  async pickFolder() {
+    const picked = await open({ directory: true, multiple: false });
+    return typeof picked === 'string' ? picked : null;
   }
-  repoInfo(path: string) {
-    return invoke<RepoInfo>('repo_info', { path });
+  openProject(path: string) {
+    return invoke<Project>('open_project', { path });
   }
   start(agent: AgentId, prompt: string, cwd: string) {
     return invoke<string>('start_agent', { agent, prompt, cwd });
