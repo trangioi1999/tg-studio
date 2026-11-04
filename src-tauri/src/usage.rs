@@ -3,7 +3,7 @@
 //! Normalization: `input_tokens` is always the *uncached* input. Agents that
 //! report total prompt tokens (Codex, Gemini) have the cached part subtracted.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::adapters::AgentKind;
@@ -45,6 +45,51 @@ pub fn parse_acp_turn(result: &Value, cost: Option<f64>) -> Option<Usage> {
         // One prompt per task, so the turn total is the run total.
         cumulative: true,
     })
+}
+
+/// One plan limit window as the CLI reports it, e.g. Claude's 5-hour and 7-day limits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitWindow {
+    /// The CLI's own name: "five_hour", "seven_day", ...
+    pub id: String,
+    /// Share used, 0..1 (can exceed 1 once over the limit).
+    pub utilization: f64,
+    /// Epoch milliseconds.
+    pub resets_at: Option<u64>,
+    /// "allowed", "allowed_warning", "rejected", ...
+    pub status: Option<String>,
+}
+
+/// Claude Code's `rate_limit_info` (stream-json `rate_limit_event`, or the ACP adapter's
+/// `usage_update._meta["_claude/rateLimit"]`). Only windows with a reported utilization count:
+/// an API-key login has no plan windows, and then nothing is shown.
+pub fn parse_rate_limit(info: &Value) -> Option<Vec<LimitWindow>> {
+    let window = |id: &str, w: &Value| -> Option<LimitWindow> {
+        let utilization = w.get("utilization")?.as_f64().filter(|u| u.is_finite() && *u >= 0.0)?;
+        Some(LimitWindow {
+            id: id.to_string(),
+            utilization,
+            resets_at: w.get("resetsAt").and_then(Value::as_u64).map(|s| s * 1000),
+            status: w.get("status").and_then(Value::as_str).map(String::from),
+        })
+    };
+    let mut windows: Vec<LimitWindow> = match info.get("unifiedWindows").and_then(Value::as_object) {
+        Some(all) => all.iter().filter_map(|(id, w)| window(id, w)).collect(),
+        None => info.get("rateLimitType").and_then(Value::as_str).and_then(|id| window(id, info)).into_iter().collect(),
+    };
+    // Shortest window first: 5 hours before 7 days.
+    let rank = |id: &str| match id { "five_hour" => 0, "seven_day" => 1, _ => 2 };
+    windows.sort_by(|a, b| rank(&a.id).cmp(&rank(&b.id)).then(a.id.cmp(&b.id)));
+    (!windows.is_empty()).then_some(windows)
+}
+
+/// Plan limits from one stdout line of a headless run.
+pub fn parse_limits(agent: AgentKind, line: &str) -> Option<Vec<LimitWindow>> {
+    if agent != AgentKind::Claude || !line.contains("rate_limit_event") { return None; }
+    let v: Value = serde_json::from_str(line.trim()).ok()?;
+    if v["type"] != "rate_limit_event" { return None; }
+    parse_rate_limit(&v["rate_limit_info"])
 }
 
 pub fn parse_line(agent: AgentKind, line: &str) -> Option<Usage> {
@@ -149,6 +194,32 @@ mod tests {
         for v in [json!({"used":100}),json!({"cost":{"currency":"EUR","amount":1}}),json!({"cost":{"currency":"USD","amount":-1}})] {
             let mut v=v; v["sessionUpdate"]=json!("usage_update"); assert!(parse_acp(&v).is_none());
         }
+    }
+
+    // Recorded from Claude Code 2.1.318 (`claude -p --output-format stream-json --verbose`).
+    const RATE_LIMIT_LINE: &str = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793865600,"rateLimitType":"ccr_promotional","overageStatus":"rejected","overageDisabledReason":"org_level_disabled","isUsingOverage":false,"unifiedWindows":{"seven_day":{"utilization":0.1,"resetsAt":1794348000,"status":"allowed"},"five_hour":{"utilization":0.74,"resetsAt":1793770800,"status":"allowed"}}},"uuid":"00000000-0000-0000-0000-000000000000","session_id":"00000000-0000-0000-0000-000000000000"}"#;
+
+    #[test]
+    fn claude_rate_limit_event_windows() {
+        let w = parse_limits(AgentKind::Claude, RATE_LIMIT_LINE).unwrap();
+        assert_eq!(w, vec![
+            LimitWindow { id: "five_hour".into(), utilization: 0.74, resets_at: Some(1_793_770_800_000), status: Some("allowed".into()) },
+            LimitWindow { id: "seven_day".into(), utilization: 0.1, resets_at: Some(1_794_348_000_000), status: Some("allowed".into()) },
+        ]);
+        // Other agents and other lines never report limits.
+        assert!(parse_limits(AgentKind::Codex, RATE_LIMIT_LINE).is_none());
+        assert!(parse_limits(AgentKind::Claude, r#"{"type":"result","usage":{}}"#).is_none());
+        assert!(parse_limits(AgentKind::Claude, "rate_limit_event but not json").is_none());
+    }
+
+    #[test]
+    fn rate_limit_without_utilization_shows_nothing() {
+        // An API-key login: a status, but no plan windows to show.
+        assert!(parse_rate_limit(&serde_json::json!({"status":"allowed","rateLimitType":"five_hour"})).is_none());
+        assert!(parse_rate_limit(&serde_json::json!({"unifiedWindows":{"five_hour":{"utilization":-1}}})).is_none());
+        // Older single-window shape.
+        let w = parse_rate_limit(&serde_json::json!({"rateLimitType":"five_hour","utilization":0.5,"resetsAt":10,"status":"allowed_warning"})).unwrap();
+        assert_eq!((w[0].id.as_str(), w[0].utilization, w[0].resets_at, w[0].status.as_deref()), ("five_hour", 0.5, Some(10_000), Some("allowed_warning")));
     }
 
     #[test]

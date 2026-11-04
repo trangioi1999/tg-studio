@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AgentEvent, AgentId, DetectedAgent, FileDiff, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, DetectedAgent, FileDiff, LimitWindow, StoredRun, Usage } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -59,6 +59,15 @@ function mockContents(agent: AgentId, edited: boolean): Map<string, string> {
   return new Map(files);
 }
 
+/** Claude-style plan windows, so the limits panel has something to show in the browser. */
+function mockLimits(): { windows: LimitWindow[] } {
+  const now = Date.now();
+  return { windows: [
+    { id: 'five_hour', utilization: 0.42, resetsAt: now + 2.5 * 3_600_000, status: 'allowed' },
+    { id: 'seven_day', utilization: 0.18, resetsAt: now + 4 * 86_400_000, status: 'allowed' },
+  ] };
+}
+
 /**
  * Used when the UI runs in a normal browser (`npm start`), so you can build
  * screens without launching the desktop app. Emits a fake but realistic run.
@@ -105,6 +114,7 @@ export class MockBackend extends AgentBackend {
     emit({ line: '› read src/app/app.ts' }, 900);
     emit({ line: 'Đây là phản hồi giả lập để dựng giao diện khi chạy trong trình duyệt.' }, 1500);
     emit({ kind: 'usage', usage }, 1900);
+    if (agent === 'claude') emit({ kind: 'limits', data: mockLimits() as unknown as AgentEvent['data'] }, 1950);
     emit({ kind: 'exit', code: 0 }, 2100);
     return runId;
   }
@@ -253,6 +263,10 @@ export class MockBackend extends AgentBackend {
   }
 
   async listRuns(): Promise<StoredRun[]> {
+    return [];
+  }
+
+  async accountLimits(): Promise<AccountLimits[]> {
     return [];
   }
 

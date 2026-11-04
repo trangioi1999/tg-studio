@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -75,6 +75,8 @@ export class RunsService {
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
   readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
   readonly choices = signal<Record<string, GroupChoice>>({});
+  /** Latest plan limits per agent (Claude's 5-hour and weekly windows). */
+  readonly limits = signal<Partial<Record<AgentId, AccountLimits>>>({});
   /** Per run: the file the agent touched last. Cleared when the run ends. */
   readonly activity = signal<Record<string, AgentActivity>>({});
   private readonly tools = new Map<string, { path: string | null; line: number | null; editing: boolean }>();
@@ -111,6 +113,21 @@ export class RunsService {
   constructor() {
     void this.backend.onEvent((e) => this.apply(e));
     void this.hydrate();
+    void this.loadLimits();
+  }
+
+  private async loadLimits(): Promise<void> {
+    try {
+      const saved = await this.backend.accountLimits();
+      // A live report may already have arrived; keep whichever is newer.
+      this.limits.update((now) => {
+        const next = { ...now };
+        for (const l of saved) if (!next[l.agent] || next[l.agent]!.at < l.at) next[l.agent] = l;
+        return next;
+      });
+    } catch (e) {
+      console.warn('Không đọc được hạn mức đã lưu', e);
+    }
   }
 
   /** Loads saved runs. History is a convenience, so a failure must not block the UI. */
@@ -236,6 +253,13 @@ export class RunsService {
   }
 
   private apply(e: AgentEvent): void {
+    if (e.kind === 'limits') {
+      const windows = dataOf(e)['windows'];
+      if (Array.isArray(windows)) {
+        this.limits.update((l) => ({ ...l, [e.agent]: { agent: e.agent, windows: windows as unknown as AccountLimits['windows'], at: e.atMs } }));
+      }
+      return;
+    }
     this.upsert(e.runId, e.agent, (run) => {
       switch (e.kind) {
         case 'message': {
@@ -272,6 +296,8 @@ export class RunsService {
         }
         case 'usage':
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
+        case 'limits':
+          return run; // handled above: limits belong to the account, not the run
         case 'exit': {
           const stopped = this.stopping.delete(run.id);
           const reported = e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data)

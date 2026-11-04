@@ -250,6 +250,22 @@ tg-mission-control { display: flex; flex-direction: column; }
 .src[data-src='reported'] { color: var(--ok); }
 .src[data-src='estimated'] { color: var(--focus); }
 .src[data-src='unpriced'] { color: var(--muted); }
+/* Plan limits */
+.limits-head { border-top: 1px solid var(--line); }
+.limits { display: flex; flex-direction: column; }
+.limit-agent { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border-bottom: 1px solid var(--line-soft); }
+.limit-title { display: flex; align-items: center; gap: 8px; }
+.limit-title .dim { font-size: 11px; }
+.limit-row { display: flex; flex-direction: column; gap: 4px; }
+.limit-line { display: flex; align-items: center; font-size: 12px; color: var(--text-2); }
+.limit-line strong { font-size: 12.5px; color: var(--text); }
+.meter { height: 6px; border-radius: 3px; background: #1c1c21; overflow: hidden; }
+.meter span { display: block; height: 100%; border-radius: 3px; background: var(--ok); }
+.limit-row[data-level='warn'] .meter span { background: var(--warn); }
+.limit-row[data-level='warn'] strong { color: var(--warn); }
+.limit-row[data-level='hit'] .meter span { background: var(--err); }
+.limit-row[data-level='hit'] strong, .limit-hit { color: var(--err); }
+.limit-reset { font-size: 11px; }
 .note { margin-top: auto; padding: 12px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-2); }
 .note p { margin: 0 0 6px; }
 
