@@ -1,6 +1,7 @@
 import { Component, computed, inject } from '@angular/core';
 import { AgentsService } from './core/agents.service';
 import { BudgetService } from './core/budget.service';
+import { DiagnosticsService } from './core/diagnostics.service';
 import { RunsService } from './core/runs.service';
 import { Screen, Sidebar, UiService } from './core/ui.service';
 import { AgentPanel } from './shell/agent-panel';
@@ -30,6 +31,8 @@ export class App {
     void inject(AgentsService).refresh();
     // Loads prices and budgets, and enforces budgets from the start.
     inject(BudgetService);
+    // Starts collecting UI errors for the diagnostics report.
+    inject(DiagnosticsService);
   }
 
   protected show(screen: Screen, sidebar: Sidebar): void {

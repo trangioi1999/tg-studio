@@ -48,6 +48,8 @@ export abstract class AgentBackend {
   abstract setSetting(key: 'budgets', value: string): Promise<void>;
   /** Saves a text export (CSV) to the Downloads folder; returns where it went. */
   abstract saveExport(name: string, content: string): Promise<string>;
+  /** Local diagnostics report (no secrets); the user saves and sends it by hand. */
+  abstract diagnostics(): Promise<Record<string, unknown>>;
   abstract listMcpServers(): Promise<McpServer[]>;
   /** Validates and stores; returns the server with its id. */
   abstract saveMcpServer(server: McpServer): Promise<McpServer>;
@@ -153,6 +155,9 @@ export class TauriBackend extends AgentBackend {
   }
   saveExport(name: string, content: string) {
     return invoke<string>('save_export', { name, content });
+  }
+  diagnostics() {
+    return invoke<Record<string, unknown>>('diagnostics');
   }
   listMcpServers() {
     return invoke<McpServer[]>('list_mcp_servers');

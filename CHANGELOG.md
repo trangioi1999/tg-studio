@@ -7,6 +7,7 @@
 ### Giai đoạn 4 — Đóng gói
 - Workflow phát hành: tag `vX.Y.Z` tạo bản nháp release với installer macOS (universal) và Windows; chạy tay thì installer nằm ở Artifacts.
 - `npm run version:sync` / `version:check`; CI kiểm tra phiên bản khớp.
+- Onboarding lần đầu; nút Chẩn đoán lưu báo cáo JSON (không chứa khóa); `docs/user-guide.md`.
 
 ### Giai đoạn 3 — Usage & tích hợp
 - Màn Usage: KPI, biểu đồ theo ngày theo agent, bảng lượt chạy, xuất CSV.

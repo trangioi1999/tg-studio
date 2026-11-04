@@ -7,6 +7,7 @@ mod adapters;
 mod compose;
 mod acp_tasks;
 mod detect;
+mod diagnostics;
 mod diff;
 mod env;
 mod ledger;
@@ -75,6 +76,7 @@ pub fn run() {
             ledger::get_setting,
             ledger::set_setting,
             ledger::save_export,
+            diagnostics::diagnostics,
             mcp::list_mcp_servers,
             mcp::save_mcp_server,
             mcp::delete_mcp_server,

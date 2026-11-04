@@ -51,41 +51,19 @@ Installer: dùng **NSIS** (`.exe`) làm mặc định cho người dùng cuối;
 5. App kiểm tra khi khởi động + mỗi 6 giờ; tải nền; hỏi người dùng khởi động lại.
 6. Hai kênh: `beta` và `stable` (hai endpoint).
 
-## 6. CI/CD (GitHub Actions)
+## 6. CI/CD (GitHub Actions) — đã có
 
-```yaml
-# .github/workflows/release.yml (phác thảo)
-on: { push: { tags: ['v*'] } }
-jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - { os: macos-latest, args: '--target universal-apple-darwin' }
-          - { os: windows-latest, args: '' }
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-      - run: npm ci
-      - run: npm test -- --watch=false
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # + các biến ký số/notarize/updater ở mục 3–5
-        with:
-          tagName: v__VERSION__
-          releaseName: TG Studio v__VERSION__
-          releaseDraft: true
-          args: ${{ matrix.args }}
-```
+- `.github/workflows/ci.yml`: mỗi push/PR chạy `version:check`, build, `npm test`, `cargo test` trên macOS và Windows.
+- `.github/workflows/release.yml`:
+  - **Đẩy tag `vX.Y.Z`** (khớp `package.json`, kiểm tra tự động): test rồi `tauri-action` build macOS (universal) + Windows và tạo **bản nháp** release kèm installer. Tag có dấu `-` (ví dụ `v0.2.0-beta.1`) thành prerelease.
+  - **Chạy tay** (Actions → Release → Run workflow; cần workflow đã có trên nhánh mặc định): build và để installer ở mục *Artifacts* của lần chạy, không tạo release.
+- Phát hành một bản: sửa `version` trong `package.json` → `npm run version:sync` → cập nhật `CHANGELOG.md` → commit → `git tag v0.2.0 && git push --tags` → kiểm tra bản nháp rồi Publish.
 
-Workflow kiểm tra mỗi PR: cùng matrix, chỉ chạy `npm test`, `npm run build`, `cargo test`, `cargo clippy -- -D warnings`.
+### Việc của chủ repo (agent không làm thay được)
+
+1. **Ký số macOS:** thêm secrets `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_PATH` (mục 3), rồi thêm chúng vào `env:` của bước *Build and attach to a draft release*.
+2. **Ký số Windows:** chọn chứng chỉ OV/EV hoặc Azure Trusted Signing (mục 4), cấu hình `bundle.windows` trong `tauri.conf.json`.
+3. **Tự cập nhật (mục 5):** tự tạo cặp khóa trên máy mình `npx tauri signer generate -w ~/.tauri/tg-studio.key` (không đưa khóa riêng cho ai, kể cả agent), thêm secrets `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, rồi giao task thêm `tauri-plugin-updater` với **khóa công khai** và endpoint `latest.json` của GitHub Releases.
 
 ## 7. Checklist phát hành
 
