@@ -91,6 +91,10 @@ export interface StoredRun {
   worktree: string | null;
   /** Runs started together on one prompt (parallel mode) share this id. */
   group: string | null;
+  /** null for runs from before conversations existed. */
+  thread: string | null;
+  /** The repository of a code task, the folder of a read-only run. */
+  project: string;
 }
 
 export interface PermissionOption {

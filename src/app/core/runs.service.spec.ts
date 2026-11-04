@@ -27,6 +27,8 @@ const stored = (over: Partial<StoredRun> = {}): StoredRun => ({
   lines: [],
   worktree: null,
   group: null,
+  thread: null,
+  project: '/tmp',
   ...over,
 });
 

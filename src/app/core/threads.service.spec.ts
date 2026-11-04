@@ -1,0 +1,87 @@
+import { TestBed } from '@angular/core/testing';
+import { AgentBackend } from './backend';
+import { MockBackend } from './mock-backend';
+import { Run, RunsService } from './runs.service';
+import { ThreadsService, buildThreads, groupByProject } from './threads.service';
+import { WorkspaceService } from './workspace.service';
+
+const run = (over: Partial<Run>): Run => ({
+  id: 'r', agent: 'claude', prompt: 'p', cwd: '/a', startedAt: 1, endedAt: 2, status: 'done', lines: [], usage: null, exitCode: 0, restored: false,
+  task: true, permissions: [], lastMessage: '', group: null, thread: 't', project: '/a', waits: [], plan: [], progress: null, ...over,
+});
+
+describe('buildThreads', () => {
+  it('joins the runs of a conversation, titled by its first and continued by its newest', () => {
+    const [t] = buildThreads([run({ id: 'b', agent: 'codex', prompt: 'sau', startedAt: 5, endedAt: 9 }), run({ id: 'a', prompt: 'đầu' })]);
+    expect(t).toMatchObject({ id: 't', title: 'đầu', agents: ['claude', 'codex'], updatedAt: 9 });
+    expect(t.latest.id).toBe('b');
+  });
+
+  it('puts what needs the user first, then what runs, then the newest', () => {
+    const list = buildThreads([
+      run({ id: '1', thread: 'cu', endedAt: 1 }),
+      run({ id: '2', thread: 'moi', endedAt: 50 }),
+      run({ id: '3', thread: 'chay', status: 'running' }),
+      run({ id: '4', thread: 'duyet', status: 'running', permissions: [{}] as Run['permissions'] }),
+      run({ id: '5', thread: 'cho', status: 'idle' }),
+      run({ id: '6', thread: 'loi', status: 'failed' }),
+    ]);
+    expect(list.map((t) => t.id)).toEqual(['duyet', 'chay', 'loi', 'cho', 'moi', 'cu']);
+    expect(list.map((t) => t.status)).toEqual(['needs_you', 'running', 'failed', 'waiting', 'ended', 'ended']);
+  });
+
+  it('cuts a long title', () => {
+    expect(buildThreads([run({ prompt: 'x'.repeat(200) })])[0].title.length).toBe(80);
+  });
+});
+
+describe('groupByProject', () => {
+  it('lists the open folder first, then projects with conversations, then recent ones', () => {
+    const threads = buildThreads([run({ thread: 'a', project: '/du-an/api' }), run({ id: 'x', thread: 'b', project: '/du-an/web' })]);
+    const groups = groupByProject(threads, '/du-an/web', ['/cu', '/du-an/api']);
+    expect(groups.map((g) => g.root)).toEqual(['/du-an/web', '/du-an/api', '/cu']);
+    expect(groups.map((g) => g.name)).toEqual(['web', 'api', 'cu']);
+    expect(groups[2].threads).toEqual([]);
+  });
+
+  it('handles Windows paths', () => {
+    expect(groupByProject([], String.raw`C:\du an\web`, [])[0].name).toBe('web');
+  });
+});
+
+describe('ThreadsService', () => {
+  beforeEach(() => {
+    localStorage.removeItem('tg.recent');
+    localStorage.removeItem('tg.repo');
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
+  });
+
+  it('opens the project of the selected conversation', async () => {
+    const threads = TestBed.inject(ThreadsService);
+    const workspace = TestBed.inject(WorkspaceService);
+    await workspace.setFolder('/mot');
+    await threads.select(buildThreads([run({ id: 'r9', project: '/hai' })])[0]);
+    expect(workspace.folder()).toBe('/hai');
+    expect(TestBed.inject(RunsService).selectedId()).toBe('r9');
+  });
+
+  it('remembers opened folders, newest first, and can forget one', async () => {
+    const threads = TestBed.inject(ThreadsService);
+    const workspace = TestBed.inject(WorkspaceService);
+    await workspace.setFolder('/mot');
+    TestBed.tick();
+    await workspace.setFolder('/hai');
+    TestBed.tick();
+    expect(threads.recent()).toEqual(['/hai', '/mot']);
+    threads.forget('/mot');
+    expect(JSON.parse(localStorage.getItem('tg.recent')!)).toEqual(['/hai']);
+  });
+
+  it('starts a new chat in a given project with nothing selected', async () => {
+    const threads = TestBed.inject(ThreadsService);
+    TestBed.inject(RunsService).selectedId.set('x');
+    await threads.newChat('/ba');
+    expect(TestBed.inject(RunsService).selectedId()).toBeNull();
+    expect(TestBed.inject(WorkspaceService).folder()).toBe('/ba');
+  });
+});
