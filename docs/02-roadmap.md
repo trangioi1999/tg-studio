@@ -60,14 +60,14 @@ Chi tiết: `04-usage-and-cost.md`, `05-mcp-skills-plugins.md`.
 
 **XK:** biết chính xác mỗi agent tốn bao nhiêu; bật 1 MCP server một lần cho mọi agent.
 
-## Giai đoạn 4 — Đóng gói & beta (tuần 12–14)
+## Giai đoạn 4 — Đóng gói & beta (tuần 12–14) · *đang làm*
 
 Chi tiết: `07-release.md`.
 
-- [ ] Ký số + notarize macOS; installer Windows có ký
-- [ ] Tự cập nhật (`tauri-plugin-updater`), kênh beta/stable
-- [ ] Onboarding lần đầu; trang tài liệu người dùng
-- [ ] Báo lỗi opt-in; log chẩn đoán xuất được
+- [ ] Ký số + notarize macOS; installer Windows có ký — **chủ repo**: cần chứng chỉ; workflow phát hành (`release.yml`) đã sẵn, hiện build bản chưa ký
+- [ ] Tự cập nhật (`tauri-plugin-updater`), kênh beta/stable — **chủ repo** tạo cặp khóa trước (xem `07-release.md` §6)
+- [x] Onboarding lần đầu (dò agent → đăng nhập → chọn repo → chạy thử chỉ đọc); tài liệu người dùng `docs/user-guide.md`
+- [x] Log chẩn đoán xuất được (nút Chẩn đoán, JSON không chứa khóa); báo lỗi = người dùng tự gửi tệp, app không tự gửi gì
 - [ ] Beta 20–50 người, form góp ý
 
 **XK:** người mới cài 1 click, onboarding < 5 phút, tự cập nhật.

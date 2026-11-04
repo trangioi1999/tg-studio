@@ -391,6 +391,13 @@ export class MockBackend extends AgentBackend {
     this.settings.set(key, value);
   }
 
+  async diagnostics(): Promise<Record<string, unknown>> {
+    return {
+      app: { name: 'TG Studio', version: 'mock' }, os: { family: 'browser', arch: 'n/a' }, generatedAt: Date.now(),
+      agents: await this.detectAgents(), runs: [...this.ledger.values()].slice(0, 30), mcpServers: this.mcp.map((s) => ({ name: s.name, transport: s.transport, agents: s.agents })),
+    };
+  }
+
   async listMcpServers(): Promise<McpServer[]> {
     return this.mcp.map((s) => ({ ...s }));
   }
