@@ -21,11 +21,16 @@
 - Editor: chế độ "Theo agent" (bật mặc định, tắt khi người dùng tự chọn tệp), nhãn "đang sửa/đang xem" trong danh sách tệp, con trỏ có tên agent ở dòng đang sửa, nạp lại tệp + diff khi tool sửa file hoàn tất.
 - Mock: thay đổi chỉ vào worktree khi tool Edit hoàn tất, như adapter thật. Playwright đo: vạch màu hiện ~186 ms sau khi sửa xong.
 
+### 2.5 Mission control + hàng chờ
+- Nút thứ hai ở activity bar; `UiService` giữ màn hình và view của console, nên mọi màn mở được một run (`openRun`).
+- `Run.waits`: khoảng chờ duyệt lấy từ `permission` → `permission_resolved` (hoặc `exit`), chỉ có ở run trực tiếp.
+- KPI, hàng chờ (Duyệt lệnh → Review → Commit; nhóm song song chỉ một dòng review, có lựa chọn chưa commit thì thành dòng Commit), timeline 12 run gần nhất, cột theo agent. Đồng hồ timeline tick 1 lần/giây và chỉ khi có run đang chạy.
+- Playwright ở mock mode: 1 task đơn + nhóm 3 agent, duyệt từ hàng chờ, review nhóm mở màn So sánh.
+
 ## Còn lại (theo thứ tự đề xuất)
 
 | ID | Việc | Ghi chú |
 |---|---|---|
-| 2.5 | Mission control + merge queue | Timeline từ `startedAt/endedAt` và khoảng chờ duyệt (event `permission` → `permission_resolved`). Merge queue = các nhóm/run đã accept nhưng chưa commit. |
 | 2.6 | Cherry-pick hunk từ nhiều worktree; chạy test trên bản ghép | Ghép trong một worktree tạm từ base, áp hunk đã chọn từ nhiều run, chạy lệnh test do người dùng nhập (qua thẻ duyệt). |
 | 2.4 | Pipeline engine | Bước = (agent, prompt mẫu, quyền); output bước trước (tin nhắn cuối, diff) chèn vào prompt bước sau. Test bằng `acp/fake.rs`. |
 | 2.1 | Adapter ACP Codex, Gemini | Đã có lệnh khởi chạy trong `adapters.rs`; cần máy có tài khoản OpenAI/Google để chạy kịch bản của `live_claude_*`. **Chủ repo.** |

@@ -26,6 +26,8 @@ export interface Run {
   lastMessage: string;
   /** Shared by runs started together in parallel mode. */
   group: string | null;
+  /** Time spent waiting on approval cards; `to` is null while still waiting. Live runs only. */
+  waits: { from: number; to: number | null }[];
 }
 
 /** Where an agent is working right now, from its latest tool call that names a file. */
@@ -254,11 +256,13 @@ export class RunsService {
           return { ...run, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
         case 'permission': {
           const request = e.data as unknown as PermissionRequest;
-          return { ...run, task: true, permissions: [...run.permissions, request] };
+          return { ...run, task: true, permissions: [...run.permissions, request], waits: [...run.waits, { from: e.atMs, to: null }] };
         }
         case 'permission_resolved': {
           const id = dataOf(e)['requestId'];
-          return { ...run, permissions: run.permissions.filter((p) => p.requestId !== id) };
+          const open = run.waits.findIndex((w) => w.to === null);
+          const waits = open < 0 ? run.waits : run.waits.map((w, i) => (i === open ? { ...w, to: e.atMs } : w));
+          return { ...run, permissions: run.permissions.filter((p) => p.requestId !== id), waits };
         }
         case 'started':
         case 'log':
@@ -275,7 +279,8 @@ export class RunsService {
           const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
             ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
           this.forget(run.id);
-          return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [] };
+          const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
+          return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [], waits };
         }
       }
     });
@@ -317,7 +322,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '', group: null,
+        task: false, permissions: [], lastMessage: '', group: null, waits: [],
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -385,7 +390,7 @@ function restoreRun(s: StoredRun): Run {
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage };
+  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [] };
 }
 
 /**
@@ -407,6 +412,7 @@ function reattach(saved: Run, live: Run): Run {
     permissions: live.permissions,
     lastMessage: live.lastMessage || saved.lastMessage,
     group: saved.group ?? live.group,
+    waits: live.waits,
   };
 }
 
