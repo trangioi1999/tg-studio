@@ -43,10 +43,12 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.
 - **Lịch sử:** `runner.rs` ghi event vào SQLite (`store.rs`) trước khi phát lên UI, và lỗi ghi không được làm hỏng lượt chạy. Lượt nạp lại có `restored: true`, nên logic usage của phiên phải dùng `sessionRuns`, không dùng `runs`.
 
+- **Task sửa code:** đi qua `acp_tasks.rs`, không qua `runner.rs`. Logic định tuyến nằm ở `TaskSession` (`acp_runner.rs`), test bằng agent giả `acp/fake.rs`. `stop_agent` dùng chung cho cả hai loại run.
+
 **Thêm agent mới:** làm theo `docs/ARCHITECTURE.md`.
 
 **Giao việc cho Codex:** phân công và cách chạy `codex exec` trong worktree nằm ở `docs/superpowers/plans/2026-11-03-roadmap-master.md`.
 
 **Giao diện:** component trong `src/app/shell/` không có style riêng; toàn bộ CSS nằm trong `src/styles.scss`. Chuỗi hiển thị cho người dùng, kể cả lỗi trả về từ Rust, viết bằng tiếng Việt.
 
-Trạng thái hiện tại là giai đoạn 0. Lộ trình nằm trong `docs/02-roadmap.md`; chưa có ACP hay thẻ duyệt quyền.
+Trạng thái hiện tại là giai đoạn 1. Lộ trình nằm trong `docs/02-roadmap.md`.

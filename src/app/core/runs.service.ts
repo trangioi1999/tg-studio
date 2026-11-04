@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AgentEvent, AgentId, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -19,6 +19,11 @@ export interface Run {
   exitCode: number | null;
   /** Loaded from an earlier app session: shown, but not part of this session's usage. */
   restored: boolean;
+  /** A code task: it has a worktree with changes to review. */
+  task: boolean;
+  permissions: PermissionRequest[];
+  /** Full text of the agent's latest message, used to suggest a commit message. */
+  lastMessage: string;
 }
 
 export interface AgentUsage {
@@ -106,6 +111,37 @@ export class RunsService {
     this.selectedId.set(id);
   }
 
+  async startTask(agent: AgentId, prompt: string, repo: string): Promise<void> {
+    const id = await this.backend.startTask(agent, prompt, repo);
+    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd: repo, task: true }));
+    this.selectedId.set(id);
+  }
+
+  respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void> {
+    return this.backend.respondPermission(runId, requestId, optionId, always);
+  }
+
+  getDiff(runId: string): Promise<FileDiff[]> {
+    return this.backend.getDiff(runId);
+  }
+
+  acceptHunk(runId: string, path: string, hunkId: string): Promise<void> {
+    return this.backend.acceptHunk(runId, path, hunkId);
+  }
+
+  rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
+    return this.backend.rejectHunk(runId, path, hunkId);
+  }
+
+  commitAccepted(runId: string, message: string): Promise<string> {
+    return this.backend.commitAccepted(runId, message);
+  }
+
+  async discardWorktree(runId: string): Promise<void> {
+    await this.backend.discardWorktree(runId);
+    this.runs.update((list) => list.map((r) => (r.id === runId ? { ...r, task: false } : r)));
+  }
+
   async stop(id: string): Promise<void> {
     this.stopping.add(id);
     await this.backend.stop(id);
@@ -114,6 +150,29 @@ export class RunsService {
   private apply(e: AgentEvent): void {
     this.upsert(e.runId, e.agent, (run) => {
       switch (e.kind) {
+        case 'message': {
+          const text = dataOf(e)['text'];
+          if (typeof text !== 'string') return run;
+          const continues = run.lines.at(-1)?.key === MESSAGE_KEY;
+          return {
+            ...run,
+            task: true,
+            lastMessage: continues ? run.lastMessage + text : text,
+            lines: addLine(run.lines, toConsoleLine(run.agent, 'message', text)).slice(-MAX_LINES),
+          };
+        }
+        case 'tool':
+          return { ...run, task: true, lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
+        case 'plan':
+          return { ...run, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
+        case 'permission': {
+          const request = e.data as unknown as PermissionRequest;
+          return { ...run, task: true, permissions: [...run.permissions, request] };
+        }
+        case 'permission_resolved': {
+          const id = dataOf(e)['requestId'];
+          return { ...run, permissions: run.permissions.filter((p) => p.requestId !== id) };
+        }
         case 'started':
         case 'log':
         case 'stderr': {
@@ -124,8 +183,11 @@ export class RunsService {
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
         case 'exit': {
           const stopped = this.stopping.delete(run.id);
-          const status: RunStatus = stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
-          return { ...run, status, exitCode: e.code, endedAt: e.atMs };
+          const reported = e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data)
+            ? e.data['status'] : null;
+          const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
+            ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
+          return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [] };
         }
       }
     });
@@ -138,6 +200,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
+        task: false, permissions: [], lastMessage: '',
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -145,18 +208,63 @@ export class RunsService {
   }
 }
 
-function toConsoleLine(agent: AgentId, kind: 'started' | 'log' | 'stderr', line: string | null): ConsoleLine | null {
+const MESSAGE_KEY = 'message';
+
+type Json = Record<string, unknown>;
+
+function dataOf(e: AgentEvent): Json {
+  return e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data) ? (e.data as Json) : {};
+}
+
+function toConsoleLine(agent: AgentId, kind: StoredRun['lines'][number]['kind'], line: string | null): ConsoleLine | null {
   if (kind === 'started') return { text: line ?? 'started', tone: 'muted' };
   if (!line) return null;
+  if (kind === 'message') return { text: line, tone: 'text', key: MESSAGE_KEY };
   return kind === 'log' ? describeLine(agent, line) : { text: line, tone: 'error' };
 }
 
+/** Streamed message chunks join the message line they continue. */
+function addLine(lines: ConsoleLine[], line: ConsoleLine | null): ConsoleLine[] {
+  if (!line) return lines;
+  const last = lines.at(-1);
+  if (line.key === MESSAGE_KEY && last?.key === MESSAGE_KEY) {
+    return [...lines.slice(0, -1), { ...last, text: last.text + line.text }];
+  }
+  return [...lines, line];
+}
+
+/** A tool call has one console line, updated in place as its status changes. */
+function applyTool(lines: ConsoleLine[], update: Json): ConsoleLine[] {
+  const id = update['toolCallId'];
+  if (typeof id !== 'string') return lines;
+  const key = `tool:${id}`;
+  const index = lines.findIndex((l) => l.key === key);
+  const title = typeof update['title'] === 'string' ? update['title'] : null;
+  const label = title ?? lines[index]?.label ?? 'tool';
+  const status = update['status'];
+  const failed = status === 'failed';
+  const suffix = status === 'completed' ? ' ✓' : failed ? ' ✕' : '';
+  const line: ConsoleLine = { key, label, text: `› ${label}${suffix}`, tone: failed ? 'error' : 'tool' };
+  if (index < 0) return [...lines, line];
+  return lines.map((l, i) => (i === index ? line : l));
+}
+
+const PLAN_MARK: Record<string, string> = { completed: '[x]', in_progress: '[~]' };
+
+/** The plan has one block in the console, replaced each time the agent revises it. */
+function applyPlan(lines: ConsoleLine[], update: Json): ConsoleLine[] {
+  const entries = Array.isArray(update['entries']) ? (update['entries'] as Json[]) : [];
+  const text = entries.map((e) => `${PLAN_MARK[String(e['status'])] ?? '[ ]'} ${String(e['content'] ?? '')}`).join('\n');
+  const line: ConsoleLine = { key: 'plan', text, tone: 'muted' };
+  return lines.some((l) => l.key === 'plan') ? lines.map((l) => (l.key === 'plan' ? line : l)) : [...lines, line];
+}
+
 function restoreRun(s: StoredRun): Run {
-  const lines = s.lines
-    .map((l) => toConsoleLine(s.agent, l.kind, l.line))
-    .filter((l): l is ConsoleLine => l !== null);
+  const lines = s.lines.reduce<ConsoleLine[]>((all, l) => addLine(all, toConsoleLine(s.agent, l.kind, l.line)), []);
+  const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running belongs to this app session: the UI was only reloaded.
-  return { ...s, lines, restored: s.status !== 'running' };
+  const { worktree, ...run } = s;
+  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage };
 }
 
 /**
@@ -174,6 +282,9 @@ function reattach(saved: Run, live: Run): Run {
     usage: live.usage?.cumulative ? live.usage : (saved.usage ?? live.usage),
     lines: joinLines(saved.lines, live.lines).slice(-MAX_LINES),
     restored: false,
+    task: saved.task || live.task,
+    permissions: live.permissions,
+    lastMessage: live.lastMessage || saved.lastMessage,
   };
 }
 

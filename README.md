@@ -3,7 +3,7 @@
 Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
 Giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **Giai đoạn 0** — dò agent trên máy, chạy agent ở chế độ headless, xem log, token/chi phí theo từng agent, và lưu lịch sử lượt chạy.
+> Trạng thái: **Giai đoạn 1** — giao task sửa code qua ACP trong worktree riêng, duyệt lệnh, xem diff, accept từng hunk rồi commit. Luồng với adapter thật chưa được kiểm chứng; xem `docs/02-roadmap.md`.
 
 ## Cài môi trường (làm 1 lần trên macOS)
 
@@ -38,7 +38,7 @@ Gợi ý yêu cầu đầu tiên: *"Giải thích cấu trúc thư mục này tr
 
 ## Lưu ý ở giai đoạn 0
 
-- **Quyền:** ở chế độ headless (`claude -p`), các thao tác cần duyệt (sửa file, chạy lệnh) sẽ bị từ chối. Thẻ "xin duyệt" như trong mockup đến ở giai đoạn 1 qua ACP.
+- **Quyền:** chế độ *Chỉ đọc* chạy headless, nên thao tác cần duyệt sẽ bị từ chối. Chế độ *Sửa code* chạy qua ACP, có thẻ xin duyệt, và lần đầu tải adapter bằng `npx` nếu máy chưa có.
 - **Codex** yêu cầu thư mục làm việc là một git repo.
 - **Gemini CLI:** nếu phiên bản của bạn đặt tên định dạng stream khác, sửa trong `src-tauri/src/adapters.rs` (xem `gemini --help`).
 - **Kiro CLI:** mới dò được, chưa chạy — Kiro chạy qua ACP (`kiro-cli acp`) ở giai đoạn 1.
@@ -80,8 +80,8 @@ docs/ARCHITECTURE.md
 
 | Giai đoạn | Nội dung |
 |---|---|
-| **0 — Nền móng** (đang ở đây) | Dò agent, chạy headless, log, usage theo agent |
-| 1 — Một agent trọn vẹn | ACP client, thẻ duyệt quyền, diff viewer, git worktree |
+| **0 — Nền móng** | Dò agent, chạy headless, log, usage theo agent |
+| **1 — Một agent trọn vẹn** (đang ở đây) | ACP client, thẻ duyệt quyền, diff viewer, git worktree |
 | 2 — Nhiều agent | Chạy song song, Mission control, so sánh kết quả, pipeline |
 | 3 — Usage & tích hợp | Usage ledger (SQLite), ngân sách, quota gói, registry MCP/skills |
 | 4 — Đóng gói | Ký số + notarize macOS, installer Windows, tự cập nhật |

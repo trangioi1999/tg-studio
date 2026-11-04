@@ -24,7 +24,10 @@ export interface Usage {
   cumulative: boolean;
 }
 
-export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit';
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit'
+  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved';
 
 export interface AgentEvent {
   runId: string;
@@ -34,13 +37,14 @@ export interface AgentEvent {
   usage: Usage | null;
   code: number | null;
   atMs: number;
+  data: JsonValue;
 }
 
 /** Stored state of a run, returned by the core's `list_runs`. Keep in sync with store.rs. */
 export type RunStatus = 'running' | 'done' | 'failed' | 'stopped' | 'interrupted';
 
 export interface StoredLine {
-  kind: 'started' | 'log' | 'stderr';
+  kind: 'started' | 'log' | 'stderr' | 'message';
   line: string;
 }
 
@@ -55,6 +59,22 @@ export interface StoredRun {
   exitCode: number | null;
   usage: Usage | null;
   lines: StoredLine[];
+  /** Set for code tasks that still have a worktree to review. */
+  worktree: string | null;
+}
+
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
+}
+
+export interface PermissionRequest {
+  requestId: string;
+  toolCall: { title?: string; kind?: string; rawInput?: { command?: string | string[] } };
+  options: PermissionOption[];
+  /** What "Always allow" would save. null: this tool cannot be always allowed. */
+  rule: string | null;
 }
 
 export interface AgentMeta {
@@ -72,3 +92,31 @@ export const AGENT_META: Record<AgentId, AgentMeta> = {
 };
 
 export const AGENT_IDS: AgentId[] = ['claude', 'codex', 'gemini', 'kiro'];
+
+/** Serialized diff.rs / worktree.rs types. */
+export interface Hunk {
+  id: string;
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+  added: number;
+  removed: number;
+}
+
+export interface FileDiff {
+  path: string;
+  status: string;
+  binary: boolean;
+  patchHeader: string;
+  hunks: Hunk[];
+}
+
+export interface Worktree {
+  runId: string;
+  path: string;
+  branch: string;
+  base: string;
+}

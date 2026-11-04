@@ -2,6 +2,7 @@
 //! (non-interactive) mode; phase 1 adds an ACP client for richer control.
 
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -38,6 +39,18 @@ impl AgentKind {
         }
     }
 
+    /// Resolve an ACP executable without involving a shell.
+    pub fn acp_command(self, which: impl Fn(&str) -> Option<PathBuf>) -> Option<(PathBuf, Vec<String>)> {
+        let (binary, package) = match self {
+            AgentKind::Claude => ("claude-agent-acp", "@agentclientprotocol/claude-agent-acp@0.100.0"),
+            AgentKind::Codex => ("codex-acp", "@zed-industries/codex-acp@0.16.0"),
+            AgentKind::Kiro => return which("kiro-cli").map(|path| (path, vec!["acp".into()])),
+            AgentKind::Gemini => return which("gemini").map(|path| (path, vec!["--experimental-acp".into()])),
+        };
+        which(binary).map(|path| (path, vec![]))
+            .or_else(|| which("npx").map(|path| (path, vec!["-y".into(), package.into()])))
+    }
+
     /// Arguments for a one-shot headless run that prints JSON lines.
     /// `None` means the agent is only reachable through ACP (phase 1).
     pub fn headless_args(self, prompt: &str) -> Option<Vec<String>> {
@@ -60,5 +73,36 @@ impl AgentKind {
             ]),
             AgentKind::Kiro => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn acp_prefers_dedicated_adapters() {
+        for (agent, binary) in [(AgentKind::Claude, "claude-agent-acp"), (AgentKind::Codex, "codex-acp")] {
+            let command = agent.acp_command(|name| Some(PathBuf::from(format!("/bin/{name}")))).unwrap();
+            assert_eq!(command, (PathBuf::from(format!("/bin/{binary}")), vec![]));
+        }
+    }
+
+    #[test]
+    fn acp_fallback_uses_pinned_packages() {
+        for (agent, package) in [(AgentKind::Claude, "@agentclientprotocol/claude-agent-acp@0.100.0"), (AgentKind::Codex, "@zed-industries/codex-acp@0.16.0")] {
+            assert_eq!(agent.acp_command(|name| (name == "npx").then(|| PathBuf::from("/bin/npx"))),
+                Some((PathBuf::from("/bin/npx"), vec!["-y".into(), package.into()])));
+        }
+    }
+
+    #[test]
+    fn acp_native_agents_and_missing_commands() {
+        for (agent, binary, flag) in [(AgentKind::Kiro, "kiro-cli", "acp"), (AgentKind::Gemini, "gemini", "--experimental-acp")] {
+            assert_eq!(agent.acp_command(|name| (name == binary).then(|| PathBuf::from(binary))),
+                Some((PathBuf::from(binary), vec![flag.into()])));
+        }
+        for agent in AgentKind::ALL { assert_eq!(agent.acp_command(|_| None), None); }
     }
 }
