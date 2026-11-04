@@ -2,7 +2,7 @@
 use super::transport::RpcError;
 use serde_json::{json, Value};
 use std::{collections::HashMap, fs, path::{Component, Path, PathBuf}, process::Stdio, sync::Arc};
-use tokio::{io::{AsyncRead, AsyncReadExt}, process::Command, sync::{mpsc, watch, Mutex}};
+use tokio::{io::{AsyncRead, AsyncReadExt}, sync::{mpsc, watch, Mutex}};
 
 fn error(code: i64, message: impl Into<String>) -> RpcError {
     RpcError { code, message: message.into(), data: None }
@@ -117,7 +117,7 @@ impl Terminals {
         let command = string(params, "command")?;
         if command.is_empty() { return Err(invalid("Lệnh không được để trống")); }
         // Windows only finds .exe by itself, and CLIs installed through npm are .cmd shims.
-        let mut cmd = Command::new(crate::env::which(command).unwrap_or_else(|| command.into()));
+        let mut cmd = crate::env::command(crate::env::which(command).unwrap_or_else(|| command.into()));
         if let Some(args) = params.get("args") {
             for arg in args.as_array().ok_or_else(|| invalid("args phải là mảng"))? {
                 cmd.arg(arg.as_str().filter(|s| !s.contains('\0')).ok_or_else(|| invalid("Mỗi argument phải là chuỗi hợp lệ"))?);

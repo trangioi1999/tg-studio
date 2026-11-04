@@ -52,7 +52,7 @@ pub fn home_dir() -> Option<String> {
 }
 
 async fn version_of(path: &Path) -> Option<String> {
-    let run = tokio::process::Command::new(path)
+    let run = env::command(path)
         .arg("--version")
         .env("PATH", env::login_path())
         .stdin(Stdio::null())
