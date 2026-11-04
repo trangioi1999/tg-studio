@@ -26,7 +26,24 @@ export interface Usage {
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit'
+/** One plan limit window reported by the CLI (Claude: 5 hours, 7 days). Keep in sync with usage.rs. */
+export interface LimitWindow {
+  id: string;
+  /** Share used, 0..1; above 1 once over the limit. */
+  utilization: number;
+  /** Epoch ms. */
+  resetsAt: number | null;
+  status: string | null;
+}
+
+/** Latest plan limits per agent, from `account_limits` or a `limits` event. Keep in sync with store.rs. */
+export interface AccountLimits {
+  agent: AgentId;
+  windows: LimitWindow[];
+  at: number;
+}
+
+export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit' | 'limits'
   | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved';
 
 export interface AgentEvent {
@@ -61,6 +78,8 @@ export interface StoredRun {
   lines: StoredLine[];
   /** Set for code tasks that still have a worktree to review. */
   worktree: string | null;
+  /** Runs started together on one prompt (parallel mode) share this id. */
+  group: string | null;
 }
 
 export interface PermissionOption {

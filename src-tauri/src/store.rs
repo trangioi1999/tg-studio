@@ -9,7 +9,7 @@ use rusqlite::{params, types::Type, Connection, Error, Result};
 use serde::Serialize;
 use tauri::State;
 
-use crate::{adapters::AgentKind, usage::Usage, worktree::Worktree};
+use crate::{adapters::AgentKind, usage::{LimitWindow, Usage}, worktree::Worktree};
 
 const RESTORED_RUNS: usize = 100;
 
@@ -30,6 +30,16 @@ pub struct StoredLine {
     pub line: String,
 }
 
+/// The latest plan limits an agent's CLI reported, kept across app restarts.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountLimits {
+    pub agent: AgentKind,
+    pub windows: Vec<LimitWindow>,
+    /// When the CLI reported them (epoch ms).
+    pub at: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredRun {
@@ -44,6 +54,8 @@ pub struct StoredRun {
     pub usage: Option<Usage>,
     pub lines: Vec<StoredLine>,
     pub worktree: Option<String>,
+    /// Runs started together on one prompt (parallel mode) share this id.
+    pub group: Option<String>,
 }
 
 impl Store {
@@ -85,7 +97,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1 | 2 => {},
+            1..=3 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -97,6 +109,12 @@ impl Store {
                     PRIMARY KEY (repo, agent, rule)
                 );
                 PRAGMA user_version = 2;")?;
+        }
+        if version < 3 {
+            tx.execute_batch("CREATE TABLE account_limits (
+                    agent TEXT PRIMARY KEY, windows TEXT NOT NULL, at INTEGER NOT NULL
+                );
+                PRAGMA user_version = 3;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -114,6 +132,32 @@ impl Store {
             params![run.id, agent.as_str(), run.prompt, run.cwd, sql_integer(run.started_at)?],
         )?;
         Ok(())
+    }
+
+    /// Keeps only the newest report per agent; an older one never overwrites it.
+    pub fn set_limits(&self, agent: AgentKind, windows: &[LimitWindow], at: u64) -> Result<()> {
+        let text = serde_json::to_string(windows).map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))?;
+        self.connection()?.execute(
+            "INSERT INTO account_limits (agent, windows, at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(agent) DO UPDATE SET windows = excluded.windows, at = excluded.at WHERE excluded.at >= account_limits.at",
+            params![agent_key(agent)?, text, sql_integer(at)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn all_limits(&self) -> Result<Vec<AccountLimits>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT agent, windows, at FROM account_limits ORDER BY agent")?;
+        let rows = stmt.query_map([], |row| {
+            let agent: String = row.get(0)?;
+            let agent = serde_json::from_value(serde_json::Value::String(agent))
+                .map_err(|e| Error::FromSqlConversionFailure(0, Type::Text, Box::new(e)))?;
+            let windows: String = row.get(1)?;
+            let windows = serde_json::from_str(&windows)
+                .map_err(|e| Error::FromSqlConversionFailure(1, Type::Text, Box::new(e)))?;
+            Ok(AccountLimits { agent, windows, at: unsigned(row.get(2)?, 2)? })
+        })?;
+        rows.collect()
     }
 
     pub fn add_rule(&self, repo: &str, agent: AgentKind, rule: &str) -> Result<()> {
@@ -138,13 +182,13 @@ impl Store {
         write_worktree(&*self.connection()?, run_id, repo, wt)
     }
 
-    pub fn insert_run_with_worktree(&self, run: &NewRun<'_>, repo: &str, wt: &Worktree) -> Result<()> {
+    pub fn insert_run_with_worktree(&self, run: &NewRun<'_>, repo: &str, wt: &Worktree, group: Option<&str>) -> Result<()> {
         let agent = agent_key(run.agent)?;
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT INTO runs (id, agent, prompt, cwd, started_at, status) VALUES (?1, ?2, ?3, ?4, ?5, 'running')",
-            params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?],
+            "INSERT INTO runs (id, agent, prompt, cwd, started_at, status, task_id) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
+            params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?, group],
         )?;
         write_worktree(&tx, run.id, repo, wt)?;
         tx.commit()
@@ -205,7 +249,7 @@ impl Store {
         let tx = conn.transaction()?;
         let mut runs = {
             let mut stmt = tx.prepare(
-                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id
                  FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
@@ -215,7 +259,7 @@ impl Store {
                 Ok(StoredRun {
                     id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
                     started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
-                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?,
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?, group: row.get(9)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>>>()?
@@ -262,6 +306,11 @@ impl Store {
         tx.commit()?;
         Ok(runs)
     }
+}
+
+#[tauri::command]
+pub async fn account_limits(store: State<'_, Store>) -> std::result::Result<Vec<AccountLimits>, String> {
+    store.all_limits().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -320,6 +369,17 @@ mod tests {
         assert_eq!(run.usage, Some(usage(10, 2, 3)));
         store.add_rule("/repo", AgentKind::Codex, "read:*").unwrap();
         assert!(store.run_worktree("old").is_err());
+        assert!(store.all_limits().unwrap().is_empty());
+    }
+
+    #[test]
+    fn limits_keep_the_newest_report_per_agent() {
+        let store = Store::open_in_memory().unwrap();
+        let window = |u: f64| vec![LimitWindow { id: "five_hour".into(), utilization: u, resets_at: Some(9), status: Some("allowed".into()) }];
+        store.set_limits(AgentKind::Claude, &window(0.2), 10).unwrap();
+        store.set_limits(AgentKind::Claude, &window(0.5), 20).unwrap();
+        store.set_limits(AgentKind::Claude, &window(0.1), 15).unwrap();
+        assert_eq!(store.all_limits().unwrap(), vec![AccountLimits { agent: AgentKind::Claude, windows: window(0.5), at: 20 }]);
     }
 
     #[test]
@@ -352,12 +412,13 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let run = NewRun { id: "a", agent: AgentKind::Codex, prompt: "task", cwd: "/wt", started_at: 1 };
         let mut wt = crate::worktree::Worktree { run_id: "wrong".into(), path: "/wt".into(), branch: "branch".into(), base: "base".into() };
-        assert!(store.insert_run_with_worktree(&run, "/repo", &wt).is_err());
+        assert!(store.insert_run_with_worktree(&run, "/repo", &wt, None).is_err());
         assert!(store.list_runs(1).unwrap().is_empty());
         wt.run_id = "a".into();
-        store.insert_run_with_worktree(&run, "/repo", &wt).unwrap();
+        store.insert_run_with_worktree(&run, "/repo", &wt, Some("group-1")).unwrap();
         assert_eq!(store.run_worktree("a").unwrap().1, wt);
-        assert!(store.insert_run_with_worktree(&run, "/changed", &wt).is_err());
+        assert_eq!(store.list_runs(1).unwrap()[0].group.as_deref(), Some("group-1"));
+        assert!(store.insert_run_with_worktree(&run, "/changed", &wt, None).is_err());
         assert_eq!(store.run_worktree("a").unwrap().0, std::path::PathBuf::from("/repo"));
     }
 
@@ -376,7 +437,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 2);
+            assert_eq!(version, 3);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();

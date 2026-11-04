@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AgentEvent, AgentId, DetectedAgent, FileDiff, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, DetectedAgent, FileDiff, LimitWindow, StoredRun, Usage } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -10,11 +10,14 @@ interface MockRun {
 interface MockTask {
   files: FileDiff[];
   contents: Map<string, string>;
+  /** Mock worktree path, so tool locations look like a real adapter's. */
+  root: string;
   accepted: number;
   pending: boolean;
 }
 
-function mockDiff(): FileDiff[] {
+/** Each agent gets a slightly different result, so the compare view has something to compare. */
+function mockDiff(agent: AgentId = 'claude'): FileDiff[] {
   const hunk = (id: string, header: string, lines: string[]) => ({
     id, header, oldStart: 10, oldLines: 3, newStart: 10, newLines: 4, lines,
     added: lines.filter((l) => l.startsWith('+')).length,
@@ -24,28 +27,45 @@ function mockDiff(): FileDiff[] {
     {
       path: 'src/app/app.ts', status: 'M', binary: false, patchHeader: '',
       hunks: [
-        hunk('h1', '@@ -10,3 +10,4 @@ export class App', [' export class App {', '-  title = "cũ";', '+  title = "mới";', '+  ready = true;', ' }']),
+        hunk('h1', '@@ -10,3 +10,4 @@ export class App', [' export class App {', '-  title = "cũ";', `+  title = "mới (${agent})";`, '+  ready = true;', ' }']),
         hunk('h2', '@@ -40,2 +41,2 @@ run()', [' run() {', '-  return 1;', '+  return 2;']),
       ],
     },
-    {
+    ...(agent === 'codex' ? [] : [{
       path: 'docs/ghi chú mới.md', status: 'A', binary: false, patchHeader: '',
       hunks: [hunk('h3', '@@ -0,0 +1,2 @@', ['+# Ghi chú', '+Nội dung mới'])],
-    },
+    }]),
   ];
 }
 
-/** Worktree contents that match `mockDiff()`: new lines 10–13 and 42 of app.ts are the agent's. */
-function mockContents(): Map<string, string> {
+/**
+ * Worktree contents. `edited` matches `mockDiff(agent)`: new lines 11–12 and 42 of
+ * app.ts are the agent's. Before the edit the worktree equals the base commit.
+ */
+function mockContents(agent: AgentId, edited: boolean): Map<string, string> {
   const app = Array.from({ length: 48 }, (_, i) => `// dòng ${i + 1}`);
-  app.splice(9, 4, 'export class App {', '  title = "mới";', '  ready = true;', '}');
+  app.splice(9, 4, 'export class App {', `  title = "mới (${agent})";`, '  ready = true;', '}');
   app.splice(40, 3, 'run() {', '  return 2;', '}');
-  return new Map([
+  if (!edited) {
+    app.splice(10, 2, '  title = "cũ";');
+    app[app.indexOf('  return 2;')] = '  return 1;';
+  }
+  const files: [string, string][] = [
     ['README.md', '# Demo\n\nRepo mô phỏng cho chế độ trình duyệt.\n'],
-    ['docs/ghi chú mới.md', '# Ghi chú\nNội dung mới\n'],
     ['package.json', '{\n  "name": "demo",\n  "private": true\n}\n'],
     ['src/app/app.ts', app.join('\n') + '\n'],
-  ]);
+  ];
+  if (edited && agent !== 'codex') files.push(['docs/ghi chú mới.md', '# Ghi chú\nNội dung mới\n']);
+  return new Map(files);
+}
+
+/** Claude-style plan windows, so the limits panel has something to show in the browser. */
+function mockLimits(): { windows: LimitWindow[] } {
+  const now = Date.now();
+  return { windows: [
+    { id: 'five_hour', utilization: 0.42, resetsAt: now + 2.5 * 3_600_000, status: 'allowed' },
+    { id: 'seven_day', utilization: 0.18, resetsAt: now + 4 * 86_400_000, status: 'allowed' },
+  ] };
 }
 
 /**
@@ -94,16 +114,17 @@ export class MockBackend extends AgentBackend {
     emit({ line: '› read src/app/app.ts' }, 900);
     emit({ line: 'Đây là phản hồi giả lập để dựng giao diện khi chạy trong trình duyệt.' }, 1500);
     emit({ kind: 'usage', usage }, 1900);
+    if (agent === 'claude') emit({ kind: 'limits', data: mockLimits() as unknown as AgentEvent['data'] }, 1950);
     emit({ kind: 'exit', code: 0 }, 2100);
     return runId;
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     const run: MockRun = { agent, timers: [], active: true };
     this.runs.set(runId, run);
-    this.tasks.set(runId, { files: mockDiff(), contents: mockContents(), accepted: 0, pending: true });
+    this.tasks.set(runId, { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
@@ -138,17 +159,23 @@ export class MockBackend extends AgentBackend {
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'permission_resolved', data: { requestId } }, 0);
     send({ kind: 'tool', data: { toolCallId: 't1', status: allowed ? 'completed' : 'failed' } }, 40);
-    send({ kind: 'tool', data: { toolCallId: 't2', title: 'Sửa src/app/app.ts', kind: 'edit', status: 'completed' } }, 80);
-    send({ kind: 'message', data: { text: 'fix: sửa lỗi theo yêu cầu' } }, 120);
+    const file = `${task.root}/src/app/app.ts`;
+    send({ kind: 'tool', data: { toolCallId: 't2', title: 'Sửa src/app/app.ts', kind: 'edit', status: 'pending', locations: [{ path: file, line: 11 }] } }, 80);
+    // The edit lands in the worktree only when the tool call completes, like a real agent.
+    this.later(runId, run, { kind: 'tool', data: { toolCallId: 't2', status: 'completed', content: [{ type: 'diff', path: file }] } }, 450, () => {
+      task.contents = mockContents(run.agent, true);
+      task.files = mockDiff(run.agent);
+    });
+    send({ kind: 'message', data: { text: 'fix: sửa lỗi theo yêu cầu' } }, 500);
     send({ kind: 'plan', data: { entries: [
       { content: 'Chạy test hiện tại', status: allowed ? 'completed' : 'pending' },
       { content: 'Sửa theo yêu cầu', status: 'completed' },
-    ] } }, 140);
+    ] } }, 520);
     send({
       kind: 'usage',
       usage: { inputTokens: 2400, cachedInputTokens: 12000, outputTokens: 610, costUsd: run.agent === 'claude' ? 0.04 : null, source: run.agent === 'claude' ? 'reported' : 'tokens', cumulative: true },
-    }, 160);
-    send({ kind: 'exit', code: 0, data: { status: 'done' } }, 200);
+    }, 540);
+    send({ kind: 'exit', code: 0, data: { status: 'done' } }, 580);
   }
 
   async getDiff(runId: string): Promise<FileDiff[]> {
@@ -159,6 +186,16 @@ export class MockBackend extends AgentBackend {
     const task = this.task(runId);
     this.dropHunk(task, path, hunkId);
     task.accepted += 1;
+  }
+
+  async acceptAll(runId: string): Promise<number> {
+    const task = this.task(runId);
+    if (this.runs.get(runId)?.active) throw new Error('Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.');
+    if (!task.files.length) throw new Error('Không còn thay đổi nào để áp dụng.');
+    const count = task.files.length;
+    task.accepted += task.files.reduce((n, f) => n + f.hunks.length, 0);
+    task.files = [];
+    return count;
   }
 
   async rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
@@ -209,8 +246,9 @@ export class MockBackend extends AgentBackend {
       .filter((f) => f.hunks.length > 0);
   }
 
-  private later(runId: string, run: MockRun, partial: Partial<AgentEvent>, delay: number): void {
+  private later(runId: string, run: MockRun, partial: Partial<AgentEvent>, delay: number, effect?: () => void): void {
     run.timers.push(setTimeout(() => {
+      effect?.();
       if (partial.kind === 'exit') run.active = false;
       this.emit({ runId, agent: run.agent, kind: 'log', line: null, usage: null, code: null, data: null, atMs: Date.now(), ...partial });
     }, delay));
@@ -225,6 +263,10 @@ export class MockBackend extends AgentBackend {
   }
 
   async listRuns(): Promise<StoredRun[]> {
+    return [];
+  }
+
+  async accountLimits(): Promise<AccountLimits[]> {
     return [];
   }
 

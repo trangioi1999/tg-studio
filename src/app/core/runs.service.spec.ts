@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
-import { AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
 import { RunsService } from './runs.service';
 
 const usage: Usage = {
@@ -25,6 +25,7 @@ const stored = (over: Partial<StoredRun> = {}): StoredRun => ({
   usage,
   lines: [],
   worktree: null,
+  group: null,
   ...over,
 });
 
@@ -94,6 +95,36 @@ describe('RunsService ACP events', () => {
     expect(run.lines.map((l) => l.text)).toEqual(['Xin chào', '› Đọc', 'Xong']);
     expect(run.lastMessage).toBe('Xong');
     expect(run.task).toBe(true);
+  });
+
+  it('records approval waits and closes them on resolve or exit', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'permission', data: { ...request, requestId: 'a' }, atMs: 100 }));
+    backend.handler(liveEvent({ kind: 'permission_resolved', data: { requestId: 'a' }, atMs: 250 }));
+    backend.handler(liveEvent({ kind: 'permission', data: { ...request, requestId: 'b' }, atMs: 400 }));
+    expect(service.runs()[0].waits).toEqual([{ from: 100, to: 250 }, { from: 400, to: null }]);
+    backend.handler(liveEvent({ kind: 'exit', code: null, atMs: 500 }));
+    expect(service.runs()[0].waits).toEqual([{ from: 100, to: 250 }, { from: 400, to: 500 }]);
+  });
+
+  it('tracks the file an agent works on across partial tool updates', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(event('tool', { toolCallId: 't', kind: 'edit', title: 'Edit', status: 'pending', locations: [{ path: '/wt/a.ts', line: 3 }] }));
+    expect(service.activity()['live']).toMatchObject({ toolCallId: 't', path: '/wt/a.ts', line: 3, editing: true, done: false });
+    backend.handler(event('tool', { toolCallId: 't', status: 'completed' }));
+    expect(service.activity()['live']).toMatchObject({ path: '/wt/a.ts', line: 3, editing: true, done: true });
+    // Claude's Write: no kind on updates, the diff content names the file.
+    backend.handler(event('tool', { toolCallId: 'u', content: [{ type: 'diff', path: '/wt/b.ts', newText: 'x' }] }));
+    expect(service.activity()['live']).toMatchObject({ path: '/wt/b.ts', line: null, editing: true, done: false });
+    // A read only moves the cursor; a command without a file changes nothing.
+    backend.handler(event('tool', { toolCallId: 'r', kind: 'read', rawInput: { file_path: '/wt/c.ts' } }));
+    expect(service.activity()['live']).toMatchObject({ path: '/wt/c.ts', editing: false });
+    backend.handler(event('tool', { toolCallId: 'v', title: 'npm test', kind: 'execute' }));
+    expect(service.activity()['live'].toolCallId).toBe('r');
+    backend.handler(liveEvent({ kind: 'exit', code: 0 }));
+    expect(service.activity()['live']).toBeUndefined();
   });
 
   it('updates a tool line in place and keeps its title', async () => {
@@ -318,7 +349,7 @@ describe('MockBackend task flow', () => {
     expect(pending?.status).toBe('running');
 
     await service.respondPermission(pending!.id, pending!.permissions[0].requestId, 'allow', false);
-    await wait(300);
+    await wait(800);
     const run = service.selected()!;
     expect(run.status).toBe('done');
     expect(run.permissions).toEqual([]);
@@ -334,5 +365,71 @@ describe('MockBackend task flow', () => {
 
     await service.discardWorktree(run.id);
     expect(service.selected()?.task).toBe(false);
+  });
+});
+
+describe('RunsService parallel mode', () => {
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('starts one grouped task per agent and accepts a whole run', async () => {
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
+    const service = TestBed.inject(RunsService);
+    const errors = await service.startParallel(['codex', 'claude'], 'cùng một việc', '/repo');
+    expect(errors).toEqual([]);
+    const group = service.selected()!.group;
+    expect(group).toBeTruthy();
+    const runs = service.groupRuns(group);
+    expect(runs.map((r) => r.agent)).toEqual(['claude', 'codex']);
+    expect(runs.every((r) => r.task && r.prompt === 'cùng một việc' && r.cwd === '/repo')).toBe(true);
+    expect(service.groupRuns(null)).toEqual([]);
+
+    await wait(300);
+    await expect(service.acceptAll(runs[0].id)).rejects.toThrow('đang chạy');
+    for (const r of service.groupRuns(group)) {
+      await service.respondPermission(r.id, r.permissions[0].requestId, 'allow', false);
+    }
+    await wait(800);
+    expect(service.groupRuns(group).map((r) => r.status)).toEqual(['done', 'done']);
+    await expect(service.commitChoice(group!, 'x')).rejects.toThrow('Chưa chọn');
+    await service.useRun(group!, runs[0].id);
+    expect(service.choices()[group!]).toEqual({ runId: runs[0].id, files: 2, commit: null });
+    expect(await service.getDiff(runs[0].id)).toEqual([]);
+    await expect(service.useRun(group!, runs[1].id)).rejects.toThrow('đã chọn');
+    expect(await service.commitChoice(group!, 'dùng bản của Claude')).toMatch(/^[0-9a-f]+$/);
+    expect(service.choices()[group!].commit).toBe('abc1234');
+  });
+
+  it('reports agents that failed to start and throws when none did', async () => {
+    class Flaky extends MockBackend {
+      override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null) {
+        return agent === 'gemini' ? Promise.reject(new Error('không có adapter')) : super.startTask(agent, prompt, repo, group);
+      }
+    }
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: Flaky }] });
+    const service = TestBed.inject(RunsService);
+    expect(await service.startParallel(['claude', 'gemini'], 'p', '/repo')).toEqual(['Gemini CLI: không có adapter']);
+    expect(service.runs()).toHaveLength(1);
+    await expect(service.startParallel(['gemini'], 'p', '/repo')).rejects.toThrow('không có adapter');
+  });
+});
+
+describe('RunsService plan limits', () => {
+  const windows = [{ id: 'five_hour', utilization: 0.4, resetsAt: 9_000, status: 'allowed' }];
+
+  it('keeps limits per agent without creating a run, preferring newer reports', async () => {
+    const backend = new FakeBackend();
+    let resolve!: (v: AccountLimits[]) => void;
+    backend.accountLimits = () => new Promise((r) => (resolve = r));
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const service = TestBed.inject(RunsService);
+    await flush();
+    backend.handler(liveEvent({ agent: 'claude', kind: 'limits', data: { windows }, atMs: 500 }));
+    expect(service.runs()).toEqual([]);
+    expect(service.limits().claude).toEqual({ agent: 'claude', windows, at: 500 });
+    // Saved history older than the live report must not replace it.
+    resolve([{ agent: 'claude', windows: [], at: 100 }, { agent: 'codex', windows, at: 50 }]);
+    await flush();
+    expect(service.limits().claude?.at).toBe(500);
+    expect(service.limits().codex?.at).toBe(50);
   });
 });

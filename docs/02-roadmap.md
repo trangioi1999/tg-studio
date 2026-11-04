@@ -34,14 +34,16 @@ Phụ thuộc: GĐ0. Chi tiết kỹ thuật: `03-agent-integration.md`.
 
 Đã kiểm chứng: lõi Rust với Claude thật (sửa file, thẻ duyệt Edit + lệnh shell, diff, accept, commit) và UI ở mock mode bằng Playwright. Còn lại: bấm thử trọn luồng trong app desktop với Claude thật trên macOS và Windows.
 
-## Giai đoạn 2 — Nhiều agent (tuần 6–8)
+## Giai đoạn 2 — Nhiều agent (tuần 6–8) · *đang làm*
+
+Plan: `docs/superpowers/plans/2026-11-04-phase-2-parallel.md`.
 
 - [ ] Adapter ACP cho Codex, Gemini CLI
-- [ ] Chạy song song N agent, N worktree; màn So sánh
+- [x] Chạy song song N agent, N worktree; màn So sánh với "Dùng bản này" (áp nguyên một run, tất cả hoặc không gì) — kiểm chứng với 2 phiên Claude thật (`live_claude_parallel_group_use_one`)
 - [ ] Pipeline engine: bước, gán agent, truyền output bước trước (plan, diff, test report) sang bước sau
-- [ ] Mission control: timeline, cột agent, merge queue
+- [x] Mission control: KPI, timeline có đoạn chờ duyệt, cột theo agent, hàng chờ (duyệt lệnh → review → commit; nhóm song song tính một lần)
 - [ ] Cherry-pick hunk từ nhiều worktree; chạy test trên bản ghép
-- [ ] Con trỏ agent + vạch màu trong editor
+- [x] Con trỏ agent + vạch màu trong editor: editor tự mở tệp agent đang làm, con trỏ có tên agent, vạch màu cập nhật ngay khi tool sửa file xong (đo ở mock mode: ~0,2 s)
 
 **XK:** 3 agent chạy song song cùng 1 task, chọn/ghép kết quả, merge.
 
@@ -51,7 +53,7 @@ Chi tiết: `04-usage-and-cost.md`, `05-mcp-skills-plugins.md`.
 
 - [ ] Usage Ledger SQLite + màn Usage (KPI, biểu đồ, bảng phiên, export CSV)
 - [ ] Bảng giá chỉnh trong app; ngân sách theo task/ngày/tuần; cảnh báo; tự dừng
-- [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn)
+- [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn) — **đã có cho Claude**: cửa sổ 5 giờ / 7 ngày từ `rate_limit_event` của lượt Chỉ đọc, lưu lại qua các lần mở app. Còn thiếu: lượt Sửa code (adapter ACP bỏ event này nếu nó đến trước phản hồi đầu tiên), Codex/Gemini/Kiro chưa có nguồn
 - [ ] Registry MCP: thêm server, ma trận bật/tắt, sinh config từng agent
 - [ ] Skills: thư viện SKILL.md, đồng bộ sang agent hỗ trợ
 - [ ] MCP `tg-bridge`: báo tiến độ, chuyển việc, ghi chú chung, xin duyệt

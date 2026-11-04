@@ -24,7 +24,7 @@ impl RuleMemory for RepoRules {
 }
 
 // Validate and spawn before inserting anything. A failed spawn leaves no run or worktree.
-async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>)) -> Result<(Worktree, Child), String> {
+async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>), group: Option<&str>) -> Result<(Worktree, Child), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let agent_name = serde_json::to_value(agent).unwrap();
     let wt = worktree::create(repo, agent_name.as_str().unwrap(), prompt, &id)?;
@@ -44,7 +44,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
             return Err(format!("Không chạy được adapter {}: {e}{}", command.0.display(), cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
         }
     };
-    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: runner::now_ms() }, &repo.to_string_lossy(), &wt);
+    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: runner::now_ms() }, &repo.to_string_lossy(), &wt, group);
     if let Err(e) = saved {
         let pid = child.id();
         terminate_adapter(&mut child, pid).await;
@@ -113,13 +113,16 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String) -> Result<String, String> {
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>) -> Result<String, String> {
+    if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
+        return Err("Mã nhóm lượt chạy không hợp lệ.".into());
+    }
     // Normalize the repository identity, including callers selecting a subdirectory.
     let root = worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)
         .map_err(|e| format!("Thư mục không phải kho Git. {e}"))?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| format!("Không mở được kho Git: {e}"))?;
     let command = agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {} hoặc npx trong PATH.", agent.display_name()))?;
-    let (wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command).await?;
+    let (wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref()).await?;
     let id = wt.run_id.clone();
     let pid = child.id();
     let sink = Arc::new(AppSink(app.clone()));
@@ -196,6 +199,14 @@ pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>
 pub fn accept_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     diff::accept_hunk(&repo, &wt, &path, &hunk_id)
+}
+#[tauri::command]
+pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<usize, String> {
+    if tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&run_id) {
+        return Err("Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.".into());
+    }
+    let (repo, wt) = stored_worktree(&store, &run_id)?;
+    diff::accept_all(&repo, &wt)
 }
 #[tauri::command]
 pub fn reject_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
@@ -349,7 +360,7 @@ mod tests {
         let db = repo.0.join("history.db");
         {
             let store = Store::open(&db).unwrap();
-            store.insert_run_with_worktree(&NewRun { id: &wt.run_id, agent: AgentKind::Codex, prompt: "p", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), &wt).unwrap();
+            store.insert_run_with_worktree(&NewRun { id: &wt.run_id, agent: AgentKind::Codex, prompt: "p", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), &wt, None).unwrap();
         }
         std::fs::write(wt.path.join("new.txt"), "accepted\n").unwrap();
         std::fs::write(wt.path.join("reject.txt"), "rejected\n").unwrap();
@@ -374,7 +385,7 @@ mod tests {
         let repo = Repo::new();
         let store = Store::open_in_memory().unwrap();
         let missing = repo.0.join("missing-adapter");
-        let result = prepare(&store, AgentKind::Codex, "task", &repo.0, (missing, vec![])).await;
+        let result = prepare(&store, AgentKind::Codex, "task", &repo.0, (missing, vec![]), None).await;
         assert!(result.err().unwrap().contains("Không chạy được"));
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(worktree::list(&repo.0).unwrap().is_empty());
@@ -398,21 +409,12 @@ mod tests {
         })
     }
 
-    /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
-    /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
-    /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
-    #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
-    async fn live_claude_edit_permission_diff_accept_commit() {
-        if std::env::var("TG_LIVE_ACP").is_err() { return; }
-        let repo = Repo::new();
-        repo.write("hello.txt", "Hello world\n");
-        worktree::git(&repo.0, &["add", "."], None).unwrap();
-        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
-        let store = Store::open_in_memory().unwrap();
+    struct LiveRun { wt: Worktree, status: &'static str, error: Option<String>, events: Vec<AgentEvent>, asked: Vec<serde_json::Value>, traffic: Vec<serde_json::Value> }
+
+    /// Spawns the real Claude adapter for one task and plays the user: every card is allowed once.
+    async fn run_live(store: &Store, repo: &Path, prompt: &str, group: Option<&str>) -> LiveRun {
         let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
-        let prompt = "Edit hello.txt so that its only line reads exactly `Hello ACP` (keep the trailing newline). Then run the shell command `echo checked > checked.txt` with your terminal tool, and finally tell me the exact contents of hello.txt. Do not commit.";
-        let (wt, mut child) = prepare(&store, AgentKind::Claude, prompt, &repo.0, command).await.unwrap();
+        let (wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group).await.unwrap();
         let pid = child.id();
         let sink = Arc::new(Recorder::default());
         let session = Arc::new(TaskSession::new(&wt.run_id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
@@ -457,12 +459,34 @@ mod tests {
         terminate_adapter(&mut child, pid).await;
         sink.emit(AgentEvent::new(&wt.run_id, AgentKind::Claude, "exit"));
         let asked = approver.await.unwrap();
+        let events = sink.0.lock().unwrap().clone();
+        let traffic = traffic.lock().unwrap().clone();
+        LiveRun { wt, status, error, events, asked, traffic }
+    }
+
+    fn message_of(events: &[AgentEvent]) -> String {
+        events.iter().filter(|e| e.kind == "message").filter_map(|e| e.data.as_ref()?["text"].as_str().map(String::from)).collect()
+    }
+
+    /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
+    /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
+    /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_edit_permission_diff_accept_commit() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = Repo::new();
+        repo.write("hello.txt", "Hello world\n");
+        worktree::git(&repo.0, &["add", "."], None).unwrap();
+        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let prompt = "Edit hello.txt so that its only line reads exactly `Hello ACP` (keep the trailing newline). Then run the shell command `echo checked > checked.txt` with your terminal tool, and finally tell me the exact contents of hello.txt. Do not commit.";
+        let LiveRun { wt, status, error, events, asked, traffic } = run_live(&store, &repo.0, prompt, None).await;
         if let Ok(path) = std::env::var("TG_ACP_FIXTURE") {
-            let text: String = traffic.lock().unwrap().iter().map(|v| format!("{v}\n")).collect();
+            let text: String = traffic.iter().map(|v| format!("{v}\n")).collect();
             std::fs::write(path, text).unwrap();
         }
-        let events = sink.0.lock().unwrap().clone();
-        let message: String = events.iter().filter(|e| e.kind == "message").filter_map(|e| e.data.as_ref()?["text"].as_str().map(String::from)).collect();
+        let message = message_of(&events);
         eprintln!("status={status} error={error:?}\nmessage={message}\nkinds={:?}", events.iter().map(|e| e.kind).collect::<Vec<_>>());
         assert_eq!(status, "done", "{error:?}");
         assert!(events.iter().any(|e| e.kind == "tool"), "không có tool update");
@@ -485,16 +509,49 @@ mod tests {
         worktree::remove(&repo.0, &wt, true).unwrap();
     }
 
+    /// Phase 2: two Claude runs on one prompt at once, in one group. Each works in its own
+    /// worktree; "Use this" takes one whole, and the other no longer applies cleanly.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_parallel_group_use_one() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = Repo::new();
+        repo.write("hello.txt", "Hello world\n");
+        worktree::git(&repo.0, &["add", "."], None).unwrap();
+        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let prompt = |word: &str| format!("Edit hello.txt so that its only line reads exactly `Hello {word}` (keep the trailing newline). Do not run any other command and do not commit.");
+        let (prompt_a, prompt_b) = (prompt("A"), prompt("B"));
+        let (a, b) = tokio::join!(run_live(&store, &repo.0, &prompt_a, Some("group-live")), run_live(&store, &repo.0, &prompt_b, Some("group-live")));
+        for run in [&a, &b] { assert_eq!(run.status, "done", "{:?} {}", run.error, message_of(&run.events)); }
+        assert_ne!(a.wt.path, b.wt.path);
+        assert_ne!(a.wt.branch, b.wt.branch);
+        let runs = store.list_runs(10).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|r| r.group.as_deref() == Some("group-live")));
+        assert_eq!(std::fs::read_to_string(a.wt.path.join("hello.txt")).unwrap(), "Hello A\n");
+        assert_eq!(std::fs::read_to_string(b.wt.path.join("hello.txt")).unwrap(), "Hello B\n");
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello world\n");
+        assert_eq!(diff::accept_all(&repo.0, &b.wt).unwrap(), 1);
+        diff::commit(&repo.0, "Dùng bản B").unwrap();
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello B\n");
+        // The losing run touched the same line, so it cannot be applied on top any more.
+        assert!(diff::accept_all(&repo.0, &a.wt).is_err());
+        assert!(worktree::git(&repo.0, &["status", "--porcelain"], None).unwrap().is_empty());
+        for run in [a, b] { worktree::remove(&repo.0, &run.wt, true).unwrap(); }
+        assert!(worktree::list(&repo.0).unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn invalid_and_uncommitted_repos_never_create_runs() {
         let path = std::env::temp_dir().join(format!("tg-invalid-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&path).unwrap();
         let store = Store::open_in_memory().unwrap();
         let missing = path.join("missing");
-        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing.clone(), vec![])).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing.clone(), vec![]), None).await.err().unwrap();
         assert!(error.contains("Git"));
         worktree::git(&path, &["init"], None).unwrap();
-        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing, vec![])).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing, vec![]), None).await.err().unwrap();
         assert!(error.contains("commit"));
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(!path.join(".tg").exists());
