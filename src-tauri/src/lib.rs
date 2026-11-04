@@ -4,6 +4,7 @@
 mod acp;
 mod acp_runner;
 mod adapters;
+mod compose;
 mod acp_tasks;
 mod detect;
 mod diff;
@@ -52,6 +53,7 @@ pub fn run() {
         }))
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
+        .manage(compose::Composites::default())
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
             app.manage(open_store(path));
@@ -74,7 +76,12 @@ pub fn run() {
             acp_tasks::list_worktree_files,
             acp_tasks::read_worktree_file,
             acp_tasks::write_worktree_file,
-            acp_tasks::discard_worktree
+            acp_tasks::discard_worktree,
+            compose::compose_runs,
+            compose::check_composite,
+            compose::apply_composite,
+            compose::commit_composite,
+            compose::discard_composite
         ])
         .run(tauri::generate_context!())
         .expect("error while running TG Studio");

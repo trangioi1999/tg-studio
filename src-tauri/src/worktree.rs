@@ -73,8 +73,14 @@ fn valid_segment(value: &str) -> bool {
 }
 
 pub fn create(repo: &Path, agent: &str, title: &str, run_id: &str) -> Result<Worktree, String> {
+    create_at(repo, agent, title, run_id, None)
+}
+
+/// Like `create`, from a given commit instead of HEAD (a composite starts from its runs' base).
+pub fn create_at(repo: &Path, agent: &str, title: &str, run_id: &str, base: Option<&str>) -> Result<Worktree, String> {
     let repo = root(repo)?;
-    let base = git(&repo, &["rev-parse", "--verify", "HEAD^{commit}"], None)
+    let target = format!("{}^{{commit}}", base.unwrap_or("HEAD"));
+    let base = git(&repo, &["rev-parse", "--verify", &target], None)
         .map_err(|e| format!("Kho Git chưa có commit hợp lệ. {e}"))?.trim().to_owned();
     if !valid_segment(agent) || !valid_segment(run_id) {
         return Err("Tên agent hoặc mã lượt chạy không hợp lệ.".into());

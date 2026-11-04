@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, CheckResult, Composite, Pick, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -45,7 +45,9 @@ export interface AgentActivity {
 
 /** The run picked with "Use this" for a parallel group, kept while the user moves around. */
 export interface GroupChoice {
-  runId: string;
+  /** The run used whole, or null when a composite was used. */
+  runId: string | null;
+  compositeId: string | null;
   files: number;
   /** Short hash once committed. */
   commit: string | null;
@@ -75,6 +77,10 @@ export class RunsService {
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
   readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
   readonly choices = signal<Record<string, GroupChoice>>({});
+  /** The composite being built for a group, if any. */
+  readonly composites = signal<Record<string, Composite>>({});
+  /** Last check command typed, offered again for the next composite. */
+  readonly checkCommand = signal('');
   /** Latest plan limits per agent (Claude's 5-hour and weekly windows). */
   readonly limits = signal<Partial<Record<AgentId, AccountLimits>>>({});
   /** Per run: the file the agent touched last. Cleared when the run ends. */
@@ -195,13 +201,46 @@ export class RunsService {
   async useRun(group: string, runId: string): Promise<void> {
     if (this.choices()[group]) throw new Error('Nhóm này đã chọn một bản.');
     const files = await this.backend.acceptAll(runId);
-    this.choices.update((c) => ({ ...c, [group]: { runId, files, commit: null } }));
+    this.choices.update((c) => ({ ...c, [group]: { runId, compositeId: null, files, commit: null } }));
+  }
+
+  /** Replaces the group's composite with one built from these picks. */
+  async compose(group: string, picks: Pick[]): Promise<Composite> {
+    await this.dropComposite(group);
+    const composite = await this.backend.composeRuns(picks);
+    this.composites.update((c) => ({ ...c, [group]: composite }));
+    return composite;
+  }
+
+  checkComposite(group: string, command: string): Promise<CheckResult> {
+    const composite = this.composites()[group];
+    if (!composite) return Promise.reject(new Error('Chưa có bản ghép.'));
+    this.checkCommand.set(command);
+    return this.backend.checkComposite(composite.id, command);
+  }
+
+  /** "Use the mix": applies the composite whole, as the group's choice. */
+  async useComposite(group: string): Promise<void> {
+    const composite = this.composites()[group];
+    if (!composite) throw new Error('Chưa có bản ghép.');
+    if (this.choices()[group]) throw new Error('Nhóm này đã chọn một bản.');
+    const files = await this.backend.applyComposite(composite.id);
+    this.choices.update((c) => ({ ...c, [group]: { runId: null, compositeId: composite.id, files, commit: null } }));
+  }
+
+  async dropComposite(group: string): Promise<void> {
+    const composite = this.composites()[group];
+    if (!composite) return;
+    await this.backend.discardComposite(composite.id);
+    this.composites.update(({ [group]: _, ...rest }) => rest);
   }
 
   async commitChoice(group: string, message: string): Promise<string> {
     const choice = this.choices()[group];
     if (!choice) throw new Error('Chưa chọn bản nào trong nhóm.');
-    const hash = await this.backend.commitAccepted(choice.runId, message);
+    const hash = choice.compositeId
+      ? await this.backend.commitComposite(choice.compositeId, message)
+      : await this.backend.commitAccepted(choice.runId!, message);
     this.choices.update((c) => ({ ...c, [group]: { ...choice, commit: hash.slice(0, 7) } }));
     return hash;
   }

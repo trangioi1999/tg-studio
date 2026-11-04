@@ -67,6 +67,8 @@ Editor: `workspace.rs` liệt kê, đọc và ghi file trong worktree (đường
 
 Chạy song song: chế độ *Song song* gọi `start_task` cho từng agent với cùng một `group` (lưu ở cột `task_id`). Mỗi run vẫn có worktree, nhánh và tiến trình adapter riêng; `worktree::create` khóa trong tiến trình để các lần tạo cùng lúc không ghi đè `info/exclude`. Màn So sánh gọi `accept_all`: áp toàn bộ thay đổi của một run (cả file nhị phân) thành một patch, kiểm tra trước trên cả repo và worktree, nên hoặc áp hết hoặc không áp gì. Lựa chọn của nhóm nằm trong `RunsService.choices`, nên rời màn So sánh không làm mất bước commit.
 
+Ghép thủ công (`compose.rs`): hunk chọn từ nhiều run của một nhóm được áp vào một worktree `mix` tạo từ base chung; lệnh kiểm tra của người dùng chạy trong đó; "Dùng bản ghép" đi qua `accept_all` như một run. Bản ghép không lưu qua lần mở app.
+
 Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh khớp rule "Always allow" được tự cho phép; lệnh ghép và các lệnh chạy được mã tùy ý (`bash`, `python`, `npx`…) không bao giờ có rule. UI không gửi option `allow_always` của agent, vì agent mới quyết định option đó bao trùm những gì.
 
 ## Hạn mức gói (Claude)
