@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, CheckResult, Composite, Pick, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -28,6 +28,8 @@ export interface Run {
   group: string | null;
   /** Time spent waiting on approval cards; `to` is null while still waiting. Live runs only. */
   waits: { from: number; to: number | null }[];
+  /** The agent's latest plan (ACP `plan` update). Live runs only. */
+  plan: PlanEntry[];
 }
 
 /** Where an agent is working right now, from its latest tool call that names a file. */
@@ -315,8 +317,11 @@ export class RunsService {
         case 'tool':
           this.track(run.id, dataOf(e), e.atMs);
           return { ...run, task: true, lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
-        case 'plan':
-          return { ...run, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
+        case 'plan': {
+          const entries = dataOf(e)['entries'];
+          const plan = Array.isArray(entries) ? (entries as PlanEntry[]).filter((p) => typeof p?.content === 'string') : run.plan;
+          return { ...run, plan, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
+        }
         case 'permission': {
           const request = e.data as unknown as PermissionRequest;
           return { ...run, task: true, permissions: [...run.permissions, request], waits: [...run.waits, { from: e.atMs, to: null }] };
@@ -387,7 +392,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '', group: null, waits: [],
+        task: false, permissions: [], lastMessage: '', group: null, waits: [], plan: [],
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -455,7 +460,7 @@ function restoreRun(s: StoredRun): Run {
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [] };
+  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [], plan: [] };
 }
 
 /**
@@ -478,6 +483,7 @@ function reattach(saved: Run, live: Run): Run {
     lastMessage: live.lastMessage || saved.lastMessage,
     group: saved.group ?? live.group,
     waits: live.waits,
+    plan: live.plan,
   };
 }
 

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, Pick, StoredRun } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, Pick, RepoInfo, StoredRun } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -9,6 +9,8 @@ export abstract class AgentBackend {
   abstract readonly mode: 'native' | 'mock';
   abstract detectAgents(): Promise<DetectedAgent[]>;
   abstract homeDir(): Promise<string | null>;
+  /** Root, name and branch of the Git repository containing `path`; rejects outside a repo. */
+  abstract repoInfo(path: string): Promise<RepoInfo>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
   abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null): Promise<string>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
@@ -49,6 +51,9 @@ export class TauriBackend extends AgentBackend {
   }
   homeDir() {
     return invoke<string | null>('home_dir');
+  }
+  repoInfo(path: string) {
+    return invoke<RepoInfo>('repo_info', { path });
   }
   start(agent: AgentId, prompt: string, cwd: string) {
     return invoke<string>('start_agent', { agent, prompt, cwd });

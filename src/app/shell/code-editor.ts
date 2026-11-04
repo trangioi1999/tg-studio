@@ -1,209 +1,132 @@
 import { Component, ElementRef, OnDestroy, afterNextRender, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import type * as Monaco from 'monaco-editor/editor/editor.api.js';
+import { KEYS } from '../core/keys';
 import { lineMarks } from '../core/line-marks';
 import { MonacoApi, loadMonaco } from '../core/monaco';
-import { AGENT_META, AgentId, FileDiff } from '../core/protocol';
+import { AGENT_META, AgentId, Hunk } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
+import { WorkspaceService } from '../core/workspace.service';
+
+interface Buffer {
+  model: Monaco.editor.ITextModel;
+  /** Text as last read from or written to disk. */
+  saved: string;
+}
 
 /**
- * Monaco on a task's worktree. Lines the agent changed get a bar in the agent's
- * colour. Saving writes to the worktree only, so the edit joins the review queue.
+ * Monaco on one file of a task's worktree. The agent's lines get a bar in its colour,
+ * each pending hunk gets an Accept/Reject bar underneath, and the agent's cursor shows
+ * while it works. Each file keeps its own model, so unsaved edits survive tab switches.
  */
 @Component({
   selector: 'tg-code-editor',
   template: `
-    <div class="editor" [style.--agent]="color()">
-      <nav class="editor-files" aria-label="Tệp trong worktree">
-        @if (changed().length) {
-          <div class="label editor-group">ĐÃ SỬA</div>
-          @for (f of changed(); track f.path) {
-            <button class="file-row" [class.active]="f.path === path()" [attr.aria-current]="f.path === path()" (click)="pick(f.path)">
-              <span class="agent-dot" aria-hidden="true"></span>
-              <span class="mono ellipsis">{{ f.path }}</span>
-              @if (f.path === agentFile()) { <span class="agent-here" [title]="meta[agent()].name + hereLabel()">{{ hereLabel() }}</span> }
-              <span class="file-status" [attr.data-status]="f.status" [attr.aria-label]="statusLabel[f.status]">{{ f.status }}</span>
-            </button>
+    <div class="editor-main" [style.--agent]="color()">
+      <div class="editor-bar">
+        <nav class="crumbs mono ellipsis" aria-label="Đường dẫn">
+          @for (part of crumbs(); track $index; let last = $last) {
+            <span [class.crumb-last]="last">{{ part }}</span>
+            @if (!last) { <span class="dim">›</span> }
           }
+        </nav>
+        @if (dirty()) { <span class="dirty" title="Chưa lưu">● chưa lưu</span> }
+        <span class="spacer"></span>
+        @if (agentHere()) {
+          <span class="live-dot" aria-hidden="true"></span><span class="dim">{{ meta[agent()].name }} {{ hereLabel() }}</span>
         }
-        <div class="label editor-group">TẤT CẢ TỆP</div>
-        @for (p of others(); track p) {
-          <button class="file-row" [class.active]="p === path()" [attr.aria-current]="p === path()" (click)="pick(p)">
-            <span class="mono ellipsis">{{ p }}</span>
-            @if (p === agentFile()) { <span class="agent-here" [title]="meta[agent()].name + hereLabel()">{{ hereLabel() }}</span> }
-          </button>
-        }
-        @if (truncated()) { <p class="dim pad">Chỉ hiện {{ files().length }} tệp đầu.</p> }
-      </nav>
-      <div class="editor-main">
-        <div class="editor-bar">
-          @if (path(); as p) {
-            <span class="mono ellipsis">{{ p }}</span>
-            @if (dirty()) { <span class="dirty" title="Chưa lưu">● chưa lưu</span> }
-            <span class="spacer"></span>
-            @if (marks().added.length || marks().removedBefore.length) {
-              <span class="dim">{{ meta[agent()].name }} sửa {{ marks().added.length }} dòng</span>
-            }
-            @if (running()) {
-              <span class="dim">Chỉ đọc khi agent đang chạy</span>
-              <button class="btn ghost sm" [class.on]="follow()" [attr.aria-pressed]="follow()" (click)="follow.set(!follow())" title="Tự mở tệp agent đang làm">Theo agent</button>
-            }
-            @if (dirty()) { <button class="btn ghost sm" [disabled]="busy()" (click)="revert()">Hoàn tác</button> }
-            <button class="btn primary sm" [disabled]="busy() || running() || !dirty()" (click)="save()">Lưu<span class="kbd">⌘S</span></button>
-          } @else {
-            <span class="dim">Chọn một tệp để mở.</span>
-          }
-        </div>
-        @if (pendingOpen(); as next) {
-          <div class="editor-confirm" role="alert">
-            <span>{{ path() }} có thay đổi chưa lưu.</span>
-            <span class="spacer"></span>
-            <button class="btn ghost sm" (click)="pendingOpen.set(null)">Ở lại</button>
-            <button class="btn ghost sm" (click)="discardAndOpen(next)">Bỏ thay đổi</button>
-            <button class="btn primary sm" [disabled]="running()" (click)="saveAndOpen(next)">Lưu rồi mở</button>
-          </div>
-        }
-        @if (error()) { <p class="error-text pad" role="alert">{{ error() }}</p> }
-        <div #host class="editor-host" [class.hidden]="!path()"></div>
+        @if (hunks().length) { <span class="dim">· {{ hunks().length }} thay đổi chờ duyệt</span> }
+        @if (running()) { <span class="dim">· chỉ đọc khi agent chạy</span> }
+        @if (dirty()) { <button class="btn ghost sm" [disabled]="busy()" (click)="revert()">Hoàn tác</button> }
+        <button class="btn primary sm" [disabled]="busy() || running() || !dirty()" (click)="save()">Lưu<span class="kbd">{{ keys.save }}</span></button>
       </div>
+      @if (error()) { <p class="error-text pad" role="alert">{{ error() }}</p> }
+      <div #host class="editor-host"></div>
     </div>
   `,
 })
 export class CodeEditor implements OnDestroy {
   private readonly runs = inject(RunsService);
+  private readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
   readonly running = input(false);
+  readonly path = input.required<string>();
 
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel: Record<string, string> = { M: 'Đã sửa', A: 'Tệp mới', D: 'Đã xóa' };
-  protected readonly files = signal<string[]>([]);
-  protected readonly diffs = signal<FileDiff[]>([]);
-  protected readonly path = signal<string | null>(null);
-  protected readonly dirty = signal(false);
+  protected readonly keys = KEYS;
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
-  protected readonly pendingOpen = signal<string | null>(null);
+  protected readonly dirty = signal(false);
   protected readonly color = computed(() => AGENT_META[this.agent()].color);
-  /** Deleted files cannot be opened, so they stay in the review view only. */
-  protected readonly changed = computed(() => this.diffs().filter((f) => f.status !== 'D' && !f.binary));
-  protected readonly others = computed(() => {
-    const changed = new Set(this.changed().map((f) => f.path));
-    return this.files().filter((p) => !changed.has(p));
-  });
-  protected readonly truncated = computed(() => this.files().length >= 5000);
-  protected readonly marks = computed(() => lineMarks(this.diffs().find((f) => f.path === this.path())));
-  /** While the agent runs, open whatever file it is working on. */
-  protected readonly follow = signal(true);
+  protected readonly crumbs = computed(() => this.path().split('/'));
+  private readonly file = computed(() => (this.workspace.diffs()[this.runId()] ?? []).find((f) => f.path === this.path()));
+  protected readonly hunks = computed<Hunk[]>(() => this.file()?.hunks ?? []);
+  private readonly marks = computed(() => lineMarks(this.file()));
   private readonly activity = computed(() => (this.running() ? (this.runs.activity()[this.runId()] ?? null) : null));
-  /** The agent's current file, relative to the worktree. */
-  protected readonly agentFile = computed(() => {
+  protected readonly agentHere = computed(() => {
     const a = this.activity();
-    return a ? this.relative(a.path) : null;
+    return !!a && this.workspace.relative(this.runId(), a.path) === this.path();
   });
-  protected readonly hereLabel = computed(() => (this.activity()?.editing ? ' đang sửa' : ' đang xem'));
+  protected readonly hereLabel = computed(() => (this.activity()?.editing ? 'đang sửa tệp này' : 'đang xem tệp này'));
 
   private monaco: MonacoApi | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   private decorations: Monaco.editor.IEditorDecorationsCollection | null = null;
-  private saved = '';
+  private zones: string[] = [];
+  private widgets: Monaco.editor.IContentWidget[] = [];
+  private readonly buffers = new Map<string, Buffer>();
 
   constructor() {
     afterNextRender(() => void this.mount());
-    // Reload when switching runs, and once more when the agent finishes writing.
     effect(() => {
-      this.runId();
-      const running = this.running();
-      untracked(() => {
-        this.editor?.updateOptions({ readOnly: running });
-        void this.refresh();
-      });
+      const key = `${this.runId()}:${this.path()}`;
+      untracked(() => void this.show(key));
     });
+    effect(() => {
+      this.editor?.updateOptions({ readOnly: this.running() });
+    });
+    // Repaint bars, hunk zones and the cursor whenever the diff or the agent moves.
     effect(() => {
       this.marks();
-      this.agentFile();
-      this.path();
+      this.hunks();
+      this.agentHere();
+      this.activity()?.line;
       untracked(() => this.paint());
     });
-    // Follow the agent and pick up its edits as soon as each tool call completes.
+    // The agent just wrote this file: show its version unless the user is editing.
     effect(() => {
       const a = this.activity();
-      if (a) untracked(() => void this.onActivity(a.path, a.editing && a.done));
+      if (a?.editing && a.done && this.agentHere()) untracked(() => void this.reload());
     });
-  }
-
-  /** Paths from the agent are absolute; match them to the worktree's file list. */
-  private relative(path: string): string | null {
-    const norm = path.replace(/\\/g, '/');
-    const marker = `/.tg/worktrees/${this.runId()}/`;
-    const at = norm.indexOf(marker);
-    if (at >= 0) return norm.slice(at + marker.length);
-    return this.files().filter((f) => norm === f || norm.endsWith(`/${f}`)).sort((a, b) => b.length - a.length)[0] ?? null;
-  }
-
-  private async onActivity(path: string, wrote: boolean): Promise<void> {
-    if (wrote) {
-      // New files only show up in the list after the write.
-      const [files, diffs] = await Promise.all([this.runs.listFiles(this.runId()), this.runs.getDiff(this.runId())]);
-      this.files.set(files);
-      this.diffs.set(diffs);
-    }
-    const rel = this.relative(path);
-    if (!rel || !this.files().includes(rel) || this.dirty()) return;
-    if (rel === this.path()) {
-      if (wrote) await this.load(rel, false);
-    } else if (this.follow()) {
-      await this.load(rel, false);
-    }
-  }
-
-  /** A click from the user: stop following the agent until asked again. */
-  protected pick(path: string): void {
-    if (this.running()) this.follow.set(false);
-    this.open(path);
   }
 
   ngOnDestroy(): void {
-    this.editor?.getModel()?.dispose();
+    for (const b of this.buffers.values()) b.model.dispose();
     this.editor?.dispose();
     this.editor = null;
   }
 
-  protected open(path: string): void {
-    if (path === this.path()) return;
-    if (this.dirty()) {
-      this.pendingOpen.set(path);
-      return;
-    }
-    void this.load(path);
-  }
-
-  protected async discardAndOpen(path: string): Promise<void> {
-    this.pendingOpen.set(null);
-    this.dirty.set(false);
-    await this.load(path);
-  }
-
-  protected async saveAndOpen(path: string): Promise<void> {
-    this.pendingOpen.set(null);
-    if (await this.save()) await this.load(path);
+  private get key(): string {
+    return `${this.runId()}:${this.path()}`;
   }
 
   protected revert(): void {
-    this.editor?.getModel()?.setValue(this.saved);
+    const b = this.buffers.get(this.key);
+    if (!b) return;
+    b.model.setValue(b.saved);
     this.dirty.set(false);
   }
 
   protected async save(): Promise<boolean> {
-    const path = this.path();
-    const model = this.editor?.getModel();
-    if (!path || !model || this.running() || this.busy()) return false;
-    const text = model.getValue();
+    const b = this.buffers.get(this.key);
+    if (!b || this.running() || this.busy()) return false;
+    const text = b.model.getValue();
     return this.guard(async () => {
-      await this.runs.writeFile(this.runId(), path, text);
-      this.saved = text;
-      this.dirty.set(model.getValue() !== text);
-      this.diffs.set(await this.runs.getDiff(this.runId()));
+      await this.runs.writeFile(this.runId(), this.path(), text);
+      b.saved = text;
+      this.dirty.set(b.model.getValue() !== text);
+      await this.workspace.refresh(this.runId());
     });
   }
 
@@ -230,61 +153,61 @@ export class CodeEditor implements OnDestroy {
     });
     this.decorations = this.editor.createDecorationsCollection();
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void this.save());
-    this.editor.onDidChangeModelContent(() => this.dirty.set(this.editor?.getValue() !== this.saved));
-    const path = this.path();
-    if (path) await this.load(path);
+    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => void this.actAtCursor('accept'));
+    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backspace, () => void this.actAtCursor('reject'));
+    this.editor.onDidLayoutChange(() => this.paint());
+    this.editor.onDidChangeModelContent(() => {
+      const b = this.buffers.get(this.key);
+      this.dirty.set(!!b && b.model.getValue() !== b.saved);
+    });
+    await this.show(this.key);
   }
 
-  private async refresh(): Promise<void> {
+  /** Switches the editor to this tab's buffer, reading the file the first time. */
+  private async show(key: string): Promise<void> {
+    const monaco = this.monaco;
+    if (!monaco || !this.editor) return;
     await this.guard(async () => {
-      const [files, diffs] = await Promise.all([this.runs.listFiles(this.runId()), this.runs.getDiff(this.runId())]);
-      this.files.set(files);
-      this.diffs.set(diffs);
-      const current = this.path();
-      const first = this.changed()[0]?.path ?? files[0] ?? null;
-      if (!current || !files.includes(current)) {
-        this.dirty.set(false);
-        if (first) await this.load(first);
-        else this.path.set(null);
-      } else if (!this.dirty()) {
-        await this.load(current); // the agent may have changed it
+      let b = this.buffers.get(key);
+      const known = !!b;
+      if (!b) {
+        const text = await this.runs.readFile(this.runId(), this.path());
+        if (key !== this.key) return;
+        const uri = monaco.Uri.from({ scheme: 'tg', path: `/${this.runId()}/${this.path()}` });
+        b = { model: monaco.editor.getModel(uri) ?? monaco.editor.createModel(text, undefined, uri), saved: text };
+        this.buffers.set(key, b);
       }
-    });
-  }
-
-  private async load(path: string, reveal = true): Promise<void> {
-    await this.guard(async () => {
-      const text = await this.runs.readFile(this.runId(), path);
-      this.path.set(path);
-      this.saved = text;
-      this.dirty.set(false);
-      const monaco = this.monaco;
-      if (!monaco || !this.editor) return;
-      const uri = monaco.Uri.from({ scheme: 'tg', path: `/${this.runId()}/${path}` });
-      const old = this.editor.getModel();
-      const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(text, undefined, uri);
-      if (model.getValue() !== text) model.setValue(text);
-      this.editor.setModel(model);
-      if (old && old !== model) old.dispose();
+      this.editor!.setModel(b.model);
+      this.dirty.set(b.model.getValue() !== b.saved);
+      if (known) await this.reload(); // the agent may have changed it meanwhile
       this.paint();
-      const cursor = this.cursorLine();
-      const first = cursor ?? this.marks().added[0] ?? this.marks().removedBefore[0];
-      if (first && (reveal || cursor)) this.editor.revealLineInCenterIfOutsideViewport(first);
+      const first = this.cursorLine() ?? this.marks().added[0] ?? this.marks().removedBefore[0];
+      if (first) this.editor!.revealLineInCenterIfOutsideViewport(first);
     });
   }
 
-  /** Where to draw the agent's cursor in the open file, if the agent is in it. */
+  /** Re-reads the open file from disk, keeping unsaved edits. */
+  private async reload(): Promise<void> {
+    const b = this.buffers.get(this.key);
+    if (!b || b.model.getValue() !== b.saved) return;
+    await this.guard(async () => {
+      const text = await this.runs.readFile(this.runId(), this.path());
+      b.saved = text;
+      if (b.model.getValue() !== text) b.model.setValue(text);
+      this.dirty.set(false);
+    });
+  }
+
   private cursorLine(): number | null {
-    const a = this.activity();
-    if (!a || this.agentFile() !== this.path()) return null;
-    return a.line ?? this.marks().added[0] ?? 1;
+    if (!this.agentHere()) return null;
+    return this.activity()?.line ?? this.marks().added[0] ?? 1;
   }
 
   private paint(): void {
-    const marks = this.marks();
     const monaco = this.monaco;
     const model = this.editor?.getModel();
-    if (!monaco || !model || !this.decorations) return;
+    if (!monaco || !model || !this.decorations || !this.editor) return;
+    const marks = this.marks();
     const last = model.getLineCount();
     const whole = (line: number, options: Monaco.editor.IModelDecorationOptions) => ({
       range: new monaco.Range(Math.min(line, last), 1, Math.min(line, last), 1),
@@ -305,6 +228,91 @@ export class CodeEditor implements OnDestroy {
         },
       }]),
     ]);
+    this.paintZones(last);
+  }
+
+  /**
+   * An Accept/Reject bar under each pending hunk. A view zone keeps the space; the bar
+   * itself is a content widget, because Monaco's text layer covers view zones and
+   * would swallow the clicks.
+   */
+  private paintZones(last: number): void {
+    const editor = this.editor!;
+    const monaco = this.monaco!;
+    const hunks = this.dirty() ? [] : this.hunks();
+    for (const w of this.widgets) editor.removeContentWidget(w);
+    const width = Math.max(240, editor.getLayoutInfo().contentWidth - 28);
+    const lines = hunks.map((h) => Math.max(1, Math.min(last, h.newLines === 0 ? h.newStart : h.newStart + h.newLines - 1)));
+    editor.changeViewZones((acc) => {
+      for (const id of this.zones) acc.removeZone(id);
+      this.zones = lines.map((line) => acc.addZone({ afterLineNumber: line, heightInPx: 36, domNode: document.createElement('div') }));
+    });
+    this.widgets = hunks.map((h, i) => {
+      // Monaco sets its own display on the widget node, so the flex bar goes inside it.
+      const node = document.createElement('div');
+      node.style.width = `${width}px`;
+      node.append(this.hunkBar(h));
+      return {
+        getId: () => `tg.hunk.${h.id}.${i}`,
+        getDomNode: () => node,
+        getPosition: () => ({ position: { lineNumber: lines[i], column: 1 }, preference: [monaco.editor.ContentWidgetPositionPreference.BELOW] }),
+      };
+    });
+    for (const w of this.widgets) editor.addContentWidget(w);
+  }
+
+  private hunkBar(h: Hunk): HTMLElement {
+    const meta = AGENT_META[this.agent()];
+    const bar = document.createElement('div');
+    bar.className = 'hunk-zone';
+    bar.style.setProperty('--agent', meta.color);
+    const avatar = document.createElement('span');
+    avatar.className = 'avatar';
+    Object.assign(avatar.style, { width: '16px', height: '16px', background: meta.color });
+    avatar.textContent = meta.mono;
+    const label = document.createElement('span');
+    label.className = 'hunk-zone-label ellipsis';
+    label.textContent = `${meta.name} · ${h.header.replace(/^@@[^@]*@@\s*/, '') || this.path()}`;
+    const count = document.createElement('span');
+    count.className = 'hunk-count';
+    count.innerHTML = `<span class="plus">+${h.added}</span> <span class="minus">−${h.removed}</span>`;
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    const button = (text: string, kbd: string, cls: string, action: 'accept' | 'reject') => {
+      const b = document.createElement('button');
+      b.className = `btn sm ${cls}`;
+      b.textContent = text;
+      const k = document.createElement('span');
+      k.className = 'kbd';
+      k.textContent = kbd;
+      b.append(k);
+      b.addEventListener('mousedown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void this.act(action, h);
+      });
+      return b;
+    };
+    bar.append(avatar, label, count, spacer, button('Reject', KEYS.backspace, 'ghost', 'reject'), button('Accept', KEYS.enter, 'primary', 'accept'));
+    return bar;
+  }
+
+  private async actAtCursor(action: 'accept' | 'reject'): Promise<void> {
+    const line = this.editor?.getPosition()?.lineNumber;
+    if (!line) return;
+    const h = this.hunks().find((x) => line >= x.newStart - 1 && line <= x.newStart + Math.max(x.newLines, 1));
+    if (h) await this.act(action, h);
+  }
+
+  private async act(action: 'accept' | 'reject', h: Hunk): Promise<void> {
+    if (this.busy()) return;
+    await this.guard(async () => {
+      if (action === 'accept') await this.runs.acceptHunk(this.runId(), this.path(), h.id);
+      else await this.runs.rejectHunk(this.runId(), this.path(), h.id);
+      await this.workspace.refresh(this.runId());
+      // Reject rewrites the file in the worktree.
+      if (action === 'reject') await this.reload();
+    });
   }
 
   private async guard(work: () => Promise<void>): Promise<boolean> {
