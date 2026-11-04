@@ -61,6 +61,7 @@ pub fn run() {
         .manage(project::OpenedProjects::default())
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
+        .manage(acp_tasks::SessionInboxes::default())
         .manage(compose::Composites::default())
         .manage(std::sync::Arc::new(bridge::BridgeHub::default()))
         .setup(|app| {
@@ -94,6 +95,7 @@ pub fn run() {
             project::list_project_files,
             project::read_project_file,
             acp_tasks::start_task,
+            acp_tasks::send_message,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,
             acp_tasks::accept_hunk,

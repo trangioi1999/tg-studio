@@ -52,6 +52,7 @@ impl AcpClient {
         tokio::spawn(async move {
             while let Some(message) = incoming.recv().await {
                 match message {
+                    Incoming::Barrier(barrier) => barrier.release(),
                     Incoming::Notification { method, params } => {
                         handler.on_notification(&method, params);
                     }
@@ -115,6 +116,19 @@ impl AcpClient {
             .ok_or_else(|| "Agent không trả về sessionId.".to_string())
     }
 
+    /// Reopens an earlier session of this adapter; the agent replays it as updates.
+    pub async fn load_session(&self, session_id: &str, cwd: &std::path::Path, mcp_servers: Value) -> Result<(), String> {
+        self.transport
+            .request(
+                "session/load",
+                json!({ "sessionId": session_id, "cwd": cwd.to_string_lossy(), "mcpServers": mcp_servers }),
+                Some(self.setup_timeout),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("Không nối lại được phiên: {e}"))
+    }
+
     /// Runs one turn and returns its `stopReason`. No timeout: a turn can wait
     /// on the user or run for a long time, and ends when the agent answers or dies.
     #[cfg(test)]
@@ -125,7 +139,7 @@ impl AcpClient {
 
     /// The whole `session/prompt` result: `stopReason` plus optional `usage`.
     pub async fn prompt_turn(&self, session_id: &str, text: &str) -> Result<Value, String> {
-        self
+        let result = self
             .transport
             .request(
                 "session/prompt",
@@ -133,7 +147,9 @@ impl AcpClient {
                 None,
             )
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        self.transport.drained().await;
+        result
     }
 
     pub fn cancel(&self, session_id: &str) -> Result<(), String> {
@@ -216,6 +232,17 @@ mod tests {
             assert!(error.contains("Hết thời gian chờ phản hồi ACP"), "{error}");
             client.close();
         }
+    }
+
+    #[tokio::test]
+    async fn a_finished_turn_has_every_earlier_update() {
+        let steps = std::iter::repeat_n(Step::Message("x"), 300).chain([Step::End("end_turn")]).collect();
+        let (client, recorder, _) = start(steps);
+        client.initialize().await.unwrap();
+        let id = client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+        client.prompt_turn(&id, "p").await.unwrap();
+        let seen = recorder.methods.lock().unwrap().len();
+        assert!(seen >= 300, "chỉ thấy {seen} update khi lượt đã xong");
     }
 
     #[tokio::test]
