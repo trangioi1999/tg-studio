@@ -10,7 +10,7 @@ Thiết kế: `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Thứ t�
 - [x] **M-D Tự dùng app** — lõi đã kiểm chứng với Claude và Codex thật (`live_codex_edit_diff_accept_commit`, `live_claude_and_codex_in_parallel_use_one`); còn bấm thử trọn luồng trong app desktop. Plan: `docs/superpowers/plans/2026-11-05-m-d-self-hosting.md`
 - [ ] **M0** Windows ổn — đã xong phần code; còn thử bản cài trên máy thật
 - [ ] **M1** Mở dự án đầy đủ: dự án gần đây, chuẩn bị Git (đã xong: xem source chỉ đọc)
-- [ ] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
+- [x] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
 - [ ] **M3** Chat trong một phiên agent (đã xong với chế độ Sửa code, kiểm chứng với Claude thật; còn chế độ Chỉ hỏi nối phiên, kiểm chứng Codex, phạm vi thư mục)
 - [ ] **M4** Bố cục mới
 - [ ] **M5** Dọn thuật ngữ, thông báo, tài liệu, nghiệm thu

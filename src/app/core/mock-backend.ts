@@ -1,4 +1,4 @@
-import { AgentBackend, Unlisten } from './backend';
+import { AgentBackend, SettingKey, Unlisten } from './backend';
 import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
@@ -142,10 +142,10 @@ export class MockBackend extends AgentBackend {
 
   async detectAgents(): Promise<DetectedAgent[]> {
     return [
-      { id: 'claude', name: 'Claude Code', binary: 'claude', path: '/usr/local/bin/claude', version: 'mock', headless: true },
-      { id: 'codex', name: 'Codex', binary: 'codex', path: '/opt/homebrew/bin/codex', version: 'mock', headless: true },
-      { id: 'gemini', name: 'Gemini CLI', binary: 'gemini', path: '~/.nvm/.../gemini', version: 'mock', headless: true },
-      { id: 'kiro', name: 'Kiro CLI', binary: 'kiro-cli', path: null, version: null, headless: false },
+      { id: 'claude', name: 'Claude Code', binary: 'claude', path: '/usr/local/bin/claude', version: 'mock', headless: true, auth: 'ok' },
+      { id: 'codex', name: 'Codex', binary: 'codex', path: '/opt/homebrew/bin/codex', version: 'mock', headless: true, auth: 'ok' },
+      { id: 'gemini', name: 'Gemini CLI', binary: 'gemini', path: '~/.nvm/.../gemini', version: 'mock', headless: true, auth: 'ok' },
+      { id: 'kiro', name: 'Kiro CLI', binary: 'kiro-cli', path: null, version: null, headless: false, auth: 'unknown' },
     ];
   }
 
@@ -472,7 +472,7 @@ export class MockBackend extends AgentBackend {
     this.prices = [...this.prices.filter((p) => !(p.agent === price.agent && p.fromMs === price.fromMs)), price];
   }
 
-  async getSetting(key: 'budgets' | 'bridge'): Promise<string | null> {
+  async getSetting(key: SettingKey): Promise<string | null> {
     return this.settings.get(key) ?? null;
   }
 
@@ -481,7 +481,7 @@ export class MockBackend extends AgentBackend {
     return run ? [{ topic: 'plan', agent: run.agent, at: Date.now() - 60_000, text: '1. Đọc app.ts\n2. Đổi tiêu đề\n3. Chạy test' }] : [];
   }
 
-  async setSetting(key: 'budgets' | 'bridge', value: string): Promise<void> {
+  async setSetting(key: SettingKey, value: string): Promise<void> {
     JSON.parse(value);
     this.settings.set(key, value);
   }

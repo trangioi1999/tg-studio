@@ -12,8 +12,8 @@ import { AgentAvatar } from './agent-avatar';
       <span class="label">AGENTS</span>
       <span class="spacer"></span>
       <button class="btn ghost sm" (click)="ui.onboarding.set(true)">Hướng dẫn</button>
-      <button class="btn ghost sm" (click)="agents.refresh()" [disabled]="agents.loading()">
-        {{ agents.loading() ? 'Đang dò…' : 'Dò lại' }}
+      <button class="btn ghost sm" (click)="agents.refresh()" [disabled]="agents.checking()">
+        {{ agents.checking() ? 'Đang dò…' : 'Dò lại' }}
       </button>
     </div>
     <ul class="agent-list">
@@ -23,12 +23,15 @@ import { AgentAvatar } from './agent-avatar';
           <div class="agent-info">
             <div class="agent-name">
               {{ a.name }}
-              @if (a.path && a.headless) { <span class="tag ok">sẵn sàng</span> }
+              @if (a.path && a.auth === 'ok') { <span class="tag ok">đã đăng nhập</span> }
+              @else if (a.path && a.auth === 'none') { <span class="tag warn">cần đăng nhập</span> }
+              @else if (a.path && a.headless) { <span class="tag">chưa rõ đăng nhập</span> }
               @else if (a.path) { <span class="tag" title="Agent này chưa có chế độ chỉ-đọc; dùng được ở Sửa code, Song song và Pipeline">chỉ Sửa code</span> }
               @else { <span class="tag warn">chưa cài</span> }
             </div>
             @if (a.path) {
               <div class="mono dim ellipsis" [title]="a.path">{{ a.version ?? 'không rõ phiên bản' }}</div>
+              @if (a.auth === 'none') { <code class="mono hint">{{ meta[a.id].login }}</code> }
             } @else {
               <code class="mono hint">{{ meta[a.id].install }}</code>
             }
