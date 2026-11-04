@@ -29,7 +29,6 @@ Lời hứa cốt lõi vẫn giữ: nhiều agent cùng làm một việc, so s�
 - Terminal thật, sửa code trực tiếp kiểu VS Code, LSP, extension.
 - Mobile, web, điều khiển từ xa, chạy trên cloud.
 - Agent mới. Command palette. Theme sáng.
-- Khôi phục phiên agent bằng `session/load` (dùng tóm tắt thay thế, mục 8.3).
 
 **Coi là thất bại nếu**
 - Code thật của người dùng đổi mà chưa được duyệt.
@@ -73,12 +72,19 @@ Lời hứa cốt lõi vẫn giữ: nhiều agent cùng làm một việc, so s�
 
 | Khái niệm | Định nghĩa | Ánh xạ vào code hiện có |
 |---|---|---|
-| **Dự án** | Một thư mục người dùng đã mở | Mới, bảng `projects` |
-| **Cuộc trò chuyện** (Thread) | Chuỗi lượt trên một dự án, chế độ cố định từ câu đầu | Mới, bảng `threads` |
-| **Lượt** (Turn) | Một câu của người dùng và phản hồi của agent | **Chính là `Run` hiện có** |
+| **Dự án** | Một thư mục gốc người dùng đã mở | Mới, bảng `projects` |
+| **Phạm vi** | Thư mục con trong dự án mà cuộc trò chuyện làm việc, có thể trống | Mới, cột `threads.scope` |
+| **Cuộc trò chuyện** (Thread) | Thứ người dùng thấy và chat, thuộc một dự án và một phạm vi | Mới, bảng `threads` |
+| **Phiên agent** (Run) | **Một agent đang sống** trong cuộc trò chuyện. Chỉ tạo mới khi thực sự spawn | **`Run` hiện có** |
+| **Lượt** (Turn) | Một câu của người dùng và phản hồi. Là bản ghi trong phiên, **không tạo tiến trình** | Mới, bảng `turns` |
 | **Bản nháp** (Draft) | Worktree chung của cả cuộc trò chuyện | Worktree + `worktree_owner` đã có |
 
-**[Đề xuất]** Lấy lượt = run để giữ nguyên ledger usage, lịch sử, mission control và budget, thay vì đổi nghĩa của run.
+**[Chủ repo] Quy tắc cốt lõi: gửi thêm một câu chỉ là chat tiếp trong cùng phiên, không tạo agent mới.** Một Run mới chỉ xuất hiện khi:
+1. Câu đầu của cuộc trò chuyện.
+2. Người dùng đổi hoặc giao thêm agent (`@codex`, Thử với nhiều agent, Theo các bước, chấp nhận đề xuất chuyển việc).
+3. Phiên cũ không còn: adapter chết, đã dọn vì rảnh lâu, hoặc app vừa mở lại. App cố nối lại đúng phiên trước (mục 8.3) và luồng ghi một dòng để người dùng biết.
+
+Nhờ vậy Giám sát, tab lịch sử và màn Chi phí đếm **số agent**, không đếm số câu chat.
 
 **Thuật ngữ hiện trên UI.** Trong code vẫn giữ tên tiếng Anh.
 
@@ -115,7 +121,7 @@ Lõi kiểm tra trước, **chỉ lưu khi hợp lệ** (mục 8.1). Kết quả
 | Tình huống | App làm gì |
 |---|---|
 | Repo Git có commit | Vào luôn, đủ mọi chế độ |
-| Thư mục con trong repo | Mở repo gốc, báo nhẹ: "Đã mở dự án `<tên>` chứa thư mục này" |
+| Thư mục con trong repo | Dự án là repo gốc, cuộc trò chuyện mới mặc định có phạm vi là thư mục con này (mục 5.9) |
 | Repo chưa có commit | Vào được; chế độ Sửa code hiện nút **Tạo commit đầu tiên** |
 | Không phải repo Git | Vào được, chế độ Chỉ hỏi dùng ngay; chế độ Sửa code hiện nút **Khởi tạo Git** |
 | Đường dẫn trỏ tới tệp | Mở thư mục chứa tệp đó |
@@ -133,7 +139,7 @@ Hộp xác nhận cho biết số tệp sẽ được commit. **Không bao giờ
 3. Agent chạy. Luồng hiện tin nhắn, thao tác gom nhóm, kế hoạch.
 4. Cần duyệt lệnh: thẻ duyệt nằm trong luồng **và** ghim ngay trên ô chat, nên không bao giờ bị khuất. Thẻ ghim có đầy đủ nút thao tác; thẻ trong luồng chỉ là bản ghi sau khi đã xử lý.
 5. Xong lượt: thẻ tóm tắt "Đã đổi N tệp, +a −b" với **Xem thay đổi** và **Nhận tất cả**. Panel phải tự mở một lần nếu chưa mở.
-6. Gõ tiếp để chat tiếp trên cùng bản nháp, agent nhớ ngữ cảnh.
+6. Gõ tiếp là chat tiếp trong **cùng phiên agent**, cùng bản nháp, không spawn gì thêm.
 7. Nhận từng đoạn hoặc tất cả, rồi commit. Commit xong vẫn chat tiếp được: bản nháp giữ nguyên, phần chờ duyệt chỉ còn những gì chưa nhận.
 
 **[Đề xuất] Phạm vi commit.** Trước khi commit, ô Commit liệt kê **mọi tệp đang staged** trong dự án. Tệp không đến từ cuộc trò chuyện này (người dùng tự stage, hoặc nhận từ cuộc khác) được đánh dấu riêng, kèm câu cảnh báo. Không tự bỏ tệp nào khỏi commit.
@@ -142,7 +148,7 @@ Hộp xác nhận cho biết số tệp sẽ được commit. **Không bao giờ
 
 **[Đề xuất] Xem thay đổi của lượt cũ.** Thẻ tóm tắt lưu số liệu lúc lượt kết thúc. Nút **Xem thay đổi** luôn mở trạng thái **hiện tại** của bản nháp. Không lưu ảnh chụp theo lượt trong đợt này.
 
-**Đổi agent giữa chừng:** gõ `@codex ...` hoặc đổi trong ô chọn. Agent mới làm trên cùng bản nháp, nhận tóm tắt (mục 8.3). Luồng ghi rõ "Chuyển sang Codex".
+**Đổi agent giữa chừng:** gõ `@codex ...` hoặc đổi trong ô chọn. Đây là lúc tạo Run mới: agent mới làm trên cùng bản nháp và nhận tóm tắt (mục 8.3). Luồng ghi rõ "Chuyển sang Codex". Agent cũ vẫn giữ phiên, gõ `@claude` thì quay lại đúng phiên đó.
 
 ### 5.5 Chỉ hỏi
 Chạy ở thư mục dự án, không tạo bản nháp, không cần Git. Hỏi tiếp bằng cách nối phiên của CLI (mục 8.4).
@@ -155,31 +161,40 @@ Chọn từ menu trong ô chat. Một cuộc trò chuyện có N nhánh (cùng `
 Trong lúc chưa chọn bản, ô chat khoá và ghi "Chọn một bản để chat tiếp". **[Đề xuất]** Sau khi chọn bản, chat tiếp bằng agent của bản đó, trên bản nháp của chính nó. Hiện tại luồng "Dùng bản này" dọn worktree của cả nhóm sau commit: phải đổi thành **chỉ dọn các bản không được chọn**. Tóm tắt và ngữ cảnh chỉ lấy lượt của nhánh được chọn, không lấy nhánh đã bỏ. Nếu đã ghép thủ công thì cuộc trò chuyện kết thúc, ô chat mời mở cuộc trò chuyện mới.
 
 ### 5.7 Theo các bước
-Giữ nguyên `PipelineService`. Các bước là các lượt trong cùng cuộc trò chuyện, chạy nối tiếp trên một bản nháp. Xong bước cuối, chat tiếp với agent của bước cuối.
+Giữ nguyên `PipelineService`. Mỗi bước là một Run (có spawn) trong cùng cuộc trò chuyện, chạy nối tiếp trên một bản nháp. Xong bước cuối, chat tiếp trong phiên của agent bước cuối.
 
 ### 5.8 Dừng và lưu trữ
 - **Dừng** thay cho nút gửi khi đang chạy. Không xếp hàng câu tiếp theo trong đợt này.
 - **Lưu trữ** chỉ ẩn khỏi danh sách, không xoá gì.
 - **Bỏ bản nháp** cần xác nhận. App không tự xoá bản nháp đang có thay đổi chờ duyệt.
 
+### 5.9 Chia cuộc trò chuyện theo thư mục
+**[Chủ repo]** Mỗi source có các cuộc trò chuyện riêng, chia theo thư mục.
+- Sidebar là cây: **dự án → (phạm vi) → cuộc trò chuyện**. Mở nhiều dự án cùng lúc, không cần chuyển qua lại; agent ở dự án khác vẫn chạy và vẫn báo trạng thái.
+- Bấm một cuộc trò chuyện thì cả panel phải và thanh tiêu đề chuyển theo dự án của nó.
+- **Phạm vi là tuỳ chọn.** Dự án nhỏ không có tầng này. Thư mục con chỉ hiện thành nhóm khi có cuộc trò chuyện trong đó, hoặc khi người dùng bấm "Trò chuyện mới trong thư mục này" trên cây tệp, hoặc khi mở trực tiếp thư mục con (repo nhiều gói).
+- Phạm vi làm thư mục làm việc của agent (`bản nháp/<scope>` hoặc `dự án/<scope>`). Đây là ngữ cảnh chứ **không phải rào chắn**: agent Sửa code vẫn sửa được ngoài phạm vi, trong bản nháp, và Git vẫn thao tác ở repo gốc.
+- Hai thư mục khác nhau trong một repo là hai phạm vi của một dự án. Hai repo riêng là hai dự án.
+- Phạm vi cố định sau câu đầu. Thư mục con bị xoá thì cuộc trò chuyện vẫn đọc được; câu tiếp theo báo lỗi và mời mở cuộc trò chuyện mới.
+
 ## 6. Bố cục
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ ▣ tg-studio ▾   main                               ● CL đang sửa  ● CX cần bạn │ 40
+│ tg-studio / main                                   ● CL đang sửa  ● CX cần bạn │ 40
 ├────────────┬──────────────────────────────┬───────────────────────────────┤
 │ + Trò chuyện│                              │ Thay đổi │ Tệp │ So sánh    ×│
 │   mới      │    Thêm validate form        │ ───────────────────────────── │
 │            │                              │ src/login.ts          M +12 −3│
-│ CẦN BẠN    │ ┌ Bạn ────────────────────┐  │  ┌ đoạn thay đổi ──────────┐  │
-│ ● Validate │ │ Thêm validate cho form… │  │  │ + if (!email) return…   │  │
+│ ▾ tg-studio│ ┌ Bạn ────────────────────┐  │  ┌ đoạn thay đổi ──────────┐  │
+│  ● Validate│ │ Thêm validate cho form… │  │  │ + if (!email) return…   │  │
 │            │ └─────────────────────────┘  │  │       [Bỏ]  [Nhận ⌘↵]   │  │
-│ ĐANG CHẠY  │ CL Claude Code · 42s         │  └─────────────────────────┘  │
-│ ● Sửa CI   │ Mình sẽ chạy test trước…     │                               │
+│  Refactor… │ CL Claude Code · 42s         │  └─────────────────────────┘  │
+│  ▾ api/    │ Mình sẽ chạy test trước…     │                               │
 │            │ ▸ 3 thao tác                 │                               │
-│ GẦN ĐÂY    │ ┌ Đã đổi 2 tệp, +12 −3 ───┐  │                               │
-│ Refactor…  │ │ [Xem thay đổi][Nhận hết]│  │                               │
-│ Hỏi về API │ └─────────────────────────┘  │                               │
+│   ● Sửa CI │ ┌ Đã đổi 2 tệp, +12 −3 ───┐  │                               │
+│ ▾ shop-web │ │ [Xem thay đổi][Nhận hết]│  │                               │
+│  Hỏi về API│ └─────────────────────────┘  │                               │
 │            │ ┌ Cần bạn duyệt: npm test ┐  │                               │
 │            │ │ [Từ chối][Luôn][Lần này]│  │                               │
 │ Giám sát ②│ └─────────────────────────┘  │                               │
@@ -202,7 +217,7 @@ Giữ nguyên `PipelineService`. Các bước là các lượt trong cùng cuộ
 - Chế độ "Theo agent" nằm ở tab Tệp, giữ nguyên hành vi. Không tự chuyển tab khi người dùng đang ở tab Thay đổi.
 
 **Sidebar**
-- Nhóm cuộc trò chuyện theo trạng thái: Cần bạn, Đang chạy, Có thay đổi chờ duyệt, Gần đây. Trạng thái luôn có chữ, không chỉ màu.
+- Cây theo mục 5.9. Trong mỗi nhóm, sắp xếp: Cần bạn, Đang chạy, Có thay đổi chờ duyệt, rồi mới nhất. Dự án thu gọn vẫn hiện huy hiệu nếu có cuộc trò chuyện cần bạn. Trạng thái luôn có chữ, không chỉ màu.
 - **Giám sát** luôn nằm ở chân sidebar, nhưng chỉ nổi lên với huy hiệu khi có từ 2 agent chạy hoặc có hàng chờ. **[Đề xuất]**
 - **Cài đặt** gồm: Agent, Kết nối (MCP, Skills, tg-bridge), Ngân sách và giá, Chẩn đoán.
 - **Chi phí** mở màn Usage hiện có.
@@ -210,7 +225,7 @@ Giữ nguyên `PipelineService`. Các bước là các lượt trong cùng cuộ
 **Khu vực chat**
 - Thao tác của agent gom thành một dòng "▸ N thao tác", bấm để mở.
 - Mỗi lượt có nút **Chi tiết** hiện log thô và stderr (thay cho panel Terminal).
-- Cuối mỗi lượt có một dòng nhỏ: token và chi phí kèm nhãn nguồn.
+- Cuối mỗi lượt có một dòng nhỏ: token và chi phí của lượt đó kèm nhãn nguồn.
 
 **Ô chat**
 - Enter gửi, Shift+Enter xuống dòng. **Bắt buộc bỏ qua Enter khi `event.isComposing`** để không gửi nhầm khi gõ tiếng Việt bằng bộ gõ IME.
@@ -257,6 +272,7 @@ Ngưỡng 30 giây là **[Đề xuất]**: chỉ cảnh báo, không tự dừng
 ```ts
 interface Project {
   root: string;            // thư mục đã chuẩn hoá (dunce); repo gốc nếu trong repo
+  scope: string | null;    // thư mục con đã mở, tương đối so với root; dùng dấu /
   name: string;
   branch: string | null;
   git: 'ready' | 'no_commits' | 'none';
@@ -283,44 +299,48 @@ interface Project {
 - Không có lệnh ghi. Hàm trong `workspace.rs` được tổng quát hoá nhận `root: &Path`, các lệnh worktree giữ nguyên hành vi.
 
 ### 8.3 Cuộc trò chuyện Sửa code nhiều lượt
-Tách `drive()` thành hai phần: **mở phiên** (initialize + `session/new`) và **chạy một lượt** (`session/prompt`). Thêm state `ThreadSessions`, khoá theo `thread_id`, giữ `AcpClient`, `Child`, `TaskSession`, agent, `pid`, thời điểm dùng gần nhất, token tg-bridge.
+Tách `drive()` thành hai phần: **mở phiên** (initialize + `session/new`) và **chạy một lượt** (`session/prompt`). Thêm state `ThreadSessions`, khoá theo `(thread_id, agent)`, mỗi mục giữ `run_id`, `AcpClient`, `Child`, `TaskSession`, `pid`, id phiên ACP, thời điểm dùng gần nhất, token tg-bridge.
 
-Lệnh mới `send_turn(threadId, agent, prompt) -> runId`:
+Lệnh mới `send_message(threadId, agent, prompt) -> { runId, spawned }`:
 
-| Tình huống | Xử lý |
-|---|---|
-| Chưa có bản nháp | Tạo worktree, mở phiên, chạy lượt |
-| Có phiên sống, cùng agent, đang rảnh | `session/prompt` trên chính phiên đó |
-| Đang có lượt chạy | Từ chối: "Agent đang chạy. Hãy chờ hoặc dừng trước." |
-| Đổi agent, phiên đã chết hoặc đã bị dọn, hoặc app vừa mở lại | Mở phiên mới trên cùng worktree (`reuse`), gửi kèm tóm tắt |
+| Tình huống | Xử lý | Run mới? |
+|---|---|---|
+| Có phiên sống của agent này, đang rảnh | `session/prompt` trên chính phiên đó | **Không** |
+| Agent này đang có lượt chạy | Từ chối: "Agent đang chạy. Hãy chờ hoặc dừng trước." | Không |
+| Câu đầu, chưa có bản nháp | Tạo worktree, spawn, mở phiên, chạy lượt | Có |
+| Agent khác, chưa có phiên trong cuộc trò chuyện | Spawn trên cùng worktree (`reuse`), gửi kèm tóm tắt | Có |
+| Phiên đã mất (adapter chết, dọn vì rảnh, app mở lại) | Spawn lại. Agent báo `loadSession` thì nối đúng phiên bằng `session/load`; không thì gửi kèm tóm tắt. Luồng ghi một dòng | Có |
+
+**[Cần kiểm chứng]** `session/load` trên `claude-agent-acp` và codex-acp. Gói Codex 0.16.0 báo `loadSession: true`, còn hành vi thật chưa thử.
 
 **Tóm tắt:** tối đa 6 lượt gần nhất của nhánh đang tiếp tục (yêu cầu + tin nhắn cuối), giới hạn 8 000 ký tự, nói rõ bản nháp có thể đã có thay đổi. Luồng hiện một dòng "Phiên mới, đã gửi tóm tắt N lượt trước". **[Đề xuất]**
 
 **Vòng đời**
-- Mỗi lượt là một run: `started` … `exit`. `exit` nghĩa là xong lượt, **không** có nghĩa adapter đã tắt.
-- `TaskSession` phải đổi được run hiện tại giữa các lượt, để event, thẻ duyệt và usage ghi đúng lượt.
-- Phiên rảnh quá 30 phút thì dọn adapter (**[Đề xuất]**); lượt sau đi nhánh "phiên đã bị dọn".
-- `stop_agent` gửi `session/cancel`, chờ 5 giây. Phiên còn trả lời thì giữ để chat tiếp, nhưng mọi lệnh con của lượt phải dừng hẳn. Không trả lời thì kill cả cây tiến trình. Sau Dừng, adapter đang rảnh được phép còn sống; agent không được làm việc tiếp.
-- Thoát app hoặc bỏ bản nháp thì kill phiên. Windows dùng `taskkill /T /F`.
-- tg-bridge: token sống theo phiên; `run_id` hiện tại cập nhật theo lượt; `scope` của ghi chú là `thread_id`.
-- Hành vi một lần gọi `start_task` với `group` và `reuse` vẫn phải chạy cho Song song và Theo các bước. Hai luồng này gọi cùng lõi phiên, không có bản sao thứ hai.
+- Trạng thái Run thêm `idle`: phiên sống, không có lượt nào chạy. `RunStatus` trong `protocol.ts` và `store.rs` đổi cùng lúc.
+- Event mới `turn_started` và `turn_end` (kèm `stopReason`, `turnId`). **`exit` chỉ phát khi tiến trình agent kết thúc.**
+- Câu của người dùng lưu thành dòng kind `user` trong `run_lines`; `StoredLine.kind` thêm `user`.
+- `TaskSession` giữ nguyên `run_id` suốt phiên. Thẻ duyệt, ghi chú tg-bridge và token tg-bridge đều sống theo Run; `scope` của ghi chú là `thread_id`.
+- Phiên rảnh quá 30 phút thì dọn adapter (**[Đề xuất]**): Run về `done`, câu tiếp theo đi nhánh "phiên đã mất". Mở lại app: mọi Run `idle` cũ chuyển thành `done`, không phải `interrupted`.
+- `stop_agent` gửi `session/cancel`, chờ 5 giây. Phiên còn trả lời thì về `idle` để chat tiếp, nhưng mọi lệnh con của lượt phải dừng hẳn. Không trả lời thì kill cả cây tiến trình và Run về `stopped`. Adapter rảnh được phép còn sống; agent không được làm việc tiếp.
+- Thoát app hoặc bỏ bản nháp thì kill mọi phiên của cuộc trò chuyện. Windows dùng `taskkill /T /F`.
+- **Song song và Theo các bước vẫn gọi `start_task` với `group` và `reuse`.** Mỗi Run ở Theo các bước đóng adapter sau một lượt như hiện tại, nên `exit` vẫn là tín hiệu chuyển bước của `PipelineService`. Song song giữ phiên ở `idle` để chat tiếp bản được chọn. Tất cả dùng chung lõi phiên, không có bản sao thứ hai.
 
 **Điều kiện trước khi giữ phiên nhiều lượt**
-- Sửa lỗi id của `reuse` (mục 3): mỗi lượt có id run riêng, worktree vẫn thuộc run gốc.
-- Xử lý xong mọi notification đã nhận trước khi phát `exit` của lượt (review #6), nếu không tin nhắn và chi phí cuối lượt có thể rơi sang lượt sau.
+- Sửa lỗi id của `reuse` (mục 3): Run mới trên worktree cũ có id riêng, worktree vẫn thuộc run gốc.
+- Xử lý xong mọi notification đã nhận trước khi phát `turn_end` (review #6), nếu không tin nhắn và chi phí cuối lượt có thể rơi sang lượt sau.
 - Ghi `stopReason` vào kết quả lượt: `end_turn` là xong; `cancelled` là đã dừng; `max_tokens`, `refusal` hiện rõ lý do trong luồng và không cho bước sau của Theo các bước chạy tiếp.
 
 **Hẹn giờ khởi tạo:** `SETUP_TIMEOUT` 60 s quá ngắn khi `npx` phải tải adapter. Dùng 300 s khi chạy qua `npx`, 60 s khi có adapter sẵn. **[Đề xuất]**
 
 **Usage nhiều lượt. Đây là chỗ dễ sai số nhất.**
-- Quy ước mới: số của run là số **của riêng lượt đó**.
-- `last_cost` hiện lấy từ `usage_update`. **[Cần kiểm chứng]** số này có cộng dồn theo phiên không, và token trong kết quả `session/prompt` có cộng dồn không. Ghi fixture thật 2 lượt của `claude-agent-acp@0.100.0` trước khi code.
-- Nếu cộng dồn: lõi phải trừ số lượt trước và có unit test trong `usage.rs`, theo `AGENTS.md`.
+- Số của Run là **tổng cả phiên agent**, nên ledger, ngân sách ngày và màn Chi phí không đổi nghĩa.
+- Số của từng lượt lưu ở bảng `turns`, chỉ để hiện dòng nhỏ cuối lượt, không được cộng vào tổng lần nữa.
+- `last_cost` hiện lấy từ `usage_update`. **[Cần kiểm chứng]** số này có cộng dồn theo phiên không, và token trong kết quả `session/prompt` có cộng dồn không. Ghi fixture thật 2 lượt của `claude-agent-acp@0.100.0` trước khi code, rồi đặt `cumulative` đúng và có unit test trong `usage.rs`, theo `AGENTS.md`.
 - Nghiệm thu: tổng chi phí 2 lượt khớp số phiên CLI báo, không tính trùng.
-- Ngân sách "mỗi task" tính theo cuộc trò chuyện.
+- Ngân sách "mỗi task" tính theo cuộc trò chuyện, cộng mọi Run trong đó.
 
 ### 8.4 Chỉ hỏi nhiều lượt
-Giữ `runner.rs`, thêm tham số phiên vào `headless_args`. **Chặn ghi** là một phần của hợp đồng: Claude `--permission-mode plan` hoặc danh sách công cụ cấm, Codex `--sandbox read-only`, Gemini tìm cờ tương đương. **[Cần kiểm chứng]** từng cờ bằng một phép thử thật yêu cầu agent ghi tệp trong thư mục tạm; tệp không được xuất hiện.
+Giữ `runner.rs`. CLI headless mỗi câu là một tiến trình ngắn, nhưng người dùng vẫn thấy một phiên: **vẫn chỉ một Run**, có nhiều lượt, tiến trình mới dùng `--resume` để nối đúng phiên của CLI. Thêm tham số phiên vào `headless_args`. **Chặn ghi** là một phần của hợp đồng: Claude `--permission-mode plan` hoặc danh sách công cụ cấm, Codex `--sandbox read-only`, Gemini tìm cờ tương đương. **[Cần kiểm chứng]** từng cờ bằng một phép thử thật yêu cầu agent ghi tệp trong thư mục tạm; tệp không được xuất hiện.
 
 | Agent | Cách nối | Trạng thái |
 |---|---|---|
@@ -329,7 +349,7 @@ Giữ `runner.rs`, thêm tham số phiên vào `headless_args`. **Chặn ghi** l
 | Gemini | Chưa rõ | Dùng tóm tắt như mục 8.3 |
 | Kiro | Không chạy headless | Chế độ Chỉ hỏi không khả dụng, như hiện nay |
 
-Lưu id vào `threads.agent_session`. Nối thất bại thì tự chuyển sang tóm tắt và ghi một dòng trong luồng.
+Lưu id vào `threads.agent_session`. Nối thất bại thì tự chuyển sang tóm tắt và ghi một dòng trong luồng. Thư mục làm việc là `dự án/<scope>`.
 
 ### 8.5 Khởi động
 - `App` hiện ngay kết quả dò lần trước từ `settings['agents']`, rồi cập nhật ở nền.
@@ -358,13 +378,22 @@ CREATE TABLE projects (
 );
 CREATE TABLE threads (
   id TEXT PRIMARY KEY, project TEXT NOT NULL, title TEXT NOT NULL,
+  scope TEXT,                    -- thư mục con, tương đối, dùng dấu /; NULL là cả dự án
   mode TEXT NOT NULL,            -- 'edit' | 'ask'
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   archived INTEGER NOT NULL DEFAULT 0,
   agent_session TEXT             -- id phiên CLI của chế độ Chỉ hỏi
 );
 ALTER TABLE runs ADD COLUMN thread_id TEXT;
+ALTER TABLE runs ADD COLUMN acp_session TEXT;
 CREATE INDEX runs_thread ON runs(thread_id, started_at);
+CREATE TABLE turns (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
+  prompt TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER,
+  stop_reason TEXT,
+  input_tokens INTEGER, cached_input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL
+);
+CREATE INDEX turns_run ON turns(run_id, started_at);
 ```
 
 **Di trú dữ liệu cũ, trong một transaction, có test từ DB v6:**
@@ -372,6 +401,7 @@ CREATE INDEX runs_thread ON runs(thread_id, started_at);
 - Run có `worktree_owner` vào thread của run gốc.
 - Run còn lại: mỗi run một thread.
 - `project = COALESCE(repo, cwd)`. `mode = 'edit'` khi có `repo`, còn lại `'ask'`. `title` = 80 ký tự đầu của prompt của run sớm nhất.
+- `scope` để `NULL`. Mỗi run cũ có đúng một `turns` lấy từ `prompt`, `started_at`, `ended_at`, usage cuối của run.
 - Không xoá hay sửa dữ liệu cũ của `runs`, `usage_events`, `run_lines`.
 
 Trạng thái cuộc trò chuyện là **dẫn xuất ở UI**, không lưu: có `permissions` → Cần bạn; có lượt `running` → Đang chạy; có thay đổi chờ duyệt → Có thay đổi; lượt cuối lỗi → Lỗi; còn lại → Rảnh.
@@ -379,7 +409,7 @@ Trạng thái cuộc trò chuyện là **dẫn xuất ở UI**, không lưu: có
 ### 8.7 Thêm vào `AgentBackend`
 Phải cài ở cả `TauriBackend` và `MockBackend`, đăng ký trong `generate_handler!`, khớp `protocol.ts`:
 
-`pickFolder`, `openProject`, `listProjects`, `removeProject`, `gitPrepare`, `listProjectFiles`, `readProjectFile`, `listThreads`, `createThread`, `sendTurn`, `archiveThread`, `openLoginTerminal`.
+`pickFolder`, `openProject`, `listProjects`, `removeProject`, `gitPrepare`, `listProjectFiles`, `readProjectFile`, `listThreads`, `createThread`, `sendMessage`, `listTurns`, `archiveThread`, `openLoginTerminal`.
 
 `getSetting` / `setSetting` thêm khoá `'agents'`.
 
@@ -395,7 +425,7 @@ Phải cài ở cả `TauriBackend` và `MockBackend`, đăng ký trong `generat
 ## 10. Tài liệu phải cập nhật cùng đợt
 - `docs/01-product-spec.md`: đổi nguyên tắc 1 "Code là trung tâm" thành "Cuộc trò chuyện là trung tâm, code nằm trong tầm tay"; viết lại 5.1.
 - `docs/06-design-system.md`: nguyên tắc 1, mục 4 kích thước bố cục, bảng thuật ngữ.
-- `docs/ARCHITECTURE.md`, `CLAUDE.md`: thread, luồng lượt, layout mới, `send_turn`.
+- `docs/ARCHITECTURE.md`, `CLAUDE.md`: thread, phiên và lượt, layout mới, `send_message`, event `turn_end`.
 - `docs/02-roadmap.md`: thêm các mốc dưới đây; sửa `docs/07-release.md` về `version:sync`.
 - `docs/user-guide.md`, `README.md`, ảnh chụp màn hình; `CHANGELOG.md`.
 
@@ -411,7 +441,7 @@ Theo quy tắc của repo: Codex nhận module tách biệt có test, Claude nh�
 | **M0** Windows ổn | Thử bản sửa cửa sổ; kill cây tiến trình; prompt nhiều dòng; timer; cảnh báo im lặng | Chủ repo thử; Codex: kill cây, prompt; Claude: UI | Kịch bản Windows ở mục 12 qua |
 | **M1** Mở dự án | `normalize_path`, `open_project`, `git_prepare`, dialog, `projects`, `ProjectStart`, xem source chỉ đọc, mock mô phỏng lỗi | Codex: Rust + test; Claude: UI | Các tình huống ở 5.2 và 5.3 đều qua |
 | **M2** Khởi động nhanh | Cache, dò song song, timeout PATH, kiểm tra đăng nhập | Codex | Hiện agent dưới 1 s khi có cache |
-| **M3** Nhiều lượt | Fixture 2 lượt; schema v7 + di trú; `ThreadSessions`, `send_turn`; usage; Chỉ hỏi nối phiên | Codex: store, di trú, `usage.rs`, agent giả nhiều lượt; Claude: phiên | Test agent giả và live 2 lượt qua, chi phí không trùng; UI cũ vẫn chạy |
+| **M3** Chat trong một phiên | Fixture 2 lượt; schema v7 + di trú; `ThreadSessions`, `send_message`, `turn_end`, `idle`; usage; `session/load`; phạm vi; Chỉ hỏi nối phiên | Codex: store, di trú, `usage.rs`, agent giả nhiều lượt; Claude: phiên | Test agent giả và live: 2 câu chỉ có 1 tiến trình và 1 Run, chi phí không trùng; UI cũ vẫn chạy |
 | **M4** Bố cục mới | `ThreadList`, `Conversation`, `Composer`, `SidePanel`, `Settings`, bỏ activity bar và Terminal, cửa sổ hẹp | Claude; Codex review | Playwright mock qua trọn luồng; Song song, Theo các bước, Giám sát, Usage còn chạy |
 | **M5** Dọn và nghiệm thu | Thuật ngữ, thông báo mục 7, tài liệu mục 10, nghiệm thu máy thật macOS + Windows | Claude + Chủ repo | Tiêu chí nghiệm thu tổng ở mục 2 đều đạt |
 
@@ -433,11 +463,12 @@ Mỗi mốc một nhánh và một PR riêng. Trước khi xong: `npm run build`
 - `open_project`: mỗi dòng bảng 5.2 trên repo tạm. Không lưu khi lỗi.
 - `git_prepare`: không commit `.env`, `node_modules` khi không có `.gitignore`; thiếu danh tính Git.
 - Di trú v6 → v7 từ DB mẫu, gồm nhóm song song và `worktree_owner`. Không mất dòng nào.
-- Agent giả nhiều lượt: nhớ phiên; event đúng run; dừng giữa lượt rồi gửi tiếp; adapter chết; đổi agent gửi tóm tắt.
+- Phạm vi: `normalize` không cho `..` thoát khỏi dự án; agent chạy đúng thư mục con; đường dẫn tệp agent báo vẫn ánh xạ đúng vào bản nháp.
+- Agent giả nhiều lượt: **2 câu không spawn thêm** (đếm số lần spawn); `exit` không phát sau câu đầu; dừng giữa lượt rồi gửi tiếp; adapter chết thì spawn lại; đổi agent gửi tóm tắt; `@agent` cũ quay lại đúng phiên; `session/load`.
 - Usage: 2 lượt cộng dồn không tính trùng.
 - Angular: dẫn xuất trạng thái; Enter khi `isComposing` không gửi; panel chỉ tự mở một lần; không lưu đường dẫn lỗi.
 - Playwright mock: trọn luồng 5.1 → 5.4; đường dẫn lỗi; cửa sổ 1024×640 thấy đủ thẻ duyệt.
-- Live `#[ignore]`: 2 lượt với `claude-agent-acp` thật; agent nhớ câu trước.
+- Live `#[ignore]`: 2 câu với `claude-agent-acp` thật, cùng `pid`; agent nhớ câu trước.
 
 **Thủ công trên máy Windows, bản `npm run build:app`** (`npm run dev` có console nên không phát hiện được lỗi cửa sổ)
 1. Mở app, gửi prompt ở cả hai chế độ: không có cửa sổ cmd nào bật lên, kể cả khi agent chạy lệnh và khi bấm Dừng.
@@ -453,17 +484,20 @@ Mỗi mốc một nhánh và một PR riêng. Trước khi xong: `npm run build`
 **Chủ repo đã chốt**
 - Hướng chat-first giống Claude desktop và T3 Code, giữ thế mạnh riêng.
 - Phần nào giao được thì giao cho Codex.
+- Gửi thêm câu chat là chat tiếp trong cùng phiên; chỉ spawn khi có agent mới hoặc phiên đã mất.
+- Mỗi source có cuộc trò chuyện riêng, chia theo thư mục.
 - Ưu tiên sớm nhất: dùng chính app để xem và điều phối Claude cùng Codex xây tiếp project này.
 
 **Người viết đã chọn, chủ repo xem lại khi duyệt**
-1. Lượt = Run, cuộc trò chuyện là lớp mới bọc ngoài.
+1. Giữ tên `Run` trong code với nghĩa mới: một phiên agent. Lượt là bảng `turns` riêng. UI không hiện chữ Run.
 2. Source mở trực tiếp là **chỉ đọc**.
 3. Bỏ activity bar và panel Terminal.
 4. Enter gửi, Shift+Enter xuống dòng (hiện tại là ⌘↵).
-5. Phiên rảnh 30 phút thì dọn; dùng tóm tắt thay `session/load`.
+5. Phiên rảnh 30 phút thì dọn; nối lại bằng `session/load` nếu agent hỗ trợ, không thì dùng tóm tắt.
 6. Sau khi Song song chọn một bản, chat tiếp bằng agent đó.
 7. Đặt M-D trước mọi mốc khác và giữ giao diện hiện tại trong M-D.
-8. M-D chỉ theo dõi agent **do app khởi chạy**. Theo dõi phiên chạy bên ngoài (terminal) là việc riêng, chưa nằm trong spec này.
+8. Thư mục con là phạm vi trong cùng dự án: chỉ là ngữ cảnh, không phải rào chắn. Sidebar không hiện tầng này cho dự án không dùng.
+8a. M-D chỉ theo dõi agent **do app khởi chạy**. Theo dõi phiên chạy bên ngoài (terminal) là việc riêng, chưa nằm trong spec này.
 9. Chỉ hỏi chặn ghi bằng cờ của CLI; agent chưa kiểm chứng thì không có chế độ này.
 10. Commit liệt kê và cảnh báo tệp staged ngoài cuộc trò chuyện, không tự loại bỏ.
 11. Bản nháp là ảnh chụp, không tự đồng bộ với dự án.
