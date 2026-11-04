@@ -53,7 +53,7 @@ Chi tiết: `04-usage-and-cost.md`, `05-mcp-skills-plugins.md`.
 
 - [ ] Usage Ledger SQLite + màn Usage (KPI, biểu đồ, bảng phiên, export CSV)
 - [ ] Bảng giá chỉnh trong app; ngân sách theo task/ngày/tuần; cảnh báo; tự dừng
-- [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn)
+- [ ] Quota gói subscription (nguồn nào có thì hiện, gắn nhãn) — **đã có cho Claude**: cửa sổ 5 giờ / 7 ngày từ `rate_limit_event` của lượt Chỉ đọc, lưu lại qua các lần mở app. Còn thiếu: lượt Sửa code (adapter ACP bỏ event này nếu nó đến trước phản hồi đầu tiên), Codex/Gemini/Kiro chưa có nguồn
 - [ ] Registry MCP: thêm server, ma trận bật/tắt, sinh config từng agent
 - [ ] Skills: thư viện SKILL.md, đồng bộ sang agent hỗ trợ
 - [ ] MCP `tg-bridge`: báo tiến độ, chuyển việc, ghi chú chung, xin duyệt

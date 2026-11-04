@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AgentEvent, AgentId, DetectedAgent, FileDiff, StoredRun } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, DetectedAgent, FileDiff, StoredRun } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -27,6 +27,8 @@ export abstract class AgentBackend {
   abstract stop(runId: string): Promise<void>;
   /** Run history saved by earlier app sessions, newest first. */
   abstract listRuns(): Promise<StoredRun[]>;
+  /** Latest plan limits each CLI reported, kept across restarts. */
+  abstract accountLimits(): Promise<AccountLimits[]>;
   abstract onEvent(handler: (event: AgentEvent) => void): Promise<Unlisten>;
 }
 
@@ -82,6 +84,9 @@ export class TauriBackend extends AgentBackend {
   }
   listRuns() {
     return invoke<StoredRun[]>('list_runs');
+  }
+  accountLimits() {
+    return invoke<AccountLimits[]>('account_limits');
   }
   onEvent(handler: (event: AgentEvent) => void) {
     return listen<AgentEvent>('agent-event', (e) => handler(e.payload));

@@ -63,6 +63,7 @@ pub fn run() {
             runner::start_agent,
             runner::stop_agent,
             store::list_runs,
+            store::account_limits,
             acp_tasks::start_task,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,

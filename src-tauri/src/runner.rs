@@ -28,7 +28,7 @@ pub struct Runs(pub(crate) Mutex<HashMap<String, oneshot::Sender<()>>>);
 pub struct AgentEvent {
     pub(crate) run_id: String,
     pub(crate) agent: AgentKind,
-    /// "started" | "log" | "stderr" | "usage" | "exit"
+    /// "started" | "log" | "stderr" | "usage" | "limits" | "exit" | ACP kinds
     pub(crate) kind: &'static str,
     pub(crate) line: Option<String>,
     pub(crate) usage: Option<Usage>,
@@ -71,6 +71,10 @@ fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
             None => Ok(()),
         },
         ("usage", _, Some(u)) => store.add_usage(&ev.run_id, ev.at_ms, u),
+        ("limits", _, _) => match ev.data.as_ref().map(|v| serde_json::from_value::<Vec<crate::usage::LimitWindow>>(v["windows"].clone())) {
+            Some(Ok(windows)) => store.set_limits(ev.agent, &windows, ev.at_ms),
+            _ => Ok(()),
+        },
         _ => Ok(()),
     }
 }
@@ -158,6 +162,11 @@ pub async fn start_agent(
                 if let Some(u) = usage::parse_line(agent, &line) {
                     let mut ev = AgentEvent::new(&id, agent, "usage");
                     ev.usage = Some(u);
+                    publish(&app, ev);
+                }
+                if let Some(windows) = usage::parse_limits(agent, &line) {
+                    let mut ev = AgentEvent::new(&id, agent, "limits");
+                    ev.data = Some(serde_json::json!({ "windows": windows }));
                     publish(&app, ev);
                 }
                 let mut ev = AgentEvent::new(&id, agent, "log");

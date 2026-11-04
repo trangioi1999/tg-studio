@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
-import { AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
 import { RunsService } from './runs.service';
 
 const usage: Usage = {
@@ -410,5 +410,26 @@ describe('RunsService parallel mode', () => {
     expect(await service.startParallel(['claude', 'gemini'], 'p', '/repo')).toEqual(['Gemini CLI: không có adapter']);
     expect(service.runs()).toHaveLength(1);
     await expect(service.startParallel(['gemini'], 'p', '/repo')).rejects.toThrow('không có adapter');
+  });
+});
+
+describe('RunsService plan limits', () => {
+  const windows = [{ id: 'five_hour', utilization: 0.4, resetsAt: 9_000, status: 'allowed' }];
+
+  it('keeps limits per agent without creating a run, preferring newer reports', async () => {
+    const backend = new FakeBackend();
+    let resolve!: (v: AccountLimits[]) => void;
+    backend.accountLimits = () => new Promise((r) => (resolve = r));
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const service = TestBed.inject(RunsService);
+    await flush();
+    backend.handler(liveEvent({ agent: 'claude', kind: 'limits', data: { windows }, atMs: 500 }));
+    expect(service.runs()).toEqual([]);
+    expect(service.limits().claude).toEqual({ agent: 'claude', windows, at: 500 });
+    // Saved history older than the live report must not replace it.
+    resolve([{ agent: 'claude', windows: [], at: 100 }, { agent: 'codex', windows, at: 50 }]);
+    await flush();
+    expect(service.limits().claude?.at).toBe(500);
+    expect(service.limits().codex?.at).toBe(50);
   });
 });

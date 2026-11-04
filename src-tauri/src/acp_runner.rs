@@ -154,6 +154,9 @@ impl ClientHandler for TaskSession {
             Some("tool_call" | "tool_call_update") => self.queue_data("tool",update.clone()),
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
+                if let Some(windows) = crate::usage::parse_rate_limit(&update["_meta"]["_claude/rateLimit"]) {
+                    self.queue_data("limits", json!({"windows": windows}));
+                }
                 if let Some(usage) = crate::usage::parse_acp(update) {
                     *self.last_cost.lock().unwrap() = usage.cost_usd;
                     let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
@@ -195,6 +198,20 @@ impl ClientHandler for TaskSession {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn usage_update_with_claude_rate_limit_emits_limits() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2,
+            "_meta":{"_claude/rateLimit":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":5,"status":"allowed"}}}}}}));
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2}}));
+        let events = sink.0.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "limits");
+        assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["utilization"], 0.3);
+        assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["resetsAt"], 5000);
+    }
+
     #[tokio::test]
     async fn request_permission_waits_then_cancels() {
         let sink = Arc::new(Recorder::default());

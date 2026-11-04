@@ -32,6 +32,8 @@ describe('Tauri task commands', () => {
     expect(invoke).toHaveBeenLastCalledWith('reject_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' });
     expect(await backend.commitAccepted('run', 'commit')).toBe('result');
     expect(invoke).toHaveBeenLastCalledWith('commit_accepted', { runId: 'run', message: 'commit' });
+    await backend.accountLimits();
+    expect(invoke).toHaveBeenLastCalledWith('account_limits');
     await backend.discardWorktree('run');
     expect(invoke).toHaveBeenLastCalledWith('discard_worktree', { runId: 'run' });
   });

@@ -69,6 +69,10 @@ Chạy song song: chế độ *Song song* gọi `start_task` cho từng agent v�
 
 Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh khớp rule "Always allow" được tự cho phép; lệnh ghép và các lệnh chạy được mã tùy ý (`bash`, `python`, `npx`…) không bao giờ có rule. UI không gửi option `allow_always` của agent, vì agent mới quyết định option đó bao trùm những gì.
 
+## Hạn mức gói (Claude)
+
+`claude -p --output-format stream-json` phát `rate_limit_event`; `rate_limit_info.unifiedWindows` có `five_hour`, `seven_day`… với `utilization` (0–1) và `resetsAt` (giây). `usage::parse_limits` đổi thành `LimitWindow`, `runner.rs` phát event `limits`, `store.rs` giữ bản mới nhất mỗi agent (bảng `account_limits`, schema v3) và `account_limits` trả lại khi mở app. Adapter ACP chỉ chuyển tiếp event này (trong `usage_update._meta["_claude/rateLimit"]`) khi nó đến sau phản hồi đầu tiên của model, nên thực tế task Sửa code chưa có số. Đăng nhập bằng API key thì không có cửa sổ nào, UI không hiện số.
+
 ## Lịch sử lượt chạy
 
 `runner.rs` ghi mọi event vào `tg-studio.db` trong thư mục dữ liệu của app, trước khi phát lên UI. Khi khởi động: lượt còn `running` chuyển thành `interrupted`, và nếu không mở được file thì app dùng DB trong bộ nhớ, chỉ mất lịch sử. UI nạp lại 100 lượt gần nhất qua `list_runs`; các lượt này có `restored: true` nên không tính vào usage của phiên hiện tại.
