@@ -21,41 +21,50 @@ Hướng dẫn 4 bước hiện ra: dò agent → đăng nhập (chạy lệnh �
 
 | Vùng | Nội dung |
 |---|---|
-| Thanh trên | Tên repo / nhánh (bấm để đổi thư mục), trạng thái từng agent đang chạy |
-| Cột trái | **Explorer**: tệp trong worktree của task đang chọn; tệp agent sửa có chấm màu và M/A, tệp agent đang làm có nhãn "đang sửa". Dưới cùng là danh sách worktree |
-| Giữa | Tab tệp (editor), tab **Thay đổi** (review từng hunk), tab **So sánh**; log từng agent ở dưới |
-| Cột phải | **Thread** (usage của task, tin nhắn, thẻ duyệt), **Plan**, **Runs**, và ô giao việc |
+| Thanh trên | Tên dự án và nhánh (bấm để gõ đường dẫn), nút **Mở thư mục**, nút **Tệp & thay đổi**, trạng thái từng agent đang chạy |
+| Cột trái | Các dự án và cuộc trò chuyện của chúng, mở nhiều dự án cùng lúc. Bên dưới là Giám sát, Chi phí, Agent, Kết nối |
+| Giữa | Cuộc trò chuyện và ô chat. Thẻ duyệt luôn ghim ngay trên ô chat |
+| Bên phải | **Tệp & thay đổi**: cây tệp của dự án hoặc bản nháp, editor, review, So sánh. Tự mở một lần khi có thay đổi đầu tiên |
+| Thanh dưới | Số agent đang chạy, **hạn mức 5 giờ và 7 ngày** của từng agent, chi phí hôm nay |
+
+Số hạn mức do CLI báo: Codex đọc từ log phiên của nó, Claude có số sau lượt chạy đầu. Rê chuột để xem giờ reset và số cập nhật lúc nào.
+
+Tệp mở từ **Dự án** chỉ đọc; muốn sửa thì giao cho agent. Tệp trong **Bản nháp** sửa được.
 
 Phím tắt hiện cạnh nút: trên Windows là Ctrl, trên macOS là ⌘.
 
-## 4. Giao việc
+## 4. Chat với agent
 
-Gõ vào ô ở cột phải rồi **Chạy** (Ctrl+Enter / ⌘↵). Gõ `@codex`, `@claude`… ở đầu câu để chọn agent.
+Gõ yêu cầu rồi Enter; Shift+Enter để xuống dòng. **Gõ tiếp là chat tiếp với cùng agent**, không tạo agent mới. **Dừng** chỉ dừng câu đang chạy. **Trò chuyện mới** để bắt đầu việc khác.
+
+Gõ `@codex ...` hoặc đổi agent để giao tiếp: agent mới làm trên cùng bản nháp và nhận tóm tắt.
 
 | Chế độ | Khi nào dùng |
 |---|---|
-| **Chỉ đọc** | Hỏi đáp, giải thích code. Agent không sửa tệp |
-| **Sửa code** | Agent làm trong một git worktree riêng. Repo của bạn chỉ đổi khi bạn Accept |
-| **Song song** | Cùng một yêu cầu cho nhiều agent, mỗi agent một worktree, rồi so sánh |
-| **Pipeline** | Các bước nối tiếp trong cùng một worktree, mặc định Plan → Build → Review; chọn agent cho từng bước, bấm *Sửa mẫu* để đổi prompt |
+| **Sửa code** | Agent làm trong một bản nháp riêng. Code thật chỉ đổi khi bạn Nhận |
+| **Chỉ hỏi** | Hỏi đáp, giải thích code. Agent không ghi được tệp nào |
+| **Thử với nhiều agent** | Cùng một yêu cầu cho nhiều agent, mỗi agent một bản nháp, rồi so sánh |
+| **Theo các bước** | Các bước nối tiếp trong cùng một bản nháp, mặc định Plan → Build → Review; chọn agent cho từng bước, sửa mẫu prompt bằng **Sửa mẫu** |
 
-Sửa code cần thư mục là repo Git có ít nhất một commit.
+Sửa code cần thư mục là repo Git có ít nhất một commit; nếu chưa có, app có nút **Khởi tạo Git** hoặc **Tạo commit đầu tiên**, xem trước rồi mới làm. Tệp chưa commit không có trong bản nháp, app sẽ cảnh báo trước.
 
 ## 5. Duyệt lệnh
 
 Khi agent muốn chạy lệnh hoặc sửa tệp, thẻ **Cần bạn duyệt** hiện ra:
-- **Allow once**: cho phép lần này.
-- **Always allow `npm test *`**: lưu quy tắc cho repo + agent này; lệnh ghép (`;`, `&&`, `|`…) không bao giờ được tự cho phép.
-- **Deny**: từ chối.
+- **Cho phép lần này**.
+- **Luôn cho phép `npm test *`**: lưu quy tắc cho repo + agent này; lệnh ghép (`;`, `&&`, `|`…) không bao giờ được tự cho phép.
+- **Từ chối**.
 
-`git push`, merge và `gh pr merge` luôn bị từ chối. Nút trên thanh bên trái (Mission control) có số thẻ đang chờ.
+Phiên do app mở luôn xin duyệt, kể cả khi Claude Code trên máy đặt chế độ tự duyệt.
+
+`git push`, merge và `gh pr merge` luôn bị từ chối. Mục **Giám sát** ở cột trái có số thẻ đang chờ.
 
 ## 6. Review và commit
 
-- Trong editor, dưới mỗi thay đổi có thanh **Accept / Reject** (Ctrl+Enter / Ctrl+Backspace khi con trỏ ở trong thay đổi).
-- Tab **Thay đổi** liệt kê mọi hunk; Accept áp hunk vào repo của bạn, Reject bỏ nó khỏi worktree.
+- Trong editor, dưới mỗi thay đổi có thanh **Nhận / Bỏ** (Ctrl+Enter / Ctrl+Backspace khi con trỏ ở trong thay đổi).
+- Tab **Thay đổi** liệt kê mọi đoạn thay đổi; Nhận áp vào code thật, Bỏ xoá nó khỏi bản nháp.
 - Sửa tay trong editor rồi **Lưu** (Ctrl+S): chỉ ghi vào worktree, nên chính sửa đổi của bạn cũng vào hàng chờ duyệt. Không lưu được khi agent đang chạy.
-- Khi đã Accept, ô **Commit** hiện ra với nội dung do agent đề xuất; sửa rồi Commit.
+- Khi đã Nhận, ô **Commit** hiện ra và liệt kê mọi tệp đang staged với nội dung do agent đề xuất; sửa rồi Commit.
 - **Bỏ worktree** khi không cần nữa.
 
 ## 7. Song song: so sánh và ghép
@@ -63,7 +72,7 @@ Khi agent muốn chạy lệnh hoặc sửa tệp, thẻ **Cần bạn duyệt**
 - Tab **So sánh**: mỗi agent một thẻ (tệp, dòng, token, chi phí, thời gian). **Dùng bản này** áp nguyên một bản (tất cả hoặc không gì), rồi Commit và **Dọn worktree của nhóm**.
 - **Ghép thủ công**: chọn từng thay đổi từ các bản khác nhau → **Tạo bản ghép** → nhập lệnh kiểm tra (ví dụ `npm test`) → **Chạy kiểm tra** → **Dùng bản ghép**. Hai thay đổi trùng chỗ sửa không ghép được.
 
-## 8. Mission control
+## 8. Giám sát
 
 KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timeline các lượt chạy (đoạn sọc vàng là thời gian chờ bạn duyệt) và một cột cho mỗi agent.
 
@@ -83,9 +92,9 @@ KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timelin
 ## 11. tg-bridge: các agent phối hợp
 
 Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cung cấp. Agent dùng nó để:
-- **báo tiến độ**: hiện thành thanh tiến độ ở Thread và cột agent trong Mission control;
+- **báo tiến độ**: hiện thành thanh tiến độ ở cuộc trò chuyện và cột agent trong Giám sát;
 - **ghi chú chung**: agent cùng task (nhóm song song, các bước pipeline) đọc được; xem ở tab **Plan**;
-- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở Thread và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng worktree nếu task trước đã xong);
+- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở cuộc trò chuyện và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng worktree nếu task trước đã xong);
 - **xin duyệt** việc ngoài phạm vi: hiện thẻ duyệt như lệnh thường.
 
 tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở màn **Integrations** nếu không cần.
