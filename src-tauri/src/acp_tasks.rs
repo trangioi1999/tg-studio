@@ -3,7 +3,7 @@
 use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Arc, Mutex}, time::Duration};
 use serde_json::json;
 use tauri::{AppHandle, Manager, State};
-use tokio::{io::{AsyncBufReadExt, BufReader}, process::{Child, Command}, sync::oneshot};
+use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, sync::oneshot};
 use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
 
 #[derive(Default)]
@@ -82,7 +82,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
         None => worktree::create(repo, agent_name.as_str().unwrap(), prompt, &id)?,
     };
     let cleanup = |wt: &Worktree| if shared { Ok(()) } else { worktree::remove(repo, wt, true) };
-    let mut process = Command::new(&command.0);
+    let mut process = env::command(&command.0);
     process.args(&command.1).current_dir(&wt.path)
         .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
         .stderr(Stdio::piped()).kill_on_drop(true);
@@ -112,13 +112,13 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
 async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
     if let Some(pid) = pid {
         #[cfg(unix)] {
-            let mut kill = Command::new("kill");
+            let mut kill = env::command("kill");
             kill.args(["-KILL", "--", &format!("-{pid}")]).env("PATH", env::login_path())
                 .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
             let _ = tokio::time::timeout(Duration::from_secs(2), kill.status()).await;
         }
         #[cfg(windows)] {
-            let mut kill = Command::new("taskkill");
+            let mut kill = env::command("taskkill");
             kill.args(["/PID", &pid.to_string(), "/T", "/F"]).env("PATH", env::login_path())
                 .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
             let _ = tokio::time::timeout(Duration::from_secs(2), kill.status()).await;
@@ -456,7 +456,7 @@ mod tests {
     async fn adapter_cleanup_kills_descendants_holding_stdio() {
         use std::os::unix::process::CommandExt;
         use tokio::io::AsyncReadExt;
-        let mut command = Command::new("sh");
+        let mut command = env::command("sh");
         command.args(["-c", "sleep 30 & wait"]).env("PATH", env::login_path())
             .stdout(Stdio::piped()).kill_on_drop(true);
         command.as_std_mut().process_group(0);
