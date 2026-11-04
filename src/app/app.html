@@ -31,4 +31,5 @@
     }
   </div>
   <tg-status-bar />
+  @if (ui.onboarding()) { <tg-onboarding (done)="ui.onboarding.set(false)" /> }
 </div>
