@@ -4,6 +4,12 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi từ review
+- "Luôn cho phép" trên Windows không còn hiểu sai `node.exe`, `git.exe push`.
+- Sửa tay chưa lưu không còn mất khi chuyển sang tab Thay đổi hoặc So sánh.
+- Ngân sách ngày tự sang ngày mới, không còn chặn sau nửa đêm khi app mở qua đêm.
+- Skill ở bảng mã khác được sao lưu trước khi ghi đè. Không còn đọc lại usage theo từng dòng log.
+
 ### Khởi động
 - Mở app hiện ngay kết quả dò agent lần trước rồi dò lại ở nền, các agent được dò song song. Đọc PATH có giới hạn 5 giây.
 - Kiểm tra đăng nhập thật của Claude và Codex, không tốn token; agent khác ghi "chưa rõ".

@@ -518,7 +518,7 @@ mod tests {
     async fn session_with(client: &AcpClient, session: &TaskSession, resume: Option<String>, recap: Option<String>, messages: Vec<&'static str>, stop_each_turn: bool) -> (&'static str, Vec<&'static str>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let cwd = std::env::temp_dir();
-        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, next: Some(rx), idle_limit: Duration::from_secs(5) };
+        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, next: Some(rx), idle_limit: Duration::from_millis(100) };
         let stops = Mutex::new(Vec::new());
         let turns = Mutex::new(Vec::new());
         let remaining = Mutex::new(messages.into_iter());
@@ -530,10 +530,8 @@ mod tests {
         };
         let on_turn = |end: &TurnEnd| {
             turns.lock().unwrap().push(end.status);
-            match remaining.lock().unwrap().next() {
-                Some(message) => tx.send(message.to_string()).unwrap(),
-                None => stops.lock().unwrap().clear(),
-            }
+            // With nothing left to send, the session ends through its idle limit.
+            if let Some(message) = remaining.lock().unwrap().next() { tx.send(message.to_string()).unwrap(); }
         };
         let (status, _) = tokio::time::timeout(Duration::from_secs(5), drive_session(client, session, plan, next_stop, |_| {}, on_turn, std::future::pending())).await.unwrap();
         (status, turns.into_inner().unwrap())
