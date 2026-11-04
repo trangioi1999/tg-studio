@@ -25,13 +25,14 @@ pub struct TaskSession {
     events: Mutex<EventQueue>,
     events_idle: tokio::sync::Notify,
     operation_gate: Arc<tokio::sync::Mutex<bool>>,
+    last_cost: Mutex<Option<f64>>,
 }
 fn cancelled() -> Value { json!({"outcome":{"outcome":"cancelled"}}) }
 fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","optionId":option}}) }
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false))})
+        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     fn queue_data(&self, kind:&'static str, data:Value) {
@@ -77,6 +78,14 @@ impl TaskSession {
         }
         drop(permissions);
         self.flush_events();
+    }
+    /// Token counts arrive only with the prompt result; keep the last reported cost with them.
+    pub fn turn_finished(&self, result:&Value) {
+        let cost = *self.last_cost.lock().unwrap();
+        if let Some(usage) = crate::usage::parse_acp_turn(result, cost) {
+            let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
+            event.usage = Some(usage); self.queue(event); self.flush_events();
+        }
     }
     pub async fn finish(&self) {
         self.cancel_pending();
@@ -146,6 +155,7 @@ impl ClientHandler for TaskSession {
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
                 if let Some(usage) = crate::usage::parse_acp(update) {
+                    *self.last_cost.lock().unwrap() = usage.cost_usd;
                     let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
                     event.usage = Some(usage); self.queue(event);
                 }
