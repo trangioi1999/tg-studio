@@ -63,15 +63,27 @@ Adapter Claude (`claude-agent-acp`) tự sửa file và chạy lệnh bằng too
 
 Usage của task: `usage_update` chỉ có chi phí (và độ đầy context), token nằm trong `usage` của kết quả `session/prompt`. `TaskSession::turn_finished` ghép hai nguồn thành một event `usage` cumulative.
 
+Layout IDE (theo mockup trong `06-design-system.md`): Explorer cây thư mục của worktree đang chọn (chấm màu agent + M/A, nhãn "đang sửa"), các tab ở giữa (tệp, Thay đổi, So sánh), log từng agent ở dưới, panel agent bên phải (usage của task, transcript, thẻ duyệt, plan, danh sách run, ô giao việc có `@mention`). Thanh tiêu đề cho đổi thư mục làm việc (`repo_info` trả về tên repo và nhánh).
+
 Editor: `workspace.rs` liệt kê, đọc và ghi file trong worktree (đường dẫn tương đối, không đụng `.git`, từ chối symlink ra ngoài). Ghi bị từ chối khi agent đang chạy. Vạch màu tính ở UI từ hunk của `get_diff` (`line-marks.ts`). Monaco bundle cục bộ, tải lazy, chỉ có worker cơ bản và tô màu Monarch. Khi agent đang chạy, editor đi theo `RunsService.activity` (tệp agent vừa đọc/sửa, từ event `tool`) và nạp lại tệp ngay khi tool sửa file hoàn tất.
 
 Chạy song song: chế độ *Song song* gọi `start_task` cho từng agent với cùng một `group` (lưu ở cột `task_id`). Mỗi run vẫn có worktree, nhánh và tiến trình adapter riêng; `worktree::create` khóa trong tiến trình để các lần tạo cùng lúc không ghi đè `info/exclude`. Màn So sánh gọi `accept_all`: áp toàn bộ thay đổi của một run (cả file nhị phân) thành một patch, kiểm tra trước trên cả repo và worktree, nên hoặc áp hết hoặc không áp gì. Lựa chọn của nhóm nằm trong `RunsService.choices`, nên rời màn So sánh không làm mất bước commit.
+
+Ghép thủ công (`compose.rs`): hunk chọn từ nhiều run của một nhóm được áp vào một worktree `mix` tạo từ base chung; lệnh kiểm tra của người dùng chạy trong đó; "Dùng bản ghép" đi qua `accept_all` như một run. Bản ghép không lưu qua lần mở app.
 
 Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh khớp rule "Always allow" được tự cho phép; lệnh ghép và các lệnh chạy được mã tùy ý (`bash`, `python`, `npx`…) không bao giờ có rule. UI không gửi option `allow_always` của agent, vì agent mới quyết định option đó bao trùm những gì.
 
 ## Hạn mức gói (Claude)
 
 `claude -p --output-format stream-json` phát `rate_limit_event`; `rate_limit_info.unifiedWindows` có `five_hour`, `seven_day`… với `utilization` (0–1) và `resetsAt` (giây). `usage::parse_limits` đổi thành `LimitWindow`, `runner.rs` phát event `limits`, `store.rs` giữ bản mới nhất mỗi agent (bảng `account_limits`, schema v3) và `account_limits` trả lại khi mở app. Adapter ACP chỉ chuyển tiếp event này (trong `usage_update._meta["_claude/rateLimit"]`) khi nó đến sau phản hồi đầu tiên của model, nên thực tế task Sửa code chưa có số. Đăng nhập bằng API key thì không có cửa sổ nào, UI không hiện số.
+
+## Usage ledger, giá và ngân sách
+
+`store.rs` schema v5: `prices` (giá theo agent, có `from_ms`), `settings` (ngân sách, JSON), `mcp_servers`. `usage_report(since)` trả về các lượt chạy với usage cuối cùng (cùng cách gộp như UI). Chi phí: số CLI báo luôn thắng; không có thì ước tính bằng giá có hiệu lực lúc lượt chạy **bắt đầu** (`pricing.ts`), nên đổi giá không đổi số cũ. `BudgetService` dừng run vượt ngân sách mỗi task và chặn việc mới khi chạm ngân sách ngày; vì nhiều agent chỉ báo chi phí khi xong, việc dừng chỉ xảy ra khi đã có số. Biểu đồ dùng `AGENT_META[agent].chart`: cùng sắc độ với màu agent nhưng độ sáng đã qua kiểm tra của `validate_palette.js` (dải sáng, tách màu cho người mù màu ΔE ≥ 8, tương phản) trên nền tối.
+
+## MCP và Skills
+
+`mcp.rs`: server lưu trong bảng `mcp_servers` (JSON). Khi một task ACP bắt đầu, `drive` lấy các server bật cho agent đó và gửi trong `session/new`; server http chỉ gửi khi `initialize` của agent báo `mcpCapabilities.http`, nếu không thì ghi một dòng vào log. Claude headless nhận `--mcp-config` (không dùng `--strict-mcp-config`, nên cấu hình riêng của người dùng vẫn chạy). `skills.rs`: thư viện ở `<app data>/skills/<tên>/SKILL.md`; cài vào `<repo>/.claude/skills` hoặc `~/.claude/skills`, bản khác sẵn có được chép thành `SKILL.md.bak-<ms>` trước.
 
 ## Lịch sử lượt chạy
 

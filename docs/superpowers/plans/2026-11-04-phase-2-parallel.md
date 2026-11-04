@@ -27,10 +27,19 @@
 - KPI, hàng chờ (Duyệt lệnh → Review → Commit; nhóm song song chỉ một dòng review, có lựa chọn chưa commit thì thành dòng Commit), timeline 12 run gần nhất, cột theo agent. Đồng hồ timeline tick 1 lần/giây và chỉ khi có run đang chạy.
 - Playwright ở mock mode: 1 task đơn + nhóm 3 agent, duyệt từ hàng chờ, review nhóm mở màn So sánh.
 
+### 2.6 Ghép hunk từ nhiều bản
+- `compose.rs`: đọc hết patch của các hunk được chọn trước, rồi tạo worktree `mix` tại base chung (`worktree::create_at`) và `git apply --recount` từng hunk. Hunk nào không áp được thì xóa worktree ghép và báo tên tệp. Các bản khác base thì từ chối.
+- `run_check`: chạy lệnh của người dùng qua shell hệ thống (`sh -c` / `cmd /C`) trong worktree ghép, giới hạn 10 phút, giữ 64 KB cuối của output.
+- Bản ghép chỉ sống trong phiên app (`Composites`), không lưu SQLite. "Dùng bản ghép" đi qua `accept_all` như một run; `GroupChoice` có `compositeId`.
+- UI: khối "Ghép thủ công" trong màn So sánh. Playwright ở mock mode: chọn 3 hunk từ 2 agent → tạo → kiểm tra → áp → commit.
+
+### 2.4 Pipeline engine
+- `start_task(..., reuse)`: bước sau chạy trong worktree của bước trước (bảng `runs` có cột `worktree_owner`, schema v4). Bước trước còn chạy thì từ chối; spawn hỏng không bao giờ xóa worktree dùng chung; xóa worktree từ bất kỳ bước nào cập nhật mọi bước.
+- `PipelineService` (UI): mỗi bước có agent + mẫu prompt (`{{task}}`, `{{previous}}`, `{{diff}}` — diff cắt ở 30 000 ký tự). Bước xong thì chạy bước kế; bước lỗi/dừng thì dừng pipeline. Pipeline chỉ sống trong phiên app.
+- UI: chế độ *Pipeline* trong ô giao việc (mặc định Plan → Build → Review, nhớ ở localStorage), thanh bước trong Thread.
+
 ## Còn lại (theo thứ tự đề xuất)
 
 | ID | Việc | Ghi chú |
 |---|---|---|
-| 2.6 | Cherry-pick hunk từ nhiều worktree; chạy test trên bản ghép | Ghép trong một worktree tạm từ base, áp hunk đã chọn từ nhiều run, chạy lệnh test do người dùng nhập (qua thẻ duyệt). |
-| 2.4 | Pipeline engine | Bước = (agent, prompt mẫu, quyền); output bước trước (tin nhắn cuối, diff) chèn vào prompt bước sau. Test bằng `acp/fake.rs`. |
 | 2.1 | Adapter ACP Codex, Gemini | Đã có lệnh khởi chạy trong `adapters.rs`; cần máy có tài khoản OpenAI/Google để chạy kịch bản của `live_claude_*`. **Chủ repo.** |

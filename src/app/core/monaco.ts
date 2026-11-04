@@ -12,6 +12,9 @@ export function loadMonaco(): Promise<MonacoApi> {
     (self as unknown as { MonacoEnvironment: unknown }).MonacoEnvironment = {
       getWorker: () => new Worker(new URL('./editor.worker', import.meta.url), { type: 'module' }),
     };
+    // esbuild splits the CSS imported by Monaco's modules into a lazy file nothing loads,
+    // so the editor's own stylesheet ships as an asset and is linked here.
+    await loadStylesheet('monaco/editor.main.css');
     const [api] = await Promise.all([
       import('monaco-editor/editor/editor.api.js'),
       import('monaco-editor/basic-languages/monaco.contribution.js'),
@@ -22,6 +25,20 @@ export function loadMonaco(): Promise<MonacoApi> {
     loading = null;
     throw e;
   }));
+}
+
+function loadStylesheet(href: string): Promise<void> {
+  const existing = document.querySelector<HTMLLinkElement>(`link[data-tg="${href}"]`);
+  if (existing) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.dataset['tg'] = href;
+    link.onload = () => resolve();
+    link.onerror = () => reject(new Error(`Không tải được ${href}`));
+    document.head.append(link);
+  });
 }
 
 /** Colours from docs/06-design-system.md. */

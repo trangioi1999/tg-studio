@@ -4,6 +4,7 @@ import { estimateCost } from '../core/pricing';
 import { AGENT_META, AgentId, FileDiff } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
+import { Mixer } from './mixer';
 
 interface Summary {
   files: FileDiff[];
@@ -17,7 +18,7 @@ interface Summary {
  */
 @Component({
   selector: 'tg-compare',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, Mixer],
   template: `
     <div class="review">
       <div class="review-bar">
@@ -28,16 +29,16 @@ interface Summary {
       </div>
       @if (error()) { <p class="error-text" role="alert">{{ error() }}</p> }
 
-      @if (chosen(); as c) {
+      @if (choice()) {
         <section class="commit-box" aria-label="Commit bản đã chọn">
           @if (committed()) {
-            <p class="ok-text" role="status">Đã commit {{ committed() }} từ bản của {{ meta[c.agent].name }}.</p>
-            @if (leftovers().length) {
-              <div><button class="btn ghost sm" [disabled]="busy()" (click)="cleanup()">Dọn {{ leftovers().length }} worktree của nhóm</button></div>
+            <p class="ok-text" role="status">Đã commit {{ committed() }} từ {{ choiceLabel() }}.</p>
+            @if (leftovers().length || hasComposite()) {
+              <div><button class="btn ghost sm" [disabled]="busy()" (click)="cleanup()">Dọn worktree của nhóm</button></div>
             }
           } @else {
             <label class="field">
-              <span>Đã áp dụng bản của {{ meta[c.agent].name }} ({{ appliedFiles() }} tệp) vào repo. Nội dung commit</span>
+              <span>Đã áp dụng {{ choiceLabel() }} ({{ appliedFiles() }} tệp) vào repo. Nội dung commit</span>
               <textarea rows="2" [value]="message()" (input)="edited.set($any($event.target).value)"></textarea>
             </label>
             <div><button class="btn primary sm" [disabled]="busy() || !message().trim()" (click)="commit()">Commit</button></div>
@@ -87,6 +88,10 @@ interface Summary {
           </article>
         }
       </div>
+
+      @if (doneRuns().length > 1 || hasComposite()) {
+        <tg-mixer [group]="group()" [runs]="doneRuns()" [diffs]="diffMap()" />
+      }
     </div>
   `,
 })
@@ -106,13 +111,17 @@ export class Compare {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly confirming = signal<string | null>(null);
-  private readonly choice = computed(() => this.runsService.choices()[this.group()] ?? null);
+  protected readonly choice = computed(() => this.runsService.choices()[this.group()] ?? null);
   protected readonly chosenId = computed(() => this.choice()?.runId ?? null);
   protected readonly chosen = computed(() => this.runs().find((r) => r.id === this.chosenId()) ?? null);
   protected readonly appliedFiles = computed(() => this.choice()?.files ?? 0);
   protected readonly committed = computed(() => this.choice()?.commit ?? null);
   protected readonly edited = signal<string | null>(null);
-  protected readonly message = computed(() => this.edited() ?? suggestMessage(this.chosen()));
+  protected readonly choiceLabel = computed(() => (this.chosen() ? `bản của ${AGENT_META[this.chosen()!.agent].name}` : 'bản ghép'));
+  protected readonly message = computed(() => this.edited() ?? (this.chosen() ? suggestMessage(this.chosen()) : `Ghép thay đổi: ${this.prompt()}`.slice(0, 72)));
+  protected readonly hasComposite = computed(() => !!this.runsService.composites()[this.group()]);
+  protected readonly doneRuns = computed(() => this.runs().filter((r) => r.task && r.status !== 'running'));
+  protected readonly diffMap = computed(() => Object.fromEntries(Object.entries(this.summaries()).map(([id, s]) => [id, s.files])));
   protected readonly leftovers = computed(() => this.runs().filter((r) => r.task && r.status !== 'running'));
 
   constructor() {
@@ -133,11 +142,11 @@ export class Compare {
 
   protected canUse(r: Run): boolean {
     const files = this.summaries()[r.id]?.files.length ?? 0;
-    return !this.busy() && !this.chosenId() && r.task && r.status !== 'running' && files > 0;
+    return !this.busy() && !this.choice() && r.task && r.status !== 'running' && files > 0;
   }
 
   protected useHint(r: Run): string | null {
-    if (this.chosenId()) return 'Đã chọn một bản cho nhóm này.';
+    if (this.choice()) return 'Đã chọn một bản cho nhóm này.';
     if (r.status === 'running') return 'Chờ agent làm xong.';
     if (!(this.summaries()[r.id]?.files.length ?? 0)) return 'Bản này không có thay đổi.';
     return null;
@@ -179,6 +188,7 @@ export class Compare {
   protected async cleanup(): Promise<void> {
     await this.guard(async () => {
       for (const r of this.leftovers()) await this.runsService.discardWorktree(r.id);
+      await this.runsService.dropComposite(this.group());
       await this.load();
     });
   }
@@ -190,7 +200,7 @@ export class Compare {
 
   protected cost(r: Run): string {
     if (!r.usage) return '—';
-    return fmtUsd(r.usage.costUsd ?? estimateCost(r.agent as AgentId, r.usage));
+    return fmtUsd(r.usage.costUsd ?? estimateCost(r.agent as AgentId, r.usage, r.startedAt));
   }
 
   protected duration(r: Run): string {

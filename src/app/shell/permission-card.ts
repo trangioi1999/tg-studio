@@ -1,5 +1,6 @@
 import { Component, ElementRef, afterNextRender, computed, inject, input, signal } from '@angular/core';
 import { AgentId, PermissionOption, PermissionRequest } from '../core/protocol';
+import { KEYS } from '../core/keys';
 import { RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
 
@@ -23,13 +24,13 @@ import { AgentAvatar } from './agent-avatar';
       @if (command(); as c) { <code>{{ c }}</code> }
       <div class="permission-actions">
         @if (reject(); as o) {
-          <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, false)">Deny<span class="kbd">⌘⌫</span></button>
+          <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, false)">Deny<span class="kbd">{{ keys.backspace }}</span></button>
         }
         @if (once(); as o) {
           @if (request().rule; as rule) {
             <button class="btn ghost sm" [disabled]="busy()" (click)="answer(o, true)">Always allow <span class="mono">{{ rule }}</span></button>
           }
-          <button class="btn warn sm" [disabled]="busy()" (click)="answer(o, false)">Allow once<span class="kbd">⌘↵</span></button>
+          <button class="btn warn sm" [disabled]="busy()" (click)="answer(o, false)">Allow once<span class="kbd">{{ keys.enter }}</span></button>
         }
       </div>
       @if (error()) { <p class="error-text">{{ error() }}</p> }
@@ -37,6 +38,7 @@ import { AgentAvatar } from './agent-avatar';
   `,
 })
 export class PermissionCard {
+  protected readonly keys = KEYS;
   private readonly runs = inject(RunsService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();

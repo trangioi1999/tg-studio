@@ -35,6 +35,11 @@ impl TaskSession {
         Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
+    pub fn agent(&self) -> AgentKind { self.agent }
+    /// A line from TG Studio itself in the run's log (shown like stderr).
+    pub fn note(&self, text:String) {
+        let mut event=AgentEvent::new(&self.run_id,self.agent,"stderr"); event.line=Some(text); self.queue(event); self.flush_events();
+    }
     fn queue_data(&self, kind:&'static str, data:Value) {
         let mut event=AgentEvent::new(&self.run_id,self.agent,kind);event.data=Some(data);self.queue(event);
     }

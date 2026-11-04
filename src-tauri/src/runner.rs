@@ -107,7 +107,7 @@ pub async fn start_agent(
     prompt: String,
     cwd: String,
 ) -> Result<String, String> {
-    let args = agent.headless_args(&prompt).ok_or_else(|| {
+    let mut args = agent.headless_args(&prompt).ok_or_else(|| {
         format!(
             "{} chưa chạy được ở chế độ headless trong bản này — sẽ chạy qua ACP ở giai đoạn 1.",
             agent.display_name()
@@ -115,6 +115,12 @@ pub async fn start_agent(
     })?;
     if !std::path::Path::new(&cwd).is_dir() {
         return Err(format!("Thư mục không tồn tại: {cwd}"));
+    }
+    // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
+    if agent == AgentKind::Claude {
+        if let Some(config) = crate::mcp::claude_config(&crate::mcp::load(&app.state::<Store>())) {
+            args.extend(["--mcp-config".to_string(), config]);
+        }
     }
     let bin = tauri::async_runtime::spawn_blocking(move || env::which(agent.binary()))
         .await
