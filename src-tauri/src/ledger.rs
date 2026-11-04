@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager, State};
 use crate::store::{PriceRow, Store, UsageRow};
 
 /// Settings the UI may read and write. Anything else is refused.
-const SETTING_KEYS: [&str; 1] = ["budgets"];
+const SETTING_KEYS: [&str; 2] = ["budgets", "bridge"];
 
 #[tauri::command]
 pub fn usage_report(store: State<'_, Store>, since: u64) -> Result<Vec<UsageRow>, String> {
