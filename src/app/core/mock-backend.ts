@@ -160,6 +160,14 @@ export class MockBackend extends AgentBackend {
     return { root, name, branch: git === 'none' ? null : 'main', git, adjusted: null };
   }
 
+  async listProjectFiles(_root: string): Promise<string[]> {
+    return ['README.md', 'package.json', 'src/app/app.ts'];
+  }
+
+  async readProjectFile(_root: string, path: string): Promise<string> {
+    return `// ${path}\n// Nội dung mẫu của mock mode.\n`;
+  }
+
   async start(agent: AgentId, prompt: string, _cwd?: string): Promise<string> {
     const runId = crypto.randomUUID();
     const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
