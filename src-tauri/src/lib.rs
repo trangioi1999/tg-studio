@@ -56,6 +56,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
         .manage(compose::Composites::default())
