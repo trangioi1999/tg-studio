@@ -4,6 +4,10 @@
 
 ## [Chưa phát hành]
 
+### Xem source
+- Explorer hiện cây thư mục của dự án ngay khi mở, không cần giao việc; bấm tệp để xem ở chế độ chỉ đọc. Khi có task thì chuyển được giữa Dự án và Bản nháp.
+- Ẩn mục Worktrees khi trống, khung log thu gọn sẵn.
+
 ### Tự dùng app (M-D)
 - Chọn thư mục bằng hộp thoại của hệ điều hành; đường dẫn được chuẩn hoá và kiểm tra trước khi lưu, hiện đúng lỗi.
 - Windows: không còn bật cửa sổ cmd cho mỗi tiến trình con.
