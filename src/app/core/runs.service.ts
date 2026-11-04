@@ -30,6 +30,8 @@ export interface Run {
   thread: string;
   /** The folder the conversation is about. */
   project: string;
+  /** Its subfolder, if the conversation is about one. */
+  scope: string | null;
   /** Time spent waiting on approval cards; `to` is null while still waiting. Live runs only. */
   waits: { from: number; to: number | null }[];
   /** The agent's latest plan (ACP `plan` update). Live runs only. */
@@ -191,9 +193,9 @@ export class RunsService {
     if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
 
-  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null): Promise<void> {
-    const id = await this.backend.start(agent, prompt, cwd, thread, resumeFrom);
-    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd }));
+  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null): Promise<void> {
+    const id = await this.backend.start(agent, prompt, cwd, thread, resumeFrom, scope);
+    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd, scope }));
     this.selectedId.set(id);
   }
 
@@ -201,10 +203,10 @@ export class RunsService {
    * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
    * `title` is what the UI shows when the prompt sent to the agent is long.
    */
-  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string } = {}): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null } = {}): Promise<string> {
     const thread = opts.thread ?? crypto.randomUUID();
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread);
-    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo }));
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null);
+    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null }));
     this.selectedId.set(id);
     return id;
   }
@@ -223,14 +225,14 @@ export class RunsService {
    * One prompt, one worktree per agent. Agents that fail to start are reported
    * without stopping the others; throws only when none started.
    */
-  async startParallel(agents: AgentId[], prompt: string, repo: string): Promise<string[]> {
+  async startParallel(agents: AgentId[], prompt: string, repo: string, scope: string | null = null): Promise<string[]> {
     const group = crypto.randomUUID();
-    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group)));
+    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group, scope)));
     const errors: string[] = [];
     let first: string | null = null;
     results.forEach((result, i) => {
       if (result.status === 'fulfilled') {
-        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo }));
+        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo, scope }));
         first ??= result.value;
       } else {
         errors.push(`${AGENT_META[agents[i]].name}: ${errorText(result.reason)}`);
@@ -306,7 +308,7 @@ export class RunsService {
     const files = h.files.length ? `\n\nTệp liên quan: ${h.files.join(', ')}` : '';
     const prompt = `${h.task}${files}\n\n(Chuyển từ ${AGENT_META[h.from].name} qua tg-bridge.)`;
     const reuse = source?.task && (source.status === 'done' || source.status === 'idle') ? source.id : undefined;
-    const runId = await this.startTask(h.agent, prompt, repo, { reuse, title: h.task, thread: source?.thread });
+    const runId = await this.startTask(h.agent, prompt, repo, { reuse, title: h.task, thread: source?.thread, scope: source?.scope });
     this.dismissHandoff(id);
     return runId;
   }
@@ -489,7 +491,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '', group: null, thread: id, project: '', waits: [], plan: [], progress: null,
+        task: false, permissions: [], lastMessage: '', group: null, thread: id, project: '', scope: null, waits: [], plan: [], progress: null,
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];

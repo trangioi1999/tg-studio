@@ -551,3 +551,8 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 @media (max-width: 1200px) {
   .side { position: absolute; top: 40px; right: 0; bottom: 24px; z-index: 5; width: min(86vw, 900px); flex: none; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4); }
 }
+
+.tl-scope { padding: 4px 6px 2px 16px; color: var(--muted); font-size: 11px; }
+.tree-dir { display: flex; align-items: center; }
+.tree-dir .tree-row { flex: 1; min-width: 0; }
+.ap-scope { font-size: 12px; }
