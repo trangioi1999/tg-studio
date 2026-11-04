@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, Pick, PriceRow, RepoInfo, StoredRun, Usage, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -82,6 +82,9 @@ export class MockBackend extends AgentBackend {
   private tasks = new Map<string, MockTask>();
   private composites = new Map<string, FileDiff[]>();
   private prices: PriceRow[] = [];
+  private mcp: McpServer[] = [];
+  private skills = new Map<string, string>();
+  private installed = new Map<string, string>();
   private settings = new Map<string, string>();
   /** Runs of this browser session, so the ledger also shows what was just run. */
   private ledger = new Map<string, UsageRow>();
@@ -388,6 +391,57 @@ export class MockBackend extends AgentBackend {
     this.settings.set(key, value);
   }
 
+  async listMcpServers(): Promise<McpServer[]> {
+    return this.mcp.map((s) => ({ ...s }));
+  }
+
+  /** Same rules as mcp.rs `validate`. */
+  async saveMcpServer(server: McpServer): Promise<McpServer> {
+    const s = { ...server, id: server.id || crypto.randomUUID() };
+    if (!/^[A-Za-z0-9_-]+$/.test(s.name)) throw new Error('Tên server chỉ gồm chữ, số, - và _.');
+    if (this.mcp.some((o) => o.id !== s.id && o.name === s.name)) throw new Error(`Đã có server tên ${s.name}.`);
+    if (s.transport === 'stdio' && !s.command?.trim()) throw new Error('Server stdio cần lệnh chạy.');
+    if (s.transport === 'http' && !/^https?:\/\//.test(s.url ?? '')) throw new Error('Server http cần URL bắt đầu bằng http:// hoặc https://.');
+    this.mcp = this.mcp.some((o) => o.id === s.id) ? this.mcp.map((o) => (o.id === s.id ? s : o)) : [...this.mcp, s];
+    return { ...s };
+  }
+
+  async deleteMcpServer(id: string): Promise<void> {
+    this.mcp = this.mcp.filter((s) => s.id !== id);
+  }
+
+  async listSkills(): Promise<Skill[]> {
+    return [...this.skills.values()].map(parseSkill).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async saveSkill(content: string): Promise<Skill> {
+    const skill = parseSkill(content);
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(skill.name)) throw new Error('name chỉ gồm chữ thường, số và -, tối đa 64 ký tự.');
+    this.skills.set(skill.name, content);
+    return skill;
+  }
+
+  async deleteSkill(name: string): Promise<void> {
+    this.skills.delete(name);
+  }
+
+  async skillTargets(name: string, repo: string | null): Promise<SkillTarget[]> {
+    const content = this.skills.get(name);
+    if (content === undefined) throw new Error('Không có skill này trong thư viện.');
+    const where = (scope: 'project' | 'user') => (scope === 'project' ? `${repo}/.claude/skills/${name}/SKILL.md` : `~/.claude/skills/${name}/SKILL.md`);
+    return (repo ? (['project', 'user'] as const) : (['user'] as const)).map((scope) => {
+      const existing = this.installed.get(where(scope));
+      return { scope, path: where(scope), state: existing === undefined ? 'missing' : existing === content ? 'same' : 'different' };
+    });
+  }
+
+  async installSkill(name: string, scope: 'project' | 'user', repo: string | null): Promise<SkillInstalled> {
+    const target = (await this.skillTargets(name, repo)).find((t) => t.scope === scope);
+    if (!target) throw new Error('Chọn một repo Git để cài ở mức project.');
+    this.installed.set(target.path, this.skills.get(name)!);
+    return { path: target.path, backup: target.state === 'different' ? `${target.path}.bak-${Date.now()}` : null };
+  }
+
   async saveExport(name: string, content: string): Promise<string> {
     const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
@@ -413,4 +467,16 @@ export class MockBackend extends AgentBackend {
     this.ledger.set(e.runId, row);
     this.handlers.forEach((h) => h(e));
   }
+}
+
+/** Same rules as skills.rs `front_matter`. */
+function parseSkill(content: string): Skill {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  if (!m) throw new Error('SKILL.md phải bắt đầu bằng front matter (---).');
+  const field = (k: string) => new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(m[1])?.[1].trim().replace(/^"|"$/g, '') ?? '';
+  const name = field('name');
+  const description = field('description');
+  if (!name) throw new Error('Front matter thiếu name.');
+  if (!description) throw new Error('Front matter thiếu description.');
+  return { name, description, content };
 }

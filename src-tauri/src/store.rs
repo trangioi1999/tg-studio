@@ -255,6 +255,26 @@ impl Store {
         Ok(())
     }
 
+    pub fn mcp_servers(&self) -> Result<Vec<String>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT config FROM mcp_servers ORDER BY rowid")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    pub fn save_mcp_server(&self, id: &str, config: &str) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO mcp_servers (id, config) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET config = excluded.config",
+            params![id, config],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_mcp_server(&self, id: &str) -> Result<()> {
+        self.connection()?.execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
         let conn = self.connection()?;
         let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
@@ -555,6 +575,17 @@ mod tests {
         assert_eq!(store.prices().unwrap(), vec![p(10, Some(1.0)), p(20, Some(1.5)), p(30, None)]);
         assert!(store.add_price(&p(40, Some(-1.0))).is_err());
         assert!(store.add_price(&p(40, Some(f64::NAN))).is_err());
+    }
+
+    #[test]
+    fn mcp_servers_keep_insertion_order_and_update_in_place() {
+        let store = Store::open_in_memory().unwrap();
+        store.save_mcp_server("b", "{\"n\":1}").unwrap();
+        store.save_mcp_server("a", "{\"n\":2}").unwrap();
+        store.save_mcp_server("b", "{\"n\":3}").unwrap();
+        assert_eq!(store.mcp_servers().unwrap(), vec!["{\"n\":3}", "{\"n\":2}"]);
+        store.delete_mcp_server("b").unwrap();
+        assert_eq!(store.mcp_servers().unwrap().len(), 1);
     }
 
     #[test]

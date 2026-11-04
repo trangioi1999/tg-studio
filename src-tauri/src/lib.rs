@@ -10,6 +10,8 @@ mod detect;
 mod diff;
 mod env;
 mod ledger;
+mod mcp;
+mod skills;
 mod policy;
 mod runner;
 mod store;
@@ -73,6 +75,14 @@ pub fn run() {
             ledger::get_setting,
             ledger::set_setting,
             ledger::save_export,
+            mcp::list_mcp_servers,
+            mcp::save_mcp_server,
+            mcp::delete_mcp_server,
+            skills::list_skills,
+            skills::save_skill,
+            skills::delete_skill,
+            skills::skill_targets,
+            skills::install_skill,
             worktree::repo_info,
             acp_tasks::start_task,
             acp_tasks::respond_permission,

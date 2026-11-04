@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, Pick, PriceRow, RepoInfo, StoredRun, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -48,6 +48,17 @@ export abstract class AgentBackend {
   abstract setSetting(key: 'budgets', value: string): Promise<void>;
   /** Saves a text export (CSV) to the Downloads folder; returns where it went. */
   abstract saveExport(name: string, content: string): Promise<string>;
+  abstract listMcpServers(): Promise<McpServer[]>;
+  /** Validates and stores; returns the server with its id. */
+  abstract saveMcpServer(server: McpServer): Promise<McpServer>;
+  abstract deleteMcpServer(id: string): Promise<void>;
+  abstract listSkills(): Promise<Skill[]>;
+  /** Saves a SKILL.md (front matter needs name + description); returns it parsed. */
+  abstract saveSkill(content: string): Promise<Skill>;
+  abstract deleteSkill(name: string): Promise<void>;
+  /** Install status per location; `repo` adds the project location. */
+  abstract skillTargets(name: string, repo: string | null): Promise<SkillTarget[]>;
+  abstract installSkill(name: string, scope: 'project' | 'user', repo: string | null): Promise<SkillInstalled>;
   abstract onEvent(handler: (event: AgentEvent) => void): Promise<Unlisten>;
 }
 
@@ -142,6 +153,30 @@ export class TauriBackend extends AgentBackend {
   }
   saveExport(name: string, content: string) {
     return invoke<string>('save_export', { name, content });
+  }
+  listMcpServers() {
+    return invoke<McpServer[]>('list_mcp_servers');
+  }
+  saveMcpServer(server: McpServer) {
+    return invoke<McpServer>('save_mcp_server', { server });
+  }
+  deleteMcpServer(id: string) {
+    return invoke<void>('delete_mcp_server', { id });
+  }
+  listSkills() {
+    return invoke<Skill[]>('list_skills');
+  }
+  saveSkill(content: string) {
+    return invoke<Skill>('save_skill', { content });
+  }
+  deleteSkill(name: string) {
+    return invoke<void>('delete_skill', { name });
+  }
+  skillTargets(name: string, repo: string | null) {
+    return invoke<SkillTarget[]>('skill_targets', { name, repo });
+  }
+  installSkill(name: string, scope: 'project' | 'user', repo: string | null) {
+    return invoke<SkillInstalled>('install_skill', { name, scope, repo });
   }
   onEvent(handler: (event: AgentEvent) => void) {
     return listen<AgentEvent>('agent-event', (e) => handler(e.payload));
