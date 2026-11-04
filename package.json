@@ -10,7 +10,9 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "build:app": "tauri build",
-    "icons": "tauri icon src-tauri/app-icon.png"
+    "icons": "tauri icon src-tauri/app-icon.png",
+    "version:sync": "node scripts/version-sync.mjs",
+    "version:check": "node scripts/version-sync.mjs --check"
   },
   "private": true,
   "packageManager": "npm@10.9.9",
