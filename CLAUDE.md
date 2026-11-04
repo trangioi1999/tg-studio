@@ -38,7 +38,7 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Thứ tự event:** event `started` có thể đến trước khi `start()` nhận được `runId`. Vì vậy `upsert()` tạo run từ event đầu tiên, còn `prompt` và `cwd` được điền sau.
 - **Hai backend:** `app.config.ts` chọn `TauriBackend` hoặc `MockBackend` qua `isTauri()`. Thêm phương thức vào `AgentBackend` thì phải cài ở cả hai. Thêm lệnh Tauri thì đăng ký thêm trong `generate_handler!` ở `lib.rs`.
 - **Quy ước usage:** `inputTokens` luôn không gồm phần đọc từ cache. Codex và Gemini báo tổng nên phải trừ phần cache; Claude thì cộng `cache_creation_input_tokens` vào input. `cumulative` quyết định `mergeUsage` thay thế hay cộng dồn số cũ.
-- **Chi phí:** dùng `costUsd` do CLI báo nếu có, không thì ước tính từ `PRICES` trong `pricing.ts`. Bảng giá hiện đều là `null`, nên UI chỉ hiện token.
+- **Chi phí:** dùng `costUsd` do CLI báo nếu có, không thì ước tính bằng giá có hiệu lực lúc lượt chạy bắt đầu (`PRICE_HISTORY` trong `pricing.ts`, nạp từ SQLite, sửa ở màn Usage). Luôn truyền `startedAt` vào `estimateCost`/`costOf`. Biểu đồ dùng `AGENT_META[a].chart`, không dùng `color`.
 - **Trạng thái dừng:** `stop_agent` kill tiến trình và event `exit` có `code` là null. UI phân biệt `stopped` với `failed` bằng tập `stopping` trong `RunsService`, không phải bằng dữ liệu từ lõi.
 - **PATH:** mọi tiến trình con phải dùng `env::which` và `.env("PATH", env::login_path())`, nếu không app mở từ Finder sẽ không thấy CLI cài qua nvm hoặc Homebrew.
 - **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.

@@ -358,6 +358,58 @@ tg-agent-panel { display: flex; flex-direction: column; }
 .pipe-steps textarea { width: 100%; margin-top: 4px; padding: 6px 8px; border: 1px solid #2a2a30; border-radius: 6px; background: var(--bg); color: var(--text-2); font-size: 11.5px; resize: vertical; }
 .link { padding: 0; border: 0; background: none; color: var(--focus); font: inherit; cursor: pointer; text-decoration: underline; }
 
+/* Usage screen */
+tg-usage-screen { display: flex; flex-direction: column; overflow: auto; }
+.usage-page { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; padding: 14px 16px 16px; align-items: start; }
+.usage-main-col, .usage-side { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.usage-head { display: flex; align-items: center; gap: 10px; }
+.usage-head h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.kpi-note { font-size: 11px; }
+.legend-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; }
+.chart { position: relative; height: 220px; margin: 14px 14px 30px 54px; }
+.chart-grid { position: absolute; inset: 0; border-bottom: 1px solid #2a2a30; }
+.tick { position: absolute; left: 0; right: 0; border-top: 1px dashed #1e1e22; }
+.tick span { position: absolute; right: calc(100% + 8px); top: -7px; color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+.bars { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 2px; }
+.day { position: relative; flex: 1; height: 100%; display: flex; align-items: flex-end; justify-content: center; outline: none; }
+.day:hover, .day:focus-visible { background: rgba(255, 255, 255, 0.03); }
+.stack { width: min(70%, 22px); min-height: 0; display: flex; flex-direction: column-reverse; gap: 2px; border-radius: 4px 4px 0 0; overflow: hidden; }
+.seg { display: block; min-height: 2px; flex-basis: 0; }
+.tip { position: absolute; bottom: calc(100% + 6px); left: 50%; z-index: 2; min-width: 170px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid #2a2a30; border-radius: 8px; background: #151518; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); font-size: 12px; pointer-events: none; }
+.day .tip { bottom: auto; top: 0; }
+.tip.flip { left: auto; right: 50%; }
+.tip-row { display: flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
+.tip-row .spacer { min-width: 16px; }
+.tip-row i { width: 8px; height: 8px; border-radius: 2px; }
+.tip-total { padding-top: 4px; border-top: 1px solid var(--line); color: var(--text); }
+.x-labels { position: absolute; left: 0; right: 0; top: calc(100% + 6px); display: flex; gap: 2px; color: var(--muted); font-size: 10.5px; }
+.x-labels span { flex: 1; text-align: center; white-space: nowrap; overflow: visible; }
+.table-wrap { overflow: auto; }
+.runs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.runs-table th { position: sticky; top: 0; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; text-align: left; }
+.runs-table td { padding: 6px 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-2); white-space: nowrap; }
+.runs-table .num { text-align: right; }
+.prompt-cell { max-width: 280px; }
+.cell-agent { display: inline-flex; align-items: center; gap: 6px; }
+.form-grid { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; }
+.form-grid .field input, .price-inputs .field input { height: 28px; padding: 0 8px; border: 1px solid #2a2a30; border-radius: 6px; background: var(--bg); color: var(--text); }
+.form-grid .btn { align-self: flex-start; }
+.form-note { margin: 0; font-size: 11.5px; }
+.check-line { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; color: var(--text-2); }
+.price-list { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px 12px; }
+.price-row { display: flex; flex-direction: column; gap: 6px; }
+.price-title { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.price-title .dim { font-size: 11px; }
+.price-inputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 6px; align-items: end; }
+.price-inputs .field input { width: 100%; }
+.usage-side-panel { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.usage-side-panel .note { margin-top: 0; }
+.notices { position: fixed; right: 16px; bottom: 34px; z-index: 5; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.notice { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #4a3820; border-radius: 8px; background: #19150f; color: var(--warn); font-size: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+.statusbar .today[data-level='warn'] { color: var(--warn); }
+.statusbar .today[data-level='over'] { color: var(--err); }
+
 /* Usage */
 .usage-table { display: flex; flex-direction: column; }
 .usage-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }

@@ -9,6 +9,7 @@ mod acp_tasks;
 mod detect;
 mod diff;
 mod env;
+mod ledger;
 mod policy;
 mod runner;
 mod store;
@@ -66,6 +67,12 @@ pub fn run() {
             runner::stop_agent,
             store::list_runs,
             store::account_limits,
+            ledger::usage_report,
+            ledger::list_prices,
+            ledger::add_price,
+            ledger::get_setting,
+            ledger::set_setting,
+            ledger::save_export,
             worktree::repo_info,
             acp_tasks::start_task,
             acp_tasks::respond_permission,

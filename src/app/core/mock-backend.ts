@@ -1,5 +1,5 @@
 import { AgentBackend, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, Pick, RepoInfo, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, Pick, PriceRow, RepoInfo, StoredRun, Usage, UsageRow } from './protocol';
 
 interface MockRun {
   agent: AgentId;
@@ -81,6 +81,10 @@ export class MockBackend extends AgentBackend {
   private runs = new Map<string, MockRun>();
   private tasks = new Map<string, MockTask>();
   private composites = new Map<string, FileDiff[]>();
+  private prices: PriceRow[] = [];
+  private settings = new Map<string, string>();
+  /** Runs of this browser session, so the ledger also shows what was just run. */
+  private ledger = new Map<string, UsageRow>();
   private handlers: ((e: AgentEvent) => void)[] = [];
 
   async detectAgents(): Promise<DetectedAgent[]> {
@@ -340,12 +344,73 @@ export class MockBackend extends AgentBackend {
     return [];
   }
 
+  /** Two weeks of plausible history plus this session's runs. */
+  async usageReport(since: number): Promise<UsageRow[]> {
+    const day = 86_400_000;
+    const start = new Date();
+    start.setHours(9, 0, 0, 0);
+    const history: UsageRow[] = [];
+    let seed = 7;
+    const rand = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+    for (let d = 1; d <= 20; d++) {
+      for (const agent of ['claude', 'codex', 'gemini'] as AgentId[]) {
+        const n = Math.floor(rand() * 3);
+        for (let i = 0; i < n; i++) {
+          const startedAt = start.getTime() - d * day + i * 3_600_000;
+          const input = 2000 + Math.round(rand() * 9000);
+          history.push({
+            id: `hist-${d}-${agent}-${i}`, agent, prompt: ['Sửa lỗi đăng nhập', 'Thêm test', 'Đổi tên biến', 'Viết README'][i % 4],
+            startedAt, endedAt: startedAt + 90_000, status: 'done', group: null,
+            usage: { inputTokens: input, cachedInputTokens: input * 6, outputTokens: Math.round(input / 4),
+              costUsd: agent === 'claude' ? Math.round(input * 0.00003 * 100) / 100 : null, source: agent === 'claude' ? 'reported' : 'tokens', cumulative: true },
+          });
+        }
+      }
+    }
+    return [...this.ledger.values(), ...history].filter((r) => r.startedAt >= since).sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  async listPrices(): Promise<PriceRow[]> {
+    return [...this.prices];
+  }
+
+  async addPrice(price: PriceRow): Promise<void> {
+    if ([price.input, price.cachedInput, price.output].some((v) => v !== null && (!Number.isFinite(v) || v < 0))) throw new Error('Giá phải là số không âm.');
+    this.prices = [...this.prices.filter((p) => !(p.agent === price.agent && p.fromMs === price.fromMs)), price];
+  }
+
+  async getSetting(key: 'budgets'): Promise<string | null> {
+    return this.settings.get(key) ?? null;
+  }
+
+  async setSetting(key: 'budgets', value: string): Promise<void> {
+    JSON.parse(value);
+    this.settings.set(key, value);
+  }
+
+  async saveExport(name: string, content: string): Promise<string> {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return `Downloads/${name}`;
+  }
+
   async onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {
     this.handlers.push(handler);
     return () => (this.handlers = this.handlers.filter((h) => h !== handler));
   }
 
   private emit(e: AgentEvent) {
+    const row = this.ledger.get(e.runId) ?? { id: e.runId, agent: e.agent, prompt: '', startedAt: e.atMs, endedAt: null, status: 'running' as const, group: null, usage: null };
+    if (e.kind === 'usage' && e.usage) row.usage = e.usage;
+    if (e.kind === 'exit') {
+      row.endedAt = e.atMs;
+      row.status = e.code === 0 ? 'done' : 'stopped';
+    }
+    this.ledger.set(e.runId, row);
     this.handlers.forEach((h) => h(e));
   }
 }

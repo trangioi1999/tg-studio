@@ -200,7 +200,7 @@ export class Compare {
 
   protected cost(r: Run): string {
     if (!r.usage) return '—';
-    return fmtUsd(r.usage.costUsd ?? estimateCost(r.agent as AgentId, r.usage));
+    return fmtUsd(r.usage.costUsd ?? estimateCost(r.agent as AgentId, r.usage, r.startedAt));
   }
 
   protected duration(r: Run): string {

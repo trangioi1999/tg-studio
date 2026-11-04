@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, Pick, RepoInfo, StoredRun } from './protocol';
+import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, Pick, PriceRow, RepoInfo, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -39,6 +39,15 @@ export abstract class AgentBackend {
   abstract listRuns(): Promise<StoredRun[]>;
   /** Latest plan limits each CLI reported, kept across restarts. */
   abstract accountLimits(): Promise<AccountLimits[]>;
+  /** Runs started since `since` (epoch ms), newest first, with final usage. */
+  abstract usageReport(since: number): Promise<UsageRow[]>;
+  abstract listPrices(): Promise<PriceRow[]>;
+  /** A new price from `price.fromMs` on; earlier runs keep their price. */
+  abstract addPrice(price: PriceRow): Promise<void>;
+  abstract getSetting(key: 'budgets'): Promise<string | null>;
+  abstract setSetting(key: 'budgets', value: string): Promise<void>;
+  /** Saves a text export (CSV) to the Downloads folder; returns where it went. */
+  abstract saveExport(name: string, content: string): Promise<string>;
   abstract onEvent(handler: (event: AgentEvent) => void): Promise<Unlisten>;
 }
 
@@ -115,6 +124,24 @@ export class TauriBackend extends AgentBackend {
   }
   accountLimits() {
     return invoke<AccountLimits[]>('account_limits');
+  }
+  usageReport(since: number) {
+    return invoke<UsageRow[]>('usage_report', { since: Math.max(0, Math.floor(since)) });
+  }
+  listPrices() {
+    return invoke<PriceRow[]>('list_prices');
+  }
+  addPrice(price: PriceRow) {
+    return invoke<void>('add_price', { price });
+  }
+  getSetting(key: 'budgets') {
+    return invoke<string | null>('get_setting', { key });
+  }
+  setSetting(key: 'budgets', value: string) {
+    return invoke<void>('set_setting', { key, value });
+  }
+  saveExport(name: string, content: string) {
+    return invoke<string>('save_export', { name, content });
   }
   onEvent(handler: (event: AgentEvent) => void) {
     return listen<AgentEvent>('agent-event', (e) => handler(e.payload));
