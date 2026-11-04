@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { AccountLimits, AgentEvent, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, Pick, PriceRow, RepoInfo, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 
@@ -44,8 +44,10 @@ export abstract class AgentBackend {
   abstract listPrices(): Promise<PriceRow[]>;
   /** A new price from `price.fromMs` on; earlier runs keep their price. */
   abstract addPrice(price: PriceRow): Promise<void>;
-  abstract getSetting(key: 'budgets'): Promise<string | null>;
-  abstract setSetting(key: 'budgets', value: string): Promise<void>;
+  abstract getSetting(key: 'budgets' | 'bridge'): Promise<string | null>;
+  abstract setSetting(key: 'budgets' | 'bridge', value: string): Promise<void>;
+  /** tg-bridge notes of the task this run belongs to. */
+  abstract bridgeNotes(runId: string): Promise<BridgeNote[]>;
   /** Saves a text export (CSV) to the Downloads folder; returns where it went. */
   abstract saveExport(name: string, content: string): Promise<string>;
   /** Local diagnostics report (no secrets); the user saves and sends it by hand. */
@@ -147,11 +149,14 @@ export class TauriBackend extends AgentBackend {
   addPrice(price: PriceRow) {
     return invoke<void>('add_price', { price });
   }
-  getSetting(key: 'budgets') {
+  getSetting(key: 'budgets' | 'bridge') {
     return invoke<string | null>('get_setting', { key });
   }
-  setSetting(key: 'budgets', value: string) {
+  setSetting(key: 'budgets' | 'bridge', value: string) {
     return invoke<void>('set_setting', { key, value });
+  }
+  bridgeNotes(runId: string) {
+    return invoke<BridgeNote[]>('bridge_notes', { runId });
   }
   saveExport(name: string, content: string) {
     return invoke<string>('save_export', { name, content });

@@ -44,7 +44,15 @@ export interface AccountLimits {
 }
 
 export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit' | 'limits'
-  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved';
+  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge';
+
+/** A tg-bridge note shared by the runs of one task. Keep in sync with ledger.rs `BridgeNote`. */
+export interface BridgeNote {
+  topic: string;
+  agent: AgentId;
+  at: number;
+  text: string;
+}
 
 export interface AgentEvent {
   runId: string;

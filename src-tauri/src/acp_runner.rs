@@ -36,6 +36,14 @@ impl TaskSession {
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     pub fn agent(&self) -> AgentKind { self.agent }
+    /// An approval card for something an agent asked through tg-bridge. True only if allowed.
+    pub fn ask(&self, action:String, reason:String) -> crate::bridge::BoxFuture<bool> {
+        let card = self.permission(json!({
+            "toolCall": {"title": format!("{action} — lý do: {reason}"), "kind": "other", "rawInput": {"source": "tg-bridge"}},
+            "options": [{"optionId":"allow","name":"Cho phép","kind":"allow_once"},{"optionId":"deny","name":"Từ chối","kind":"reject_once"}],
+        }));
+        Box::pin(async move { matches!(card.await, Ok(v) if v["outcome"]["optionId"] == "allow") })
+    }
     /// A line from TG Studio itself in the run's log (shown like stderr).
     pub fn note(&self, text:String) {
         let mut event=AgentEvent::new(&self.run_id,self.agent,"stderr"); event.line=Some(text); self.queue(event); self.flush_events();
@@ -215,6 +223,24 @@ mod tests {
         assert_eq!(events[0].kind, "limits");
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["utilization"], 0.3);
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["resetsAt"], 5000);
+    }
+
+    #[tokio::test]
+    async fn bridge_approval_uses_a_card_and_only_allow_is_true() {
+        for (option, expected) in [("allow", true), ("deny", false)] {
+            let sink = Arc::new(Recorder::default());
+            let session = TaskSession::new("run", AgentKind::Codex, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+            let answer = session.ask("xóa build/".into(), "dọn".into());
+            let id = sink.0.lock().unwrap()[0].data.as_ref().unwrap()["requestId"].as_str().unwrap().to_string();
+            assert!(sink.0.lock().unwrap()[0].data.as_ref().unwrap()["toolCall"]["title"].as_str().unwrap().contains("xóa build/"));
+            session.respond_permission(&id, option, false).unwrap();
+            assert_eq!(answer.await, expected);
+        }
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Codex, &std::env::temp_dir(), sink, Arc::new(Memory::default())).unwrap();
+        let answer = session.ask("a".into(), "b".into());
+        session.cancel_pending();
+        assert!(!answer.await);
     }
 
     #[tokio::test]

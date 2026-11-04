@@ -85,6 +85,12 @@ Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh kh�
 
 `mcp.rs`: server lưu trong bảng `mcp_servers` (JSON). Khi một task ACP bắt đầu, `drive` lấy các server bật cho agent đó và gửi trong `session/new`; server http chỉ gửi khi `initialize` của agent báo `mcpCapabilities.http`, nếu không thì ghi một dòng vào log. Claude headless nhận `--mcp-config` (không dùng `--strict-mcp-config`, nên cấu hình riêng của người dùng vẫn chạy). `skills.rs`: thư viện ở `<app data>/skills/<tên>/SKILL.md`; cài vào `<repo>/.claude/skills` hoặc `~/.claude/skills`, bản khác sẵn có được chép thành `SKILL.md.bak-<ms>` trước.
 
+## tg-bridge
+
+`bridge.rs`. Khi một task ACP bắt đầu (và tg-bridge đang bật, cài đặt `bridge`), `acp_tasks.rs` đăng ký một `TaskEnv` với `BridgeHub` để lấy token, rồi thêm server stdio `tg-bridge` vào `session/new`: lệnh là chính file chạy của app với `--mcp-bridge`, env `TG_BRIDGE_ADDR` + `TG_BRIDGE_TOKEN`. `main.rs` xử lý cờ này **trước** khi Tauri khởi động (nếu không, plugin single-instance sẽ chuyển sang cửa sổ đang mở). Tiến trình bridge nói MCP qua stdio và chuyển mỗi `tools/call` thành một dòng JSON gửi tới `BridgeHub` (TCP, chỉ 127.0.0.1); hub tra token ra `TaskEnv` của run, token bị thu hồi khi run kết thúc.
+
+Tool: `report_progress` và `handoff_to` thành event `bridge` (UI: thanh tiến độ, thẻ/hàng chờ "Chuyển việc"); `write_note`/`read_notes` dùng bảng `bridge_notes` (schema v6) theo phạm vi task = nhóm song song, không thì run gốc của worktree (các bước pipeline dùng chung); `request_approval` hiện thẻ duyệt qua `TaskSession::ask`; `get_task_context` trả về yêu cầu, worktree, tệp đã đổi. Policy tự cho phép tool `mcp__tg-bridge__*` (chúng chỉ ghi/đề xuất). Chấp nhận chuyển việc: agent mới làm tiếp trong worktree của run đề xuất nếu run đó đã xong, không thì một task mới.
+
 ## Lịch sử lượt chạy
 
 `runner.rs` ghi mọi event vào `tg-studio.db` trong thư mục dữ liệu của app, trước khi phát lên UI. Khi khởi động: lượt còn `running` chuyển thành `interrupted`, và nếu không mở được file thì app dùng DB trong bộ nhớ, chỉ mất lịch sử. UI nạp lại 100 lượt gần nhất qua `list_runs`; các lượt này có `restored: true` nên không tính vào usage của phiên hiện tại.

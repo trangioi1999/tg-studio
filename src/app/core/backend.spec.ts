@@ -39,6 +39,8 @@ describe('Tauri task commands', () => {
     expect(lastCall()).toEqual(['reject_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' }]);
     expect(await backend.commitAccepted('run', 'commit')).toBe('result');
     expect(lastCall()).toEqual(['commit_accepted', { runId: 'run', message: 'commit' }]);
+    await backend.bridgeNotes('run');
+    expect(lastCall()).toEqual(['bridge_notes', { runId: 'run' }]);
     await backend.diagnostics();
     expect(lastCall()).toEqual(['diagnostics', {}]);
     await backend.accountLimits();

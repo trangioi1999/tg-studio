@@ -154,7 +154,15 @@ pub fn rule_matches(rule: &str, command: &str) -> bool {
     if wildcard { words.starts_with(&pattern) } else { words == pattern }
 }
 
+/// TG Studio's own tg-bridge tools only record notes and progress or propose things;
+/// anything with an effect asks the user itself (`request_approval`, handoffs).
+fn is_bridge_tool(tool: &ToolInfo) -> bool {
+    tool.title.starts_with("mcp__tg-bridge__") && tool.command.is_none()
+        && !matches!(tool.kind.as_str(), "execute" | "edit" | "delete" | "move")
+}
+
 pub fn evaluate(tool: &ToolInfo, rules: &[String]) -> Verdict {
+    if is_bridge_tool(tool) { return Verdict::Allow; }
     let Some(command) = &tool.command else { return Verdict::Ask; };
     if is_forbidden(command) { return Verdict::Deny; }
     if tool.kind == "execute" && rules.iter().any(|rule| rule_matches(rule, command)) {
@@ -261,6 +269,17 @@ mod tests {
         }
         assert_eq!(evaluate(&tool_info(&json!({"kind":"execute"})), &[]), Verdict::Ask);
         assert_eq!(evaluate(&execute("npm test"), &[]), Verdict::Ask);
+    }
+
+    #[test]
+    fn tg_bridge_tools_are_allowed_but_lookalikes_are_not() {
+        let tool = |title: &str, kind: &str, command: Option<&str>| ToolInfo { kind: kind.into(), title: title.into(), command: command.map(String::from) };
+        assert_eq!(evaluate(&tool("mcp__tg-bridge__write_note", "other", None), &[]), Verdict::Allow);
+        assert_eq!(evaluate(&tool("mcp__tg-bridge__read_notes", "", None), &[]), Verdict::Allow);
+        assert_eq!(evaluate(&tool("mcp__tg-ping__ping", "other", None), &[]), Verdict::Ask);
+        assert_eq!(evaluate(&tool("mcp__tg-bridge__x", "execute", Some("rm -rf ~")), &[]), Verdict::Ask);
+        assert_eq!(evaluate(&tool("echo mcp__tg-bridge__", "execute", Some("echo mcp__tg-bridge__")), &[]), Verdict::Ask);
+        assert_eq!(evaluate(&tool("mcp__tg-bridge__x", "edit", None), &[]), Verdict::Ask);
     }
 
     #[test]

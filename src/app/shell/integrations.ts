@@ -26,6 +26,16 @@ description: Một câu nói khi nào agent nên dùng skill này.
       @if (error()) { <p class="error-text" role="alert">{{ error() }}</p> }
       @if (info()) { <p class="ok-text" role="status">{{ info() }}</p> }
 
+      <section class="mission-block" aria-label="tg-bridge">
+        <div class="block-head">
+          <span class="label">TG-BRIDGE</span>
+          <span class="dim ellipsis">Kênh phối hợp giữa các agent, do TG Studio cung cấp</span>
+          <span class="spacer"></span>
+          <label class="check-line"><input type="checkbox" [checked]="bridgeOn()" (change)="setBridge($any($event.target).checked)" /> Bật cho mọi task Sửa code</label>
+        </div>
+        <p class="dim form-note pad">Mỗi task nhận một MCP server <code>tg-bridge</code> với các tool: <code>report_progress</code> (tiến độ hiện ở Thread và Mission control), <code>write_note</code>/<code>read_notes</code> (ghi chú chung giữa các agent cùng task, xem ở tab Plan), <code>handoff_to</code> (đề xuất chuyển việc, bạn quyết định), <code>request_approval</code> (hiện thẻ duyệt), <code>get_task_context</code>. Chỉ nghe trên 127.0.0.1, mỗi task một token; tool nào có tác động đều phải qua bạn. Áp dụng cho lượt chạy mới.</p>
+      </section>
+
       <section class="mission-block" aria-label="MCP servers">
         <div class="block-head">
           <span class="label">MCP SERVERS</span>
@@ -162,6 +172,7 @@ export class Integrations implements OnInit {
   protected readonly targets = signal<Record<string, SkillTarget[]>>({});
   protected readonly skillDraft = signal<string | null>(null);
   protected readonly busy = signal(false);
+  protected readonly bridgeOn = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly info = signal<string | null>(null);
   private readonly repo = computed(() => this.workspace.repo()?.root ?? null);
@@ -241,7 +252,20 @@ export class Integrations implements OnInit {
     });
   }
 
+  protected async setBridge(on: boolean): Promise<void> {
+    await this.guard(async () => {
+      await this.backend.setSetting('bridge', JSON.stringify({ enabled: on }));
+      this.info.set(on ? 'Đã bật tg-bridge cho các task mới.' : 'Đã tắt tg-bridge cho các task mới.');
+    });
+  }
+
   private async reload(): Promise<void> {
+    try {
+      const raw = await this.backend.getSetting('bridge');
+      this.bridgeOn.set(raw ? JSON.parse(raw).enabled !== false : true);
+    } catch {
+      this.bridgeOn.set(true);
+    }
     this.servers.set(await this.backend.listMcpServers());
     const skills = await this.backend.listSkills();
     this.skills.set(skills);

@@ -122,7 +122,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=5 => {},
+            1..=6 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -157,6 +157,15 @@ impl Store {
                 CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, config TEXT NOT NULL);
                 CREATE INDEX runs_started_at ON runs(started_at);
                 PRAGMA user_version = 5;")?;
+        }
+        if version < 6 {
+            tx.execute_batch("
+                CREATE TABLE bridge_notes (
+                    id INTEGER PRIMARY KEY, scope TEXT NOT NULL, topic TEXT NOT NULL, text TEXT NOT NULL,
+                    run_id TEXT NOT NULL, agent TEXT NOT NULL, at INTEGER NOT NULL
+                );
+                CREATE INDEX bridge_notes_scope ON bridge_notes(scope, id);
+                PRAGMA user_version = 6;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -253,6 +262,29 @@ impl Store {
             params![agent_key(price.agent)?, sql_integer(price.from_ms)?, price.input, price.cached_input, price.output],
         )?;
         Ok(())
+    }
+
+    /// A tg-bridge note shared by every run of one task (`scope`).
+    pub fn add_note(&self, scope: &str, topic: &str, text: &str, run_id: &str, agent: AgentKind, at: u64) -> Result<()> {
+        self.connection()?.execute(
+            "INSERT INTO bridge_notes (scope, topic, text, run_id, agent, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![scope, topic, text, run_id, agent_key(agent)?, sql_integer(at)?],
+        )?;
+        Ok(())
+    }
+
+    /// The note scope a run writes to: its parallel group, else its worktree's owner run.
+    pub fn run_scope(&self, run_id: &str) -> Result<String> {
+        self.connection()?.query_row("SELECT COALESCE(task_id, worktree_owner, id) FROM runs WHERE id = ?1", [run_id], |r| r.get(0))
+    }
+
+    /// (topic, agent, at, text), oldest first; the last 50.
+    pub fn notes(&self, scope: &str, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT topic, agent, at, text FROM (SELECT * FROM bridge_notes WHERE scope = ?1 AND (?2 IS NULL OR topic = ?2)
+            ORDER BY id DESC LIMIT 50) ORDER BY id ASC")?;
+        let rows = stmt.query_map(params![scope, topic], |r| Ok((r.get(0)?, r.get(1)?, unsigned(r.get(2)?, 2)?, r.get(3)?)))?;
+        rows.collect()
     }
 
     pub fn mcp_servers(&self) -> Result<Vec<String>> {
@@ -589,6 +621,20 @@ mod tests {
     }
 
     #[test]
+    fn bridge_notes_are_scoped_and_filtered_by_topic() {
+        let store = Store::open_in_memory().unwrap();
+        store.add_note("task-a", "plan", "1. A", "r1", AgentKind::Claude, 1).unwrap();
+        store.add_note("task-a", "style", "tabs", "r2", AgentKind::Codex, 2).unwrap();
+        store.add_note("task-b", "plan", "other task", "r3", AgentKind::Codex, 3).unwrap();
+        assert_eq!(store.notes("task-a", None).unwrap(), vec![("plan".into(), "claude".into(), 1, "1. A".into()), ("style".into(), "codex".into(), 2, "tabs".into())]);
+        assert_eq!(store.notes("task-a", Some("style")).unwrap().len(), 1);
+        assert!(store.notes("task-c", None).unwrap().is_empty());
+        insert(&store, "solo", 1);
+        assert_eq!(store.run_scope("solo").unwrap(), "solo");
+        assert!(store.run_scope("missing").is_err());
+    }
+
+    #[test]
     fn settings_round_trip() {
         let store = Store::open_in_memory().unwrap();
         assert_eq!(store.setting("budgets").unwrap(), None);
@@ -662,7 +708,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 5);
+            assert_eq!(version, 6);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();
