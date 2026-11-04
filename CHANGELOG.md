@@ -4,6 +4,12 @@
 
 ## [Chưa phát hành]
 
+### Windows
+- Nút Dừng và hết giờ diệt cả cây tiến trình, không còn để `node` chạy ngầm sau `.cmd`.
+- Prompt nhiều dòng qua shim `.cmd` đi bằng stdin thay vì bị từ chối.
+- Lệnh kiểm tra chỉ giữ 64 KB output cuối trong bộ nhớ.
+- Báo khi agent im lặng 30 giây, kèm nút Dừng.
+
 ### Chat trong một phiên
 - Gửi thêm câu là chat tiếp với cùng một agent, không tạo agent mới. Enter để gửi, Shift+Enter để xuống dòng, không gửi nhầm khi đang gõ dấu tiếng Việt.
 - Nút Dừng cạnh ô chat chỉ dừng câu đang chạy; có nút Trò chuyện mới. `@agent` hoặc đổi agent giao tiếp trên cùng bản nháp, kèm tóm tắt.

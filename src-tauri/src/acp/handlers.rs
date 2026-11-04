@@ -135,9 +135,11 @@ impl Terminals {
             Some(_) => self.sandbox.resolve(string(params, "cwd")?)?,
         };
         let limit = number(params, "outputByteLimit", 1024 * 1024)?;
-        let mut child = cmd.current_dir(cwd).env("PATH", crate::env::login_path())
-            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true)
-            .spawn().map_err(|e| failed(format!("Không khởi chạy được terminal: {e}")))?;
+        cmd.current_dir(cwd).env("PATH", crate::env::login_path())
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        crate::env::isolate(&mut cmd);
+        let mut child = cmd.spawn().map_err(|e| failed(format!("Không khởi chạy được terminal: {e}")))?;
+        let pid = child.id();
         let output = Arc::new(Mutex::new(Output { text: String::new(), truncated: false, limit }));
         let stdout = child.stdout.take().expect("stdout pipe");
         let stderr = child.stderr.take().expect("stderr pipe");
@@ -152,6 +154,7 @@ impl Terminals {
                 status = child.wait() => status,
                 _ = kill_rx.recv() => {
                     killed = true;
+                    if let Some(pid) = pid { crate::env::kill_tree(pid).await; }
                     let _ = child.start_kill();
                     child.wait().await
                 }

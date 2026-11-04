@@ -108,36 +108,37 @@ pub async fn start_agent(
     prompt: String,
     cwd: String,
 ) -> Result<String, String> {
-    let mut args = agent.headless_args(&prompt).ok_or_else(|| {
-        format!(
-            "{} chưa chạy được ở chế độ headless trong bản này — sẽ chạy qua ACP ở giai đoạn 1.",
-            agent.display_name()
-        )
-    })?;
+    let unsupported = || format!("{} chưa chạy được ở chế độ Chỉ đọc trong bản này.", agent.display_name());
+    if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
     if !std::path::Path::new(&cwd).is_dir() {
         return Err(format!("Thư mục không tồn tại: {cwd}"));
-    }
-    // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
-    if agent == AgentKind::Claude {
-        if let Some(config) = crate::mcp::claude_config(&crate::mcp::load(&app.state::<Store>())) {
-            args.extend(["--mcp-config".to_string(), config]);
-        }
     }
     let bin = tauri::async_runtime::spawn_blocking(move || env::which(agent.binary()))
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Không tìm thấy `{}` trong PATH.", agent.binary()))?;
 
-    let mut child = env::command(&bin)
-        .args(&args)
-        .current_dir(&cwd)
-        .env("PATH", env::login_path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("Không chạy được {}: {e}", bin.display()))?;
+    let (mut args, input) = agent.headless_invocation(&prompt, &bin).ok_or_else(unsupported)?;
+    // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
+    if agent == AgentKind::Claude {
+        if let Some(config) = crate::mcp::claude_config(&crate::mcp::load(&app.state::<Store>())) {
+            args.extend(["--mcp-config".to_string(), config]);
+        }
+    }
+    let mut command = env::command(&bin);
+    command.args(&args).current_dir(&cwd).env("PATH", env::login_path())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    env::isolate(&mut command);
+    let mut child = command.spawn().map_err(|e| format!("Không chạy được {}: {e}", bin.display()))?;
+    if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+        tauri::async_runtime::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(text.as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        });
+    }
+    let pid = child.id();
 
     let run_id = uuid::Uuid::new_v4().to_string();
     let stdout = child.stdout.take().ok_or("Không đọc được stdout")?;
@@ -206,6 +207,7 @@ pub async fn start_agent(
             let code = match finished {
                 Some(status) => status.ok().and_then(|s| s.code()),
                 None => {
+                    if let Some(pid) = pid { env::kill_tree(pid).await; }
                     let _ = child.kill().await;
                     None
                 }

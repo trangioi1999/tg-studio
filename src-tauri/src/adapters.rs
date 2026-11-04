@@ -59,6 +59,21 @@ impl AgentKind {
             .or_else(|| which("npx").map(|path| (path, vec!["-y".into(), package.into()])))
     }
 
+    /// A headless run's arguments and what to write to its stdin. Rust refuses line breaks in
+    /// arguments to a batch file, which is what npm installs on Windows, so such a prompt goes
+    /// through stdin. Everywhere else it stays an argument, as each CLI documents first.
+    pub fn headless_invocation(self, prompt: &str, program: &Path) -> Option<(Vec<String>, Option<String>)> {
+        let batch = program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
+        if !batch || !prompt.contains(['\r', '\n']) { return self.headless_args(prompt).map(|args| (args, None)); }
+        let args: Vec<&str> = match self {
+            AgentKind::Claude => vec!["-p", "--output-format", "stream-json", "--verbose"],
+            AgentKind::Codex => vec!["exec", "--json", "-"],
+            AgentKind::Gemini => vec!["--output-format", "stream-json"],
+            AgentKind::Kiro => return None,
+        };
+        Some((args.into_iter().map(String::from).collect(), Some(prompt.to_string())))
+    }
+
     /// Arguments for a one-shot headless run that prints JSON lines.
     /// `None` means the agent is only reachable through ACP (phase 1).
     pub fn headless_args(self, prompt: &str) -> Option<Vec<String>> {
@@ -88,6 +103,27 @@ impl AgentKind {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn line_breaks_reach_a_batch_shim_through_stdin() {
+        let shim = Path::new(r"C:\npm\claude.cmd");
+        let (args, stdin) = AgentKind::Claude.headless_invocation("một\nhai", shim).unwrap();
+        assert_eq!(args, ["-p", "--output-format", "stream-json", "--verbose"]);
+        assert_eq!(stdin.as_deref(), Some("một\nhai"));
+        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap().0, ["exec", "--json", "-"]);
+        assert_eq!(AgentKind::Gemini.headless_invocation("một\nhai", Path::new("gemini.bat")).unwrap().0, ["--output-format", "stream-json"]);
+        assert_eq!(AgentKind::Kiro.headless_invocation("một\nhai", shim), None);
+    }
+
+    #[test]
+    fn other_prompts_stay_arguments() {
+        let (args, stdin) = AgentKind::Claude.headless_invocation("một dòng", Path::new(r"C:\npm\claude.cmd")).unwrap();
+        assert!(args.contains(&"một dòng".to_string()));
+        assert_eq!(stdin, None);
+        let (args, stdin) = AgentKind::Claude.headless_invocation("một\nhai", Path::new("/usr/bin/claude")).unwrap();
+        assert!(args.contains(&"một\nhai".to_string()));
+        assert_eq!(stdin, None);
+    }
 
     #[test]
     fn setup_timeout_is_longer_through_npx() {
