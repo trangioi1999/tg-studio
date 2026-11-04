@@ -5,18 +5,19 @@ import { Tab, WorkspaceService, tabKey } from '../core/workspace.service';
 import { CodeEditor } from './code-editor';
 import { Compare } from './compare';
 import { DiffViewer } from './diff-viewer';
+import { SourceViewer } from './source-viewer';
 import { Terminal } from './terminal';
 
 /** Center of the IDE: tabs for files and reviews, with the agents' logs underneath. */
 @Component({
   selector: 'tg-workbench',
-  imports: [CodeEditor, Compare, DiffViewer, Terminal],
+  imports: [CodeEditor, Compare, DiffViewer, SourceViewer, Terminal],
   template: `
     <div class="tabs" role="tablist" aria-label="Tab đang mở">
       @for (t of workspace.tabs(); track key(t)) {
         <div class="tab" role="tab" [class.active]="key(t) === workspace.activeKey()" [attr.aria-selected]="key(t) === workspace.activeKey()" [style.--agent]="colorOf(t)">
           <button class="tab-open" [title]="tooltip(t)" (click)="workspace.activeKey.set(key(t)); selectRunOf(t)">
-            @if (t.kind !== 'file') { <span class="tab-kind">{{ t.kind === 'changes' ? 'Thay đổi' : 'So sánh' }}</span> }
+            @if (t.kind === 'changes' || t.kind === 'compare') { <span class="tab-kind">{{ t.kind === 'changes' ? 'Thay đổi' : 'So sánh' }}</span> }
             <span class="ellipsis">{{ title(t) }}</span>
             @if (pendingIn(t)) { <span class="agent-dot" aria-label="Có thay đổi chờ duyệt"></span> }
           </button>
@@ -35,6 +36,9 @@ import { Terminal } from './terminal';
     <div class="stage">
       @if (activeView(); as v) {
         @switch (v.tab.kind) {
+          @case ('source') {
+            <tg-source-viewer [root]="$any(v.tab).root" [path]="$any(v.tab).path" />
+          }
           @case ('file') {
             @if (v.run) {
               <tg-code-editor [runId]="v.run.id" [agent]="v.run.agent" [running]="v.run.status === 'running'" [path]="$any(v.tab).path" />
@@ -52,7 +56,7 @@ import { Terminal } from './terminal';
       } @else {
         <div class="empty">
           <p>Chưa mở tệp nào.</p>
-          <p class="dim">Giao việc ở ô bên phải. Khi agent sửa code, tệp nó đang làm sẽ tự mở ở đây; các thay đổi có thanh Accept/Reject ngay trong editor.</p>
+          <p class="dim">Chọn một tệp ở cột trái để xem, hoặc giao việc ở ô bên phải. Khi agent sửa code, tệp nó đang làm sẽ tự mở ở đây.</p>
         </div>
       }
     </div>
@@ -72,7 +76,7 @@ export class Workbench {
   protected readonly activeView = computed(() => {
     const tab = this.workspace.active();
     if (!tab) return null;
-    const run = tab.kind === 'compare' ? null : (this.runs.runs().find((r) => r.id === tab.runId) ?? null);
+    const run = tab.kind === 'file' || tab.kind === 'changes' ? (this.runs.runs().find((r) => r.id === tab.runId) ?? null) : null;
     return { tab, run };
   });
 
@@ -106,7 +110,7 @@ export class Workbench {
       if (!r || !diffs?.length || opened.has(r.id)) return;
       opened.add(r.id);
       untracked(() => {
-        if (this.workspace.tabs().some((t) => t.kind !== 'compare' && t.runId === r.id)) return;
+        if (this.workspace.tabs().some((t) => (t.kind === 'file' || t.kind === 'changes') && t.runId === r.id)) return;
         const first = diffs.find((f) => f.status !== 'D' && !f.binary);
         if (first) this.workspace.openFile(r.id, first.path);
       });
@@ -119,18 +123,19 @@ export class Workbench {
   }
 
   protected title(t: Tab): string {
-    if (t.kind === 'file') return t.path.split('/').pop() ?? t.path;
+    if (t.kind === 'file' || t.kind === 'source') return t.path.split('/').pop() ?? t.path;
     if (t.kind === 'changes') return this.runs.runs().find((r) => r.id === t.runId)?.prompt || 'task';
     return this.runs.groupRuns(t.group)[0]?.prompt || 'nhóm';
   }
 
   protected tooltip(t: Tab): string {
+    if (t.kind === 'source') return `${t.path}\nChỉ đọc`;
     const prompt = t.kind === 'compare' ? this.runs.groupRuns(t.group)[0]?.prompt : this.runs.runs().find((r) => r.id === t.runId)?.prompt;
     return [t.kind === 'file' ? t.path : null, prompt ? `Task: ${prompt}` : null].filter(Boolean).join('\n');
   }
 
   protected colorOf(t: Tab): string | null {
-    if (t.kind === 'compare') return null;
+    if (t.kind === 'compare' || t.kind === 'source') return null;
     const r = this.runs.runs().find((x) => x.id === t.runId);
     return r ? AGENT_META[r.agent].color : null;
   }
@@ -144,6 +149,6 @@ export class Workbench {
   }
 
   protected selectRunOf(t: Tab): void {
-    if (t.kind !== 'compare' && this.runs.selectedId() !== t.runId) this.runs.selectedId.set(t.runId);
+    if ((t.kind === 'file' || t.kind === 'changes') && this.runs.selectedId() !== t.runId) this.runs.selectedId.set(t.runId);
   }
 }

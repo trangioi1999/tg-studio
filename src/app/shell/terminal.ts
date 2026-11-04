@@ -35,7 +35,8 @@ import { RunsService } from '../core/runs.service';
 export class Terminal {
   protected readonly runs = inject(RunsService);
   protected readonly meta = AGENT_META;
-  protected readonly collapsed = signal(false);
+  /** The thread shows the same run; the raw log is there when asked for. */
+  protected readonly collapsed = signal(true);
   private readonly body = viewChild<ElementRef<HTMLElement>>('body');
   protected readonly shown = computed(() => this.runs.selected());
   /** Recent runs of this session, plus the selected one if it is older. */

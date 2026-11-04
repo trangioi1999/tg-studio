@@ -13,6 +13,10 @@ export abstract class AgentBackend {
   abstract pickFolder(): Promise<string | null>;
   /** Normalizes and checks a typed or picked path; rejects with a message for the user. */
   abstract openProject(path: string): Promise<Project>;
+  /** Paths relative to an opened project, sorted, using `/`. */
+  abstract listProjectFiles(root: string): Promise<string[]>;
+  /** Reads a file of an opened project. There is no way to write through here. */
+  abstract readProjectFile(root: string, path: string): Promise<string>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
   /** `reuse`: continue in the worktree of this finished run (a later pipeline step). */
   abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null): Promise<string>;
@@ -84,6 +88,12 @@ export class TauriBackend extends AgentBackend {
   }
   openProject(path: string) {
     return invoke<Project>('open_project', { path });
+  }
+  listProjectFiles(root: string) {
+    return invoke<string[]>('list_project_files', { root });
+  }
+  readProjectFile(root: string, path: string) {
+    return invoke<string>('read_project_file', { root, path });
   }
   start(agent: AgentId, prompt: string, cwd: string) {
     return invoke<string>('start_agent', { agent, prompt, cwd });

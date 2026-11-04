@@ -98,7 +98,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .status[data-status='failed'] { color: var(--err); }
 .status[data-status='stopped'], .status[data-status='interrupted'] { color: var(--warn); }
 
-tg-diff-viewer, tg-code-editor, tg-compare { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+tg-diff-viewer, tg-code-editor, tg-source-viewer, tg-compare { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .console { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 16px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .console-head { height: 38px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
 .console-body { flex: 1; overflow: auto; padding: 10px 12px; line-height: 20px; }
