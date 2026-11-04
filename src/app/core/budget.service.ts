@@ -1,4 +1,4 @@
-import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked, DestroyRef } from '@angular/core';
 import { AgentBackend } from './backend';
 import { fmtUsd } from './format';
 import { PRICE_HISTORY, costOf } from './pricing';
@@ -35,11 +35,16 @@ export class BudgetService {
   private readonly todayRows = signal<UsageRow[]>([]);
   private readonly stoppedForBudget = new Set<string>();
 
+  /** Start of the current day; moves at midnight even when nothing is running. */
+  private readonly dayStart = signal(startOfDay());
+  /** Runs that have ended. Log lines of a running agent must not reload history. */
+  private readonly endedRuns = computed(() => this.runs.runs().filter((r) => r.status !== 'running').length);
+
   readonly todayCost = computed(() => {
-    const since = startOfDay();
+    const since = this.dayStart();
     const live = new Map(this.runs.runs().filter((r) => r.startedAt >= since).map((r) => [r.id, r]));
     let total = 0;
-    for (const row of this.todayRows()) if (!live.has(row.id)) total += costOf(row.agent, row.usage, row.startedAt).usd ?? 0;
+    for (const row of this.todayRows()) if (row.startedAt >= since && !live.has(row.id)) total += costOf(row.agent, row.usage, row.startedAt).usd ?? 0;
     for (const r of live.values()) total += costOf(r.agent, r.usage, r.startedAt).usd ?? 0;
     return total;
   });
@@ -63,9 +68,12 @@ export class BudgetService {
     void this.load();
     // Refresh today's history whenever a run ends.
     effect(() => {
-      this.runs.runs().filter((r) => r.status !== 'running').length;
+      this.endedRuns();
+      this.dayStart();
       untracked(() => void this.loadToday());
     });
+    const timer = setInterval(() => this.dayStart.set(startOfDay()), 60_000);
+    inject(DestroyRef).onDestroy(() => clearInterval(timer));
     effect(() => {
       const { perTask } = this.budgets();
       const over = this.dailyLevel() === 'over';

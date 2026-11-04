@@ -82,11 +82,20 @@ fn subcommand<'a>(words: &'a [String], value_flags: &[&str]) -> &'a [String] {
     &words[index..]
 }
 
+/// The program a word names, as Windows would find it: any folder, any case, optional extension.
+fn program_name(word: &str) -> String {
+    let base = word.rsplit(['/', '\\']).next().unwrap_or_default().to_lowercase();
+    for extension in [".exe", ".cmd", ".bat", ".com"] {
+        if let Some(stem) = base.strip_suffix(extension) { return stem.to_string(); }
+    }
+    base
+}
+
 pub fn is_forbidden(command: &str) -> bool {
     let Some(words) = tokens(command) else { return false; };
     for (index, word) in words.iter().enumerate() {
         let rest = &words[index + 1..];
-        match word.rsplit('/').next().unwrap_or_default() {
+        match program_name(word).as_str() {
             "git" => {
                 let rest = subcommand(rest, &["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"]);
                 if rest.first().is_some_and(|s| s == "push" || s == "merge") { return true; }
@@ -126,7 +135,7 @@ const RUNS_ANYTHING: &[&str] = &[
 ];
 
 fn runs_anything(word: &str) -> bool {
-    RUNS_ANYTHING.contains(&word.rsplit('/').next().unwrap_or_default())
+    RUNS_ANYTHING.contains(&program_name(word).as_str())
 }
 
 pub fn rule_for(command: &str) -> Option<String> {
@@ -174,6 +183,22 @@ pub fn evaluate(tool: &ToolInfo, rules: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_program_names_get_no_broad_rule() {
+        for command in ["node.exe --version", "NODE.EXE --version", "python.cmd x", "pwsh.exe -c x", "bash.exe -c x", r"C:\\bin\\node.exe --version"] {
+            assert_eq!(super::rule_for(command), None, "{command}");
+        }
+        assert!(!super::rule_matches("node.exe *", "node.exe -e x"), "quy tắc cũ cũng không còn hiệu lực");
+    }
+
+    #[test]
+    fn windows_program_names_are_still_forbidden() {
+        for command in ["git.exe push", "GIT.EXE push", "git.cmd merge main", "gh.exe pr merge 1", r"C:\\tools\\git.exe push"] {
+            assert!(super::is_forbidden(command), "{command}");
+        }
+        assert!(!super::is_forbidden("git.exe status"));
+    }
+
     use super::*;
 
     #[test]
