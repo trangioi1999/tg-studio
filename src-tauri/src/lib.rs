@@ -4,6 +4,7 @@
 mod acp;
 mod acp_runner;
 mod adapters;
+pub mod bridge;
 mod compose;
 mod acp_tasks;
 mod detect;
@@ -58,6 +59,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
         .manage(compose::Composites::default())
+        .manage(std::sync::Arc::new(bridge::BridgeHub::default()))
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
             app.manage(open_store(path));

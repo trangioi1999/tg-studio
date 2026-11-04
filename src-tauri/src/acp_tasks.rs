@@ -4,7 +4,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::{Child, Command}, sync::oneshot};
-use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
+use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -21,6 +21,54 @@ impl RuleMemory for RepoRules {
     fn add(&self, rule: &str) -> Result<(), String> {
         self.app.state::<Store>().add_rule(&self.repo, self.agent, rule).map_err(|e| format!("Không lưu được quy tắc: {e}"))
     }
+}
+
+/// What tg-bridge tools can reach for one task run.
+struct TaskEnv {
+    app: AppHandle,
+    run_id: String,
+    agent: AgentKind,
+    /// Notes are shared by the runs of one task: a parallel group or a pipeline's worktree.
+    scope: String,
+    prompt: String,
+    group: Option<String>,
+    wt: Worktree,
+    sink: Arc<dyn EventSink>,
+    session: Arc<TaskSession>,
+}
+
+impl ToolEnv for TaskEnv {
+    fn emit(&self, data: serde_json::Value, line: String) {
+        let mut event = AgentEvent::new(&self.run_id, self.agent, "bridge");
+        event.data = Some(data);
+        event.line = Some(line);
+        self.sink.emit(event);
+    }
+    fn add_note(&self, topic: &str, text: &str) -> Result<(), String> {
+        self.app.state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, runner::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
+    }
+    fn notes(&self, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>, String> {
+        self.app.state::<Store>().notes(&self.scope, topic).map_err(|e| format!("Không đọc được ghi chú: {e}"))
+    }
+    fn approve(&self, action: String, reason: String) -> bridge::BoxFuture<bool> {
+        self.session.ask(action, reason)
+    }
+    fn context(&self) -> serde_json::Value {
+        let changed: Vec<String> = diff::pending(&self.wt).map(|files| files.into_iter().map(|f| format!("{} {}", f.status, f.path)).collect()).unwrap_or_default();
+        json!({
+            "task": self.prompt, "agent": self.agent, "runId": self.run_id, "worktree": self.wt.path,
+            "parallelGroup": self.group, "sharedWithPipelineStepsOf": (self.wt.run_id != self.run_id).then_some(&self.wt.run_id),
+            "changedFiles": changed,
+            "rules": "Chỉ sửa tệp trong worktree. Không push hay merge. Chuyển việc và việc ngoài phạm vi phải qua người dùng (handoff_to, request_approval).",
+        })
+    }
+}
+
+/// tg-bridge is on unless the user turned it off in Integrations.
+fn bridge_enabled(store: &Store) -> bool {
+    store.setting("bridge").ok().flatten()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v["enabled"].as_bool()).unwrap_or(true)
 }
 
 // Validate and spawn before inserting anything. A failed spawn leaves no run or worktree.
@@ -178,10 +226,31 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         }
     });
     let task_id = id.clone();
+    let scope = group.clone().unwrap_or_else(|| wt.run_id.clone());
+    let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone() };
     tauri::async_runtime::spawn(async move {
-        let servers = mcp::load(&app.state::<Store>());
+        let mut servers: Vec<McpServer> = mcp::load(&app.state::<Store>()).into_iter().filter(|s| s.name != bridge::SERVER_NAME).collect();
+        let hub = app.state::<Arc<BridgeHub>>().inner().clone();
+        let mut token = None;
+        if bridge_enabled(&app.state::<Store>()) {
+            match (hub.address().await, bridge::executable()) {
+                (Ok(addr), Some(exe)) => {
+                    let t = hub.register(Arc::new(env));
+                    servers.push(McpServer {
+                        id: bridge::SERVER_NAME.into(), name: bridge::SERVER_NAME.into(), transport: "stdio".into(),
+                        command: Some(exe), args: vec![bridge::FLAG.into()],
+                        env: vec![mcp::NameValue { name: "TG_BRIDGE_ADDR".into(), value: addr }, mcp::NameValue { name: "TG_BRIDGE_TOKEN".into(), value: t.clone() }],
+                        url: None, headers: vec![], agents: vec![agent],
+                    });
+                    token = Some(t);
+                }
+                (Err(e), _) => session.note(format!("tg-bridge không bật được: {e}")),
+                (_, None) => session.note("tg-bridge không bật được: không xác định được đường dẫn của app.".into()),
+            }
+        }
         let (status, error) = drive(&client, &session, &wt.path, &prompt, &servers, rx, async { let _ = child.wait().await; }).await;
         client.close();
+        if let Some(t) = token { hub.unregister(&t); }
         terminate_adapter(&mut child, pid).await;
         // Descendants may keep stderr open; do not leave an unbounded log task behind.
         stderr_task.abort();
@@ -632,6 +701,42 @@ mod tests {
         assert!(message.contains("pong from tg-ping"), "{message}");
         let new = run.traffic.iter().find(|m| m["msg"]["method"] == "session/new").unwrap();
         assert_eq!(new["msg"]["params"]["mcpServers"][0]["name"], "tg-ping");
+        worktree::remove(&repo.0, &run.wt, true).unwrap();
+    }
+
+    /// tg-bridge end to end with real Claude: the built app binary runs as the MCP server
+    /// (`--mcp-bridge`) and forwards to an in-process hub.
+    /// `cargo build && TG_LIVE_ACP=1 TG_BRIDGE_EXE=target/debug/tg-studio cargo test live_claude_tg_bridge -- --ignored`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_tg_bridge_notes_and_progress() {
+        let (Ok(_), Ok(exe)) = (std::env::var("TG_LIVE_ACP"), std::env::var("TG_BRIDGE_EXE")) else { return };
+        struct Env { store: Store, events: Mutex<Vec<serde_json::Value>> }
+        impl ToolEnv for Env {
+            fn emit(&self, data: serde_json::Value, _: String) { self.events.lock().unwrap().push(data); }
+            fn add_note(&self, topic: &str, text: &str) -> Result<(), String> { self.store.add_note("task", topic, text, "r", AgentKind::Claude, 1).map_err(|e| e.to_string()) }
+            fn notes(&self, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>, String> { self.store.notes("task", topic).map_err(|e| e.to_string()) }
+            fn approve(&self, _: String, _: String) -> bridge::BoxFuture<bool> { Box::pin(async { false }) }
+            fn context(&self) -> serde_json::Value { json!({ "task": "live test" }) }
+        }
+        let hub = Arc::new(BridgeHub::default());
+        let addr = hub.address().await.unwrap();
+        let env = Arc::new(Env { store: Store::open_in_memory().unwrap(), events: Mutex::new(vec![]) });
+        let token = hub.register(env.clone());
+        let servers = [McpServer {
+            id: "b".into(), name: bridge::SERVER_NAME.into(), transport: "stdio".into(), command: Some(exe), args: vec![bridge::FLAG.into()],
+            env: vec![mcp::NameValue { name: "TG_BRIDGE_ADDR".into(), value: addr }, mcp::NameValue { name: "TG_BRIDGE_TOKEN".into(), value: token }],
+            url: None, headers: vec![], agents: vec![AgentKind::Claude],
+        }];
+        let repo = Repo::new();
+        let store = Store::open_in_memory().unwrap();
+        let prompt = "Use the tg-bridge MCP tools only, do not edit files. 1) write_note with topic \"plan\" and text \"Buoc 1: doc README\". 2) report_progress with step \"da ghi chu\" and pct 50. 3) read_notes and reply with exactly the note text you read.";
+        let run = run_live_with(&store, &repo.0, prompt, None, &servers).await;
+        let message = message_of(&run.events);
+        assert_eq!(run.status, "done", "{:?}", run.error);
+        assert!(message.contains("Buoc 1: doc README"), "{message}");
+        assert_eq!(env.store.notes("task", Some("plan")).unwrap()[0].3, "Buoc 1: doc README");
+        assert!(env.events.lock().unwrap().iter().any(|e| e["tool"] == "report_progress" && e["pct"] == 50.0), "{:?}", env.events.lock().unwrap());
         worktree::remove(&repo.0, &run.wt, true).unwrap();
     }
 
