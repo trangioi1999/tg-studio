@@ -73,6 +73,7 @@ pub fn run() {
             store::list_runs,
             store::account_limits,
             ledger::usage_report,
+            ledger::bridge_notes,
             ledger::list_prices,
             ledger::add_price,
             ledger::get_setting,

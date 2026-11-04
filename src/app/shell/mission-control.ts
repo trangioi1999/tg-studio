@@ -3,6 +3,7 @@ import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
 import { AGENT_IDS, AGENT_META, AgentId } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
 import { ConsoleView, UiService } from '../core/ui.service';
+import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 
 interface QueueItem {
@@ -34,7 +35,18 @@ const TIMELINE_RUNS = 12;
       </section>
 
       <section class="mission-block" aria-label="Hàng chờ">
-        <div class="block-head"><span class="label">HÀNG CHỜ CỦA BẠN</span><span class="dim">{{ queue().length }}</span></div>
+        <div class="block-head"><span class="label">HÀNG CHỜ CỦA BẠN</span><span class="dim">{{ queue().length + runs.handoffs().length }}</span></div>
+        @for (h of runs.handoffs(); track h.id) {
+          <div class="queue-row handoff-row" [style.--agent]="meta[h.agent].color">
+            <span class="queue-kind" data-kind="handoff">Chuyển việc</span>
+            <tg-agent-avatar [agent]="h.from" [size]="16" /><span class="dim">→</span><tg-agent-avatar [agent]="h.agent" [size]="16" />
+            <span class="ellipsis">{{ h.task }}</span>
+            <span class="spacer"></span>
+            <button class="btn ghost sm" (click)="runs.dismissHandoff(h.id)">Bỏ qua</button>
+            <button class="btn primary sm" [disabled]="busy()" (click)="acceptHandoff(h.id)">Giao cho {{ meta[h.agent].name }}</button>
+          </div>
+        }
+        @if (error()) { <p class="error-text pad" role="alert">{{ error() }}</p> }
         @for (q of queue(); track q.key) {
           <button class="queue-row" (click)="ui.openRun(q.run.id, q.view)" [style.--agent]="meta[q.run.agent].color">
             <span class="queue-kind" [attr.data-kind]="q.kind">{{ kindLabel[q.kind] }}</span>
@@ -44,7 +56,7 @@ const TIMELINE_RUNS = 12;
             <span class="dim mono ellipsis">{{ q.detail }}</span>
           </button>
         } @empty {
-          <p class="dim pad">Không có gì chờ bạn.</p>
+          @if (!runs.handoffs().length) { <p class="dim pad">Không có gì chờ bạn.</p> }
         }
       </section>
 
@@ -82,6 +94,11 @@ const TIMELINE_RUNS = 12;
               <strong>{{ meta[c.agent].name }}</strong>
             </div>
             <div class="dim mono agent-col-usage">{{ c.tokens }} · {{ c.cost }}</div>
+            @if (c.progress; as p) {
+              <div class="ap-progress" [attr.title]="p.note ?? ''"><span class="ellipsis">{{ p.step }}</span>
+                @if (p.pct !== null) { <span class="meter" aria-hidden="true"><span [style.width.%]="p.pct" [style.background]="meta[c.agent].color"></span></span><span class="mono dim">{{ p.pct }}%</span> }
+              </div>
+            }
             <div class="agent-col-counts">
               <span><b>{{ c.running }}</b> đang chạy</span>
               <span [class.attention]="c.waiting > 0"><b>{{ c.waiting }}</b> chờ duyệt</span>
@@ -109,6 +126,24 @@ export class MissionControl implements OnDestroy {
   protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly kindLabel = { approve: 'Duyệt lệnh', review: 'Review', commit: 'Commit' };
   protected readonly tok = fmtTokens;
+  private readonly workspace = inject(WorkspaceService);
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+
+  protected async acceptHandoff(id: string): Promise<void> {
+    const h = this.runs.handoffs().find((x) => x.id === id);
+    const repo = this.workspace.repo()?.root ?? this.runs.runs().find((r) => r.id === h?.runId)?.cwd ?? '';
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const runId = await this.runs.acceptHandoff(id, repo);
+      this.ui.openRun(runId);
+    } catch (e) {
+      this.error.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
   protected readonly usd = fmtUsd;
 
   /** Advances once a second while something runs, so bars grow without re-rendering per event. */
@@ -203,6 +238,8 @@ export class MissionControl implements OnDestroy {
         tokens: fmtTokens(u.inputTokens + u.cachedInputTokens + u.outputTokens) + ' tok',
         cost: fmtUsd(u.costUsd),
         recent: [...mine].sort((a, b) => b.startedAt - a.startedAt).slice(0, 3),
+        /** What the agent last reported through tg-bridge, while it runs. */
+        progress: mine.find((r) => r.status === 'running' && r.progress)?.progress ?? null,
       };
     });
   });

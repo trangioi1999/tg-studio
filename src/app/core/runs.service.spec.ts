@@ -469,3 +469,44 @@ describe('RunsService composites', () => {
     expect(service.composites()[group]).toBeUndefined();
   });
 });
+
+describe('RunsService tg-bridge events', () => {
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('records progress and handoff proposals, ignoring bad ones', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'bridge', line: '◆ tg-bridge · Viết test (40%)', data: { tool: 'report_progress', step: 'Viết test', pct: 40, note: null }, atMs: 10 }));
+    expect(service.runs()[0].progress).toEqual({ step: 'Viết test', pct: 40, note: null, at: 10 });
+    expect(service.runs()[0].lines.at(-1)).toEqual({ text: '◆ tg-bridge · Viết test (40%)', tone: 'tool' });
+    const handoff = { tool: 'handoff_to', id: 'h1', agent: 'gemini', task: 'Review', files: ['a.ts', 3] };
+    backend.handler(liveEvent({ kind: 'bridge', line: 'x', data: handoff }));
+    backend.handler(liveEvent({ kind: 'bridge', line: 'x', data: handoff }));
+    backend.handler(liveEvent({ kind: 'bridge', line: 'x', data: { ...handoff, id: 'h2', agent: 'cursor' } }));
+    expect(service.handoffs()).toEqual([{ id: 'h1', runId: 'live', from: 'codex', agent: 'gemini', task: 'Review', files: ['a.ts'], at: 3000 }]);
+    service.dismissHandoff('h1');
+    expect(service.handoffs()).toEqual([]);
+  });
+
+  it('accepting a handoff continues in the finished run\'s worktree', async () => {
+    const backend = new MockBackend();
+    const calls: (string | null)[] = [];
+    const start = backend.startTask.bind(backend);
+    backend.startTask = (agent, prompt, repo, group = null, reuse = null) => { calls.push(reuse); return start(agent, prompt, repo, group, reuse); };
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const service = TestBed.inject(RunsService);
+    await service.startTask('claude', 'Đổi tiêu đề', '/repo');
+    await wait(300);
+    const r = service.selected()!;
+    await service.respondPermission(r.id, r.permissions[0].requestId, 'allow', false);
+    await wait(800);
+    // Mock Claude proposes a handoff to Codex while it works.
+    const h = service.handoffs()[0];
+    expect(h).toMatchObject({ runId: r.id, from: 'claude', agent: 'codex' });
+    const next = await service.acceptHandoff(h.id, '/repo');
+    expect(calls).toEqual([null, r.id]);
+    expect(service.runs().find((x) => x.id === next)?.prompt).toBe(h.task);
+    expect(service.handoffs()).toEqual([]);
+    await expect(service.acceptHandoff('gone', '/repo')).rejects.toThrow('không còn');
+  });
+});

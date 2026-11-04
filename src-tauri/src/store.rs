@@ -273,6 +273,11 @@ impl Store {
         Ok(())
     }
 
+    /// The note scope a run writes to: its parallel group, else its worktree's owner run.
+    pub fn run_scope(&self, run_id: &str) -> Result<String> {
+        self.connection()?.query_row("SELECT COALESCE(task_id, worktree_owner, id) FROM runs WHERE id = ?1", [run_id], |r| r.get(0))
+    }
+
     /// (topic, agent, at, text), oldest first; the last 50.
     pub fn notes(&self, scope: &str, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>> {
         let conn = self.connection()?;
@@ -624,6 +629,9 @@ mod tests {
         assert_eq!(store.notes("task-a", None).unwrap(), vec![("plan".into(), "claude".into(), 1, "1. A".into()), ("style".into(), "codex".into(), 2, "tabs".into())]);
         assert_eq!(store.notes("task-a", Some("style")).unwrap().len(), 1);
         assert!(store.notes("task-c", None).unwrap().is_empty());
+        insert(&store, "solo", 1);
+        assert_eq!(store.run_scope("solo").unwrap(), "solo");
+        assert!(store.run_scope("missing").is_err());
     }
 
     #[test]

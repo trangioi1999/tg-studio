@@ -1,11 +1,11 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
 import { BudgetService } from '../core/budget.service';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
 import { KEYS } from '../core/keys';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
 import { estimateCost } from '../core/pricing';
-import { AGENT_IDS, AGENT_META, AgentId } from '../core/protocol';
+import { AGENT_IDS, AGENT_META, AgentId, BridgeNote } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
@@ -79,6 +79,15 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
 
             <div class="ap-thread" [style.--agent]="meta[r.agent].color">
               <div class="ap-who"><tg-agent-avatar [agent]="r.agent" [size]="16" /><strong>{{ meta[r.agent].name }}</strong><span class="dim">{{ statusLabel[r.status] }} · {{ duration(r) }}</span></div>
+              @if (r.progress; as p) {
+                <div class="ap-progress" [attr.title]="p.note ?? ''">
+                  <span class="ellipsis">{{ p.step }}</span>
+                  @if (p.pct !== null) {
+                    <span class="meter" role="meter" aria-label="Tiến độ agent báo" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="p.pct"><span [style.width.%]="p.pct" [style.background]="meta[r.agent].color"></span></span>
+                    <span class="mono dim">{{ p.pct }}%</span>
+                  }
+                </div>
+              }
               @for (l of r.lines; track $index) {
                 @switch (l.tone) {
                   @case ('text') { <p class="ap-msg">{{ l.text }}</p> }
@@ -89,6 +98,17 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
               }
             </div>
             @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
+            @for (h of taskHandoffs(); track h.id) {
+              <section class="handoff" [style.--agent]="meta[h.agent].color" aria-label="Đề xuất chuyển việc">
+                <div class="handoff-head"><tg-agent-avatar [agent]="h.from" [size]="16" /> {{ meta[h.from].name }} đề xuất chuyển cho <tg-agent-avatar [agent]="h.agent" [size]="16" /> <strong>{{ meta[h.agent].name }}</strong></div>
+                <p>{{ h.task }}</p>
+                @if (h.files.length) { <p class="mono dim">{{ h.files.join(', ') }}</p> }
+                <div class="permission-actions">
+                  <button class="btn ghost sm" (click)="runs.dismissHandoff(h.id)">Bỏ qua</button>
+                  <button class="btn primary sm" [disabled]="handoffBusy() || !hasAgent(h.agent)" [title]="hasAgent(h.agent) ? '' : 'Agent này chưa cài'" (click)="acceptHandoff(h.id)">Giao cho {{ meta[h.agent].name }}</button>
+                </div>
+              </section>
+            }
           } @else {
             <div class="ap-empty">
               <p>Chưa có task nào được chọn.</p>
@@ -110,6 +130,17 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
           } @else {
             <p class="dim pad">Agent chưa gửi kế hoạch cho task này.</p>
           }
+          <div class="ap-notes" aria-label="Ghi chú chung của task">
+            <div class="label">GHI CHÚ CHUNG · TG-BRIDGE</div>
+            @for (n of notes(); track $index) {
+              <article class="ap-note">
+                <div class="ap-note-head"><tg-agent-avatar [agent]="n.agent" [size]="14" /><strong>{{ n.topic }}</strong><span class="spacer"></span><span class="dim">{{ time(n.at) }}</span></div>
+                <p>{{ n.text }}</p>
+              </article>
+            } @empty {
+              <p class="dim">Chưa có ghi chú. Agent ghi qua tool <code>write_note</code> của tg-bridge; mọi agent cùng task đọc được.</p>
+            }
+          </div>
         }
         @case ('runs') {
           @for (r of runs.runs(); track r.id) {
@@ -221,6 +252,19 @@ export class AgentPanel {
     });
     return parts.length ? `Hạn mức gói: ${parts.join(' | ')}` : null;
   });
+  /** Notes reload when the Plan tab opens and whenever the task's runs change. */
+  private readonly loadNotes = effect(() => {
+    const id = this.run()?.id;
+    if (this.tab() !== 'plan' || !id) return;
+    this.run()?.lines.length;
+    untracked(() => void this.runs.bridgeNotes(id).then((n) => this.notes.set(n), () => this.notes.set([])));
+  });
+  protected readonly taskHandoffs = computed(() => {
+    const ids = new Set(this.taskRuns().map((r) => r.id));
+    return this.runs.handoffs().filter((h) => ids.has(h.runId));
+  });
+  protected readonly handoffBusy = signal(false);
+  protected readonly notes = signal<BridgeNote[]>([]);
   protected readonly pipelineOf = computed(() => this.pipelines.of(this.run()?.id));
   protected readonly otherApprovals = computed(() => this.runs.runs().filter((r) => r.permissions.length && r.id !== this.run()?.id));
 
@@ -296,6 +340,27 @@ export class AgentPanel {
     const run = id ? this.runs.runs().find((r) => r.id === id) : null;
     if (!run) return i < p.current ? 'done' : 'pending';
     return run.status === 'running' ? 'running' : run.status === 'done' ? 'done' : 'failed';
+  }
+
+  protected hasAgent(id: AgentId): boolean {
+    return this.agents.agents().some((a) => a.id === id && a.path);
+  }
+
+  protected async acceptHandoff(id: string): Promise<void> {
+    const repo = this.workspace.repo()?.root ?? this.run()?.cwd ?? '';
+    this.handoffBusy.set(true);
+    this.error.set(null);
+    try {
+      await this.runs.acceptHandoff(id, repo);
+    } catch (e) {
+      this.error.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.handoffBusy.set(false);
+    }
+  }
+
+  protected time(ms: number): string {
+    return new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }).format(ms);
   }
 
   protected costOf(r: Run): number | null {

@@ -4,6 +4,9 @@
 
 ## [Chưa phát hành]
 
+### tg-bridge
+- MCP server `tg-bridge` cho mọi task Sửa code: báo tiến độ, ghi chú chung giữa các agent, đề xuất chuyển việc (người dùng quyết định), xin duyệt, ngữ cảnh task. Bật/tắt ở Integrations.
+
 ### Giai đoạn 4 — Đóng gói
 - Workflow phát hành: tag `vX.Y.Z` tạo bản nháp release với installer macOS (universal) và Windows; chạy tay thì installer nằm ở Artifacts.
 - `npm run version:sync` / `version:check`; CI kiểm tra phiên bản khớp.
