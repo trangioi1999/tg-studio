@@ -61,6 +61,8 @@ export interface StoredRun {
   lines: StoredLine[];
   /** Set for code tasks that still have a worktree to review. */
   worktree: string | null;
+  /** Runs started together on one prompt (parallel mode) share this id. */
+  group: string | null;
 }
 
 export interface PermissionOption {

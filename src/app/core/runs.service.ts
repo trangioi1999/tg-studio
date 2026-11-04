@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -24,6 +24,16 @@ export interface Run {
   permissions: PermissionRequest[];
   /** Full text of the agent's latest message, used to suggest a commit message. */
   lastMessage: string;
+  /** Shared by runs started together in parallel mode. */
+  group: string | null;
+}
+
+/** The run picked with "Use this" for a parallel group, kept while the user moves around. */
+export interface GroupChoice {
+  runId: string;
+  files: number;
+  /** Short hash once committed. */
+  commit: string | null;
 }
 
 export interface AgentUsage {
@@ -49,6 +59,7 @@ export class RunsService {
   readonly selected = computed(() => this.runs().find((r) => r.id === this.selectedId()) ?? null);
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
   readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
+  readonly choices = signal<Record<string, GroupChoice>>({});
 
   readonly usageByAgent = computed<AgentUsage[]>(() =>
     AGENT_IDS.map((agent) => {
@@ -112,9 +123,56 @@ export class RunsService {
   }
 
   async startTask(agent: AgentId, prompt: string, repo: string): Promise<void> {
-    const id = await this.backend.startTask(agent, prompt, repo);
+    const id = await this.backend.startTask(agent, prompt, repo, null);
     this.upsert(id, agent, (r) => ({ ...r, prompt, cwd: repo, task: true }));
     this.selectedId.set(id);
+  }
+
+  /**
+   * One prompt, one worktree per agent. Agents that fail to start are reported
+   * without stopping the others; throws only when none started.
+   */
+  async startParallel(agents: AgentId[], prompt: string, repo: string): Promise<string[]> {
+    const group = crypto.randomUUID();
+    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group)));
+    const errors: string[] = [];
+    let first: string | null = null;
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group }));
+        first ??= result.value;
+      } else {
+        errors.push(`${AGENT_META[agents[i]].name}: ${errorText(result.reason)}`);
+      }
+    });
+    if (!first) throw new Error(errors.join('\n'));
+    this.selectedId.set(first);
+    return errors;
+  }
+
+  /** Runs of the same parallel group, in agent order; empty for a solo run. */
+  groupRuns(group: string | null): Run[] {
+    if (!group) return [];
+    return this.runs().filter((r) => r.group === group).sort((a, b) => AGENT_IDS.indexOf(a.agent) - AGENT_IDS.indexOf(b.agent));
+  }
+
+  /** "Use this": applies the whole run and remembers it as the group's choice. */
+  async useRun(group: string, runId: string): Promise<void> {
+    if (this.choices()[group]) throw new Error('Nhóm này đã chọn một bản.');
+    const files = await this.backend.acceptAll(runId);
+    this.choices.update((c) => ({ ...c, [group]: { runId, files, commit: null } }));
+  }
+
+  async commitChoice(group: string, message: string): Promise<string> {
+    const choice = this.choices()[group];
+    if (!choice) throw new Error('Chưa chọn bản nào trong nhóm.');
+    const hash = await this.backend.commitAccepted(choice.runId, message);
+    this.choices.update((c) => ({ ...c, [group]: { ...choice, commit: hash.slice(0, 7) } }));
+    return hash;
+  }
+
+  acceptAll(runId: string): Promise<number> {
+    return this.backend.acceptAll(runId);
   }
 
   respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void> {
@@ -212,7 +270,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '',
+        task: false, permissions: [], lastMessage: '', group: null,
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -221,6 +279,10 @@ export class RunsService {
 }
 
 const MESSAGE_KEY = 'message';
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 type Json = Record<string, unknown>;
 
@@ -297,6 +359,7 @@ function reattach(saved: Run, live: Run): Run {
     task: saved.task || live.task,
     permissions: live.permissions,
     lastMessage: live.lastMessage || saved.lastMessage,
+    group: saved.group ?? live.group,
   };
 }
 
