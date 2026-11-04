@@ -165,10 +165,15 @@ export class RunsService {
     this.selectedId.set(id);
   }
 
-  async startTask(agent: AgentId, prompt: string, repo: string): Promise<void> {
-    const id = await this.backend.startTask(agent, prompt, repo, null);
-    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd: repo, task: true }));
+  /**
+   * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
+   * `title` is what the UI shows when the prompt sent to the agent is long.
+   */
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string } = {}): Promise<string> {
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null);
+    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true }));
     this.selectedId.set(id);
+    return id;
   }
 
   /**

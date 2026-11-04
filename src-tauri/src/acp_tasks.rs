@@ -24,10 +24,16 @@ impl RuleMemory for RepoRules {
 }
 
 // Validate and spawn before inserting anything. A failed spawn leaves no run or worktree.
-async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>), group: Option<&str>) -> Result<(Worktree, Child), String> {
+/// `reuse`: run in an existing worktree (a later pipeline step); it is never removed here.
+async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>), group: Option<&str>, reuse: Option<Worktree>) -> Result<(Worktree, Child), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let agent_name = serde_json::to_value(agent).unwrap();
-    let wt = worktree::create(repo, agent_name.as_str().unwrap(), prompt, &id)?;
+    let shared = reuse.is_some();
+    let wt = match reuse {
+        Some(wt) => wt,
+        None => worktree::create(repo, agent_name.as_str().unwrap(), prompt, &id)?,
+    };
+    let cleanup = |wt: &Worktree| if shared { Ok(()) } else { worktree::remove(repo, wt, true) };
     let mut process = Command::new(&command.0);
     process.args(&command.1).current_dir(&wt.path)
         .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
@@ -40,7 +46,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
     let mut child = match spawned {
         Ok(child) => child,
         Err(e) => {
-            let cleanup = worktree::remove(repo, &wt, true);
+            let cleanup = cleanup(&wt);
             return Err(format!("Không chạy được adapter {}: {e}{}", command.0.display(), cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
         }
     };
@@ -48,7 +54,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, com
     if let Err(e) = saved {
         let pid = child.id();
         terminate_adapter(&mut child, pid).await;
-        let cleanup = worktree::remove(repo, &wt, true);
+        let cleanup = cleanup(&wt);
         return Err(format!("Không lưu được lượt chạy: {e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
     }
     Ok((wt, child))
@@ -113,7 +119,7 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>) -> Result<String, String> {
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>) -> Result<String, String> {
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -122,7 +128,19 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         .map_err(|e| format!("Thư mục không phải kho Git. {e}"))?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| format!("Không mở được kho Git: {e}"))?;
     let command = agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {} hoặc npx trong PATH.", agent.display_name()))?;
-    let (wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref()).await?;
+    // A later pipeline step continues in the worktree of a finished earlier step.
+    let reuse = match reuse {
+        None => None,
+        Some(previous) => {
+            if app.state::<TaskRuns>().0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&previous) {
+                return Err("Bước trước vẫn đang chạy.".into());
+            }
+            let (stored, wt) = app.state::<Store>().run_worktree(&previous).map_err(|e| format!("Không tìm thấy worktree của bước trước: {e}"))?;
+            if stored != repo { return Err("Bước trước thuộc repo khác.".into()); }
+            Some(wt)
+        }
+    };
+    let (wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse).await?;
     let id = wt.run_id.clone();
     let pid = child.id();
     let sink = Arc::new(AppSink(app.clone()));
@@ -239,9 +257,12 @@ pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, 
 }
 #[tauri::command]
 pub fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<(), String> {
-    if tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&run_id) {
-        return Err("Hãy dừng lượt chạy trước khi xóa worktree.".into());
+    let sharing = store.runs_sharing_worktree(&run_id).map_err(|e| format!("Không đọc được lịch sử: {e}"))?;
+    let live = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?;
+    if live.contains_key(&run_id) || sharing.iter().any(|id| live.contains_key(id)) {
+        return Err("Hãy dừng lượt chạy (hoặc bước pipeline) đang dùng worktree này trước khi xóa.".into());
     }
+    drop(live);
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     worktree::remove(&repo, &wt, true)?;
     store.clear_run_worktree(&run_id).map_err(|e| format!("Đã xóa worktree nhưng không cập nhật được lịch sử: {e}"))
@@ -385,7 +406,7 @@ mod tests {
         let repo = Repo::new();
         let store = Store::open_in_memory().unwrap();
         let missing = repo.0.join("missing-adapter");
-        let result = prepare(&store, AgentKind::Codex, "task", &repo.0, (missing, vec![]), None).await;
+        let result = prepare(&store, AgentKind::Codex, "task", &repo.0, (missing, vec![]), None, None).await;
         assert!(result.err().unwrap().contains("Không chạy được"));
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(worktree::list(&repo.0).unwrap().is_empty());
@@ -414,7 +435,7 @@ mod tests {
     /// Spawns the real Claude adapter for one task and plays the user: every card is allowed once.
     async fn run_live(store: &Store, repo: &Path, prompt: &str, group: Option<&str>) -> LiveRun {
         let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
-        let (wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group).await.unwrap();
+        let (wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group, None).await.unwrap();
         let pid = child.id();
         let sink = Arc::new(Recorder::default());
         let session = Arc::new(TaskSession::new(&wt.run_id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
@@ -543,15 +564,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reused_worktree_survives_a_failed_spawn_and_is_shared() {
+        let repo = Repo::new();
+        let store = Store::open_in_memory().unwrap();
+        let wt = repo.wt();
+        store.insert_run_with_worktree(&NewRun { id: &wt.run_id, agent: AgentKind::Claude, prompt: "plan", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), &wt, None).unwrap();
+        let missing = repo.0.join("missing-adapter");
+        assert!(prepare(&store, AgentKind::Codex, "build", &repo.0, (missing, vec![]), None, Some(wt.clone())).await.is_err());
+        assert!(wt.path.exists(), "a failed later step must not delete the shared worktree");
+        assert_eq!(store.list_runs(10).unwrap().len(), 1);
+        let (_, mut child) = prepare(&store, AgentKind::Codex, "build", &repo.0, (PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![]), None, Some(wt.clone())).await.unwrap();
+        let _ = child.wait().await;
+        let runs = store.list_runs(10).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|r| r.worktree.as_deref() == wt.path.to_str()));
+        let later = runs.iter().find(|r| r.id != wt.run_id).unwrap();
+        let (root, shared) = store.run_worktree(&later.id).unwrap();
+        worktree::remove(&root, &shared, true).unwrap();
+        store.clear_run_worktree(&later.id).unwrap();
+        assert!(store.run_worktree(&wt.run_id).is_err());
+    }
+
+    #[tokio::test]
     async fn invalid_and_uncommitted_repos_never_create_runs() {
         let path = std::env::temp_dir().join(format!("tg-invalid-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&path).unwrap();
         let store = Store::open_in_memory().unwrap();
         let missing = path.join("missing");
-        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing.clone(), vec![]), None).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing.clone(), vec![]), None, None).await.err().unwrap();
         assert!(error.contains("Git"));
         worktree::git(&path, &["init"], None).unwrap();
-        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing, vec![]), None).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing, vec![]), None, None).await.err().unwrap();
         assert!(error.contains("commit"));
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(!path.join(".tg").exists());

@@ -12,7 +12,8 @@ export abstract class AgentBackend {
   /** Root, name and branch of the Git repository containing `path`; rejects outside a repo. */
   abstract repoInfo(path: string): Promise<RepoInfo>;
   abstract start(agent: AgentId, prompt: string, cwd: string): Promise<string>;
-  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null): Promise<string>;
+  /** `reuse`: continue in the worktree of this finished run (a later pipeline step). */
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null): Promise<string>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
   abstract getDiff(runId: string): Promise<FileDiff[]>;
   abstract acceptHunk(runId: string, path: string, hunkId: string): Promise<void>;
@@ -58,8 +59,8 @@ export class TauriBackend extends AgentBackend {
   start(agent: AgentId, prompt: string, cwd: string) {
     return invoke<string>('start_agent', { agent, prompt, cwd });
   }
-  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null) {
-    return invoke<string>('start_task', { agent, prompt, repo, group });
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null) {
+    return invoke<string>('start_task', { agent, prompt, repo, group, reuse });
   }
   respondPermission(runId: string, requestId: string, optionId: string, always: boolean) {
     return invoke<void>('respond_permission', { runId, requestId, optionId, always });

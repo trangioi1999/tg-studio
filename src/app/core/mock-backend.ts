@@ -131,11 +131,15 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null): Promise<string> {
+    const previous = reuse ? this.task(reuse) : null;
+    if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
     const runId = crypto.randomUUID();
     const run: MockRun = { agent, timers: [], active: true };
     this.runs.set(runId, run);
-    this.tasks.set(runId, { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, pending: true });
+    this.tasks.set(runId, previous
+      ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, pending: true }
+      : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);

@@ -33,9 +33,13 @@
 - Bản ghép chỉ sống trong phiên app (`Composites`), không lưu SQLite. "Dùng bản ghép" đi qua `accept_all` như một run; `GroupChoice` có `compositeId`.
 - UI: khối "Ghép thủ công" trong màn So sánh. Playwright ở mock mode: chọn 3 hunk từ 2 agent → tạo → kiểm tra → áp → commit.
 
+### 2.4 Pipeline engine
+- `start_task(..., reuse)`: bước sau chạy trong worktree của bước trước (bảng `runs` có cột `worktree_owner`, schema v4). Bước trước còn chạy thì từ chối; spawn hỏng không bao giờ xóa worktree dùng chung; xóa worktree từ bất kỳ bước nào cập nhật mọi bước.
+- `PipelineService` (UI): mỗi bước có agent + mẫu prompt (`{{task}}`, `{{previous}}`, `{{diff}}` — diff cắt ở 30 000 ký tự). Bước xong thì chạy bước kế; bước lỗi/dừng thì dừng pipeline. Pipeline chỉ sống trong phiên app.
+- UI: chế độ *Pipeline* trong ô giao việc (mặc định Plan → Build → Review, nhớ ở localStorage), thanh bước trong Thread.
+
 ## Còn lại (theo thứ tự đề xuất)
 
 | ID | Việc | Ghi chú |
 |---|---|---|
-| 2.4 | Pipeline engine | Bước = (agent, prompt mẫu, quyền); output bước trước (tin nhắn cuối, diff) chèn vào prompt bước sau. Test bằng `acp/fake.rs`. |
 | 2.1 | Adapter ACP Codex, Gemini | Đã có lệnh khởi chạy trong `adapters.rs`; cần máy có tài khoản OpenAI/Google để chạy kịch bản của `live_claude_*`. **Chủ repo.** |

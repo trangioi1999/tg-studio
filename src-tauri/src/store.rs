@@ -97,7 +97,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=3 => {},
+            1..=4 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -115,6 +115,11 @@ impl Store {
                     agent TEXT PRIMARY KEY, windows TEXT NOT NULL, at INTEGER NOT NULL
                 );
                 PRAGMA user_version = 3;")?;
+        }
+        if version < 4 {
+            // Pipeline steps after the first reuse the first step's worktree.
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN worktree_owner TEXT;
+                PRAGMA user_version = 4;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -190,13 +195,33 @@ impl Store {
             "INSERT INTO runs (id, agent, prompt, cwd, started_at, status, task_id) VALUES (?1, ?2, ?3, ?4, ?5, 'running', ?6)",
             params![run.id, agent, run.prompt, run.cwd, sql_integer(run.started_at)?, group],
         )?;
-        write_worktree(&tx, run.id, repo, wt)?;
+        if wt.run_id == run.id {
+            write_worktree(&tx, run.id, repo, wt)?;
+        } else {
+            // A shared worktree must still belong to its owner run in the same repo.
+            let path = wt.path.to_str().ok_or(Error::InvalidQuery)?;
+            let owned: i64 = tx.query_row("SELECT COUNT(*) FROM runs WHERE id = ?1 AND repo = ?2 AND worktree = ?3",
+                params![wt.run_id, repo, path], |r| r.get(0))?;
+            if owned != 1 { return Err(Error::QueryReturnedNoRows); }
+            tx.execute("UPDATE runs SET repo = ?2, worktree = ?3, branch = ?4, base = ?5, worktree_owner = ?6 WHERE id = ?1",
+                params![run.id, repo, path, wt.branch, wt.base, wt.run_id])?;
+        }
         tx.commit()
     }
 
+    /// Every run (this one included) that works in the same worktree as `run_id`.
+    pub fn runs_sharing_worktree(&self, run_id: &str) -> Result<Vec<String>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT id FROM runs WHERE worktree IS NOT NULL AND worktree = (SELECT worktree FROM runs WHERE id = ?1)")?;
+        let rows = stmt.query_map([run_id], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    /// Forgets the worktree for this run and every run that shared it.
     pub fn clear_run_worktree(&self, run_id: &str) -> Result<()> {
         self.connection()?.execute(
-            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL WHERE id = ?1",
+            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL, worktree_owner = NULL
+             WHERE worktree IS NOT NULL AND worktree = (SELECT worktree FROM runs WHERE id = ?1)",
             params![run_id],
         )?;
         Ok(())
@@ -204,10 +229,10 @@ impl Store {
 
     pub fn run_worktree(&self, run_id: &str) -> Result<(PathBuf, Worktree)> {
         self.connection()?.query_row(
-            "SELECT repo, worktree, branch, base FROM runs WHERE id = ?1 AND repo IS NOT NULL
+            "SELECT repo, worktree, branch, base, COALESCE(worktree_owner, id) FROM runs WHERE id = ?1 AND repo IS NOT NULL
                 AND worktree IS NOT NULL AND branch IS NOT NULL AND base IS NOT NULL",
             [run_id], |row| Ok((PathBuf::from(row.get::<_, String>(0)?), Worktree {
-                run_id: run_id.into(), path: PathBuf::from(row.get::<_, String>(1)?),
+                run_id: row.get(4)?, path: PathBuf::from(row.get::<_, String>(1)?),
                 branch: row.get(2)?, base: row.get(3)?,
             })),
         )
@@ -373,6 +398,24 @@ mod tests {
     }
 
     #[test]
+    fn later_runs_can_share_a_worktree_and_clearing_any_clears_all() {
+        let store = Store::open_in_memory().unwrap();
+        let wt = crate::worktree::Worktree { run_id: "a".into(), path: "/wt/a".into(), branch: "b".into(), base: "c".into() };
+        store.insert_run_with_worktree(&NewRun { id: "a", agent: AgentKind::Claude, prompt: "plan", cwd: "/wt/a", started_at: 1 }, "/repo", &wt, None).unwrap();
+        store.insert_run_with_worktree(&NewRun { id: "b", agent: AgentKind::Codex, prompt: "build", cwd: "/wt/a", started_at: 2 }, "/repo", &wt, None).unwrap();
+        // The second run resolves to the owner's worktree, so removal finds it.
+        assert_eq!(store.run_worktree("b").unwrap(), (PathBuf::from("/repo"), wt.clone()));
+        // Sharing needs the owner in the same repo.
+        assert!(store.insert_run_with_worktree(&NewRun { id: "x", agent: AgentKind::Codex, prompt: "p", cwd: "/", started_at: 3 }, "/other", &wt, None).is_err());
+        let mut sharing = store.runs_sharing_worktree("b").unwrap();
+        sharing.sort();
+        assert_eq!(sharing, vec!["a", "b"]);
+        store.clear_run_worktree("b").unwrap();
+        assert!(store.run_worktree("a").is_err());
+        assert!(store.run_worktree("b").is_err());
+    }
+
+    #[test]
     fn limits_keep_the_newest_report_per_agent() {
         let store = Store::open_in_memory().unwrap();
         let window = |u: f64| vec![LimitWindow { id: "five_hour".into(), utilization: u, resets_at: Some(9), status: Some("allowed".into()) }];
@@ -437,7 +480,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 3);
+            assert_eq!(version, 4);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();
