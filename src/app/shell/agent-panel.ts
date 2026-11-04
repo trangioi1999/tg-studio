@@ -79,9 +79,11 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
               </div>
             }
 
-            <div class="ap-thread" [style.--agent]="meta[r.agent].color">
-              <div class="ap-who"><tg-agent-avatar [agent]="r.agent" [size]="16" /><strong>{{ meta[r.agent].name }}</strong><span class="dim">{{ statusLabel[r.status] }} · {{ duration(r) }}</span></div>
-              @if (r.progress; as p) {
+            @for (tr of threadRuns(); track tr.id; let first = $first) {
+              @if (!first) { <p class="ap-user">{{ tr.prompt }}</p> }
+            <div class="ap-thread" [style.--agent]="meta[tr.agent].color">
+              <div class="ap-who"><tg-agent-avatar [agent]="tr.agent" [size]="16" /><strong>{{ meta[tr.agent].name }}</strong><span class="dim">{{ statusLabel[tr.status] }} · {{ duration(tr) }}</span></div>
+              @if (tr.progress; as p) {
                 <div class="ap-progress" [attr.title]="p.note ?? ''">
                   <span class="ellipsis">{{ p.step }}</span>
                   @if (p.pct !== null) {
@@ -90,7 +92,7 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
                   }
                 </div>
               }
-              @for (l of r.lines; track $index) {
+              @for (l of tr.lines; track $index) {
                 @switch (l.tone) {
                   @case ('text') { <p class="ap-msg">{{ l.text }}</p> }
                   @case ('user') { <p class="ap-user">{{ l.text }}</p> }
@@ -100,6 +102,7 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
                 }
               }
             </div>
+            }
             @if (quiet()) {
               <div class="ap-quiet" role="status">
                 <span>Agent chưa phản hồi 30 giây. Có thể vẫn đang xử lý.</span>
@@ -277,6 +280,13 @@ export class AgentPanel {
   protected readonly tab = signal<'thread' | 'plan' | 'runs'>('thread');
   protected readonly run = computed(() => this.runs.selected());
   /** The selected run and, for a parallel task, the rest of its group. */
+  /** What the conversation has said so far. Parallel runs are compared, so each shows alone. */
+  protected readonly threadRuns = computed(() => {
+    const r = this.run();
+    if (!r) return [];
+    if (r.group) return [r];
+    return this.runs.runs().filter((x) => x.thread === r.thread).sort((a, b) => a.startedAt - b.startedAt);
+  });
   protected readonly taskRuns = computed(() => {
     const r = this.run();
     if (!r) return [];
@@ -318,8 +328,14 @@ export class AgentPanel {
   protected readonly chosen = signal<AgentId | ''>('');
   /** A conversation keeps its agent until the user picks another. */
   private readonly followRun = effect(() => {
-    const agent = this.run()?.agent;
-    if (agent) untracked(() => this.chosen.set(agent));
+    const r = this.run();
+    if (!r) return;
+    untracked(() => {
+      this.chosen.set(r.agent);
+      // A conversation keeps its mode too: the next question stays a question.
+      if (!r.task) this.mode.set('read');
+      else if (this.mode() === 'read') this.mode.set('task');
+    });
   });
   protected readonly error = signal<string | null>(null);
   protected readonly picks = signal<AgentId[] | null>(null);
@@ -341,6 +357,7 @@ export class AgentPanel {
   /** Why Run is disabled, in words. */
   protected readonly blocked = computed(() => {
     if (this.budget.blockReason()) return this.budget.blockReason();
+    if (this.mode() === 'read' && this.run() && !this.run()!.task && this.run()!.status === 'running') return 'Agent đang trả lời. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (this.mode() === 'task' && this.run()?.task && this.run()?.status === 'running') return 'Agent đang chạy. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
     if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
@@ -414,6 +431,7 @@ export class AgentPanel {
   });
   protected readonly placeholder = computed(() => {
     const r = this.run();
+    if (this.mode() === 'read' && r && !r.task && r.status !== 'running') return `Hỏi tiếp ${AGENT_META[r.agent].name}… (Enter để gửi, Shift+Enter để xuống dòng)`;
     if (this.mode() === 'task' && r?.task && r.status !== 'running') return `Nhắn tiếp cho ${AGENT_META[r.agent].name}, hoặc @mention agent khác… (Enter để gửi, Shift+Enter để xuống dòng)`;
     return 'Giao việc, hỏi, hoặc @mention agent… (Enter để gửi, Shift+Enter để xuống dòng)';
   });
@@ -549,7 +567,11 @@ export class AgentPanel {
           if (agent === current.agent && current.status === 'idle') await this.runs.sendMessage(current.id, text);
           else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current), thread: current.thread });
         } else if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd);
-        else await this.runs.start(agent, text, cwd);
+        else {
+          // The next question of a conversation continues it; the core resumes the CLI's session.
+          const asked = current && !current.task && current.status !== 'running' ? current : null;
+          await this.runs.start(agent, text, cwd, asked?.thread, asked?.id ?? null);
+        }
       }
       this.prompt.set('');
       this.tab.set('thread');

@@ -191,8 +191,8 @@ export class RunsService {
     if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
 
-  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID()): Promise<void> {
-    const id = await this.backend.start(agent, prompt, cwd, thread);
+  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null): Promise<void> {
+    const id = await this.backend.start(agent, prompt, cwd, thread, resumeFrom);
     this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd }));
     this.selectedId.set(id);
   }

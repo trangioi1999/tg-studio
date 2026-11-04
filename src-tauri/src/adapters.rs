@@ -59,6 +59,20 @@ impl AgentKind {
             .or_else(|| which("npx").map(|path| (path, vec!["-y".into(), package.into()])))
     }
 
+    /// Continues the CLI's own session. Writing stays blocked, as in `headless_args`.
+    pub fn resume_args(self, args: Vec<String>, session: &str) -> Vec<String> {
+        match self {
+            AgentKind::Claude => args.into_iter().chain(["--resume".to_string(), session.to_string()]).collect(),
+            // `exec resume` has no --sandbox flag; its config override does the same.
+            AgentKind::Codex => {
+                let prompt = args.last().cloned().unwrap_or_default();
+                ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", session].into_iter()
+                    .map(String::from).chain([prompt]).collect()
+            }
+            AgentKind::Gemini | AgentKind::Kiro => args,
+        }
+    }
+
     /// A headless run's arguments and what to write to its stdin. Rust refuses line breaks in
     /// arguments to a batch file, which is what npm installs on Windows, so such a prompt goes
     /// through stdin. Everywhere else it stays an argument, as each CLI documents first.
@@ -112,6 +126,16 @@ mod tests {
         }
         assert_eq!(AgentKind::Gemini.headless_args("x"), None, "chưa kiểm chứng được cờ chặn ghi");
         assert_eq!(AgentKind::Kiro.headless_args("x"), None);
+    }
+
+    #[test]
+    fn resuming_a_read_only_run_stays_read_only() {
+        let (args, _) = AgentKind::Claude.headless_invocation("câu hai", Path::new("/bin/claude")).unwrap();
+        let args = AgentKind::Claude.resume_args(args, "s1");
+        assert!(args.windows(2).any(|w| w == ["--resume", "s1"]));
+        assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
+        let (args, _) = AgentKind::Codex.headless_invocation("câu hai", Path::new("/bin/codex")).unwrap();
+        assert_eq!(AgentKind::Codex.resume_args(args, "s1"), ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", "s1", "câu hai"]);
     }
 
     #[test]
