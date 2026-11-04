@@ -5,12 +5,13 @@ import { fmtDuration, fmtTokens } from '../core/format';
 import { AGENT_META, AgentId } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
+import { CodeEditor } from './code-editor';
 import { DiffViewer } from './diff-viewer';
 import { PermissionCard } from './permission-card';
 
 @Component({
   selector: 'tg-run-console',
-  imports: [AgentAvatar, DiffViewer, PermissionCard],
+  imports: [AgentAvatar, CodeEditor, DiffViewer, PermissionCard],
   template: `
     <section class="composer">
       <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
@@ -66,6 +67,7 @@ import { PermissionCard } from './permission-card';
             <div class="segmented" role="group" aria-label="Chế độ xem">
               <button [class.active]="view() === 'log'" [attr.aria-pressed]="view() === 'log'" (click)="view.set('log')">Log</button>
               <button [class.active]="view() === 'changes'" [attr.aria-pressed]="view() === 'changes'" (click)="view.set('changes')">Thay đổi</button>
+              <button [class.active]="view() === 'editor'" [attr.aria-pressed]="view() === 'editor'" (click)="view.set('editor')">Editor</button>
             </div>
           }
           @if (r.status === 'running') { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
@@ -73,6 +75,8 @@ import { PermissionCard } from './permission-card';
         @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
         @if (r.task && view() === 'changes') {
           <tg-diff-viewer [runId]="r.id" [agent]="r.agent" [running]="r.status === 'running'" [suggestion]="r.lastMessage" />
+        } @else if (r.task && view() === 'editor') {
+          <tg-code-editor [runId]="r.id" [agent]="r.agent" [running]="r.status === 'running'" />
         } @else {
           <div class="console-body mono">
             @for (l of r.lines; track $index) { <div class="line" [attr.data-tone]="l.tone">{{ l.text }}</div> }
@@ -94,7 +98,7 @@ export class RunConsole implements OnInit {
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly mode = signal<'task' | 'read'>('task');
-  protected readonly view = signal<'log' | 'changes'>('log');
+  protected readonly view = signal<'log' | 'changes' | 'editor'>('log');
   /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */
   protected readonly choices = computed(() =>
     this.mode() === 'task' ? this.agents.agents().filter((a) => a.path) : this.agents.runnable(),

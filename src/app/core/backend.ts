@@ -17,6 +17,11 @@ export abstract class AgentBackend {
   abstract rejectHunk(runId: string, path: string, hunkId: string): Promise<void>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
+  /** Paths relative to the task's worktree, sorted. */
+  abstract listFiles(runId: string): Promise<string[]>;
+  abstract readFile(runId: string, path: string): Promise<string>;
+  /** Overwrites an existing worktree file; refused while the agent runs. */
+  abstract writeFile(runId: string, path: string, content: string): Promise<void>;
   abstract stop(runId: string): Promise<void>;
   /** Run history saved by earlier app sessions, newest first. */
   abstract listRuns(): Promise<StoredRun[]>;
@@ -57,6 +62,15 @@ export class TauriBackend extends AgentBackend {
   }
   discardWorktree(runId: string) {
     return invoke<void>('discard_worktree', { runId });
+  }
+  listFiles(runId: string) {
+    return invoke<string[]>('list_worktree_files', { runId });
+  }
+  readFile(runId: string, path: string) {
+    return invoke<string>('read_worktree_file', { runId, path });
+  }
+  writeFile(runId: string, path: string, content: string) {
+    return invoke<void>('write_worktree_file', { runId, path, content });
   }
   stop(runId: string) {
     return invoke<void>('stop_agent', { runId });

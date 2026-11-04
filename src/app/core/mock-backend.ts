@@ -9,6 +9,7 @@ interface MockRun {
 
 interface MockTask {
   files: FileDiff[];
+  contents: Map<string, string>;
   accepted: number;
   pending: boolean;
 }
@@ -32,6 +33,19 @@ function mockDiff(): FileDiff[] {
       hunks: [hunk('h3', '@@ -0,0 +1,2 @@', ['+# Ghi chú', '+Nội dung mới'])],
     },
   ];
+}
+
+/** Worktree contents that match `mockDiff()`: new lines 10–13 and 42 of app.ts are the agent's. */
+function mockContents(): Map<string, string> {
+  const app = Array.from({ length: 48 }, (_, i) => `// dòng ${i + 1}`);
+  app.splice(9, 4, 'export class App {', '  title = "mới";', '  ready = true;', '}');
+  app.splice(40, 3, 'run() {', '  return 2;', '}');
+  return new Map([
+    ['README.md', '# Demo\n\nRepo mô phỏng cho chế độ trình duyệt.\n'],
+    ['docs/ghi chú mới.md', '# Ghi chú\nNội dung mới\n'],
+    ['package.json', '{\n  "name": "demo",\n  "private": true\n}\n'],
+    ['src/app/app.ts', app.join('\n') + '\n'],
+  ]);
 }
 
 /**
@@ -89,7 +103,7 @@ export class MockBackend extends AgentBackend {
     const runId = crypto.randomUUID();
     const run: MockRun = { agent, timers: [], active: true };
     this.runs.set(runId, run);
-    this.tasks.set(runId, { files: mockDiff(), accepted: 0, pending: true });
+    this.tasks.set(runId, { files: mockDiff(), contents: mockContents(), accepted: 0, pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
@@ -164,6 +178,23 @@ export class MockBackend extends AgentBackend {
     await this.stop(runId);
     this.tasks.delete(runId);
     this.runs.delete(runId);
+  }
+
+  async listFiles(runId: string): Promise<string[]> {
+    return [...this.task(runId).contents.keys()].sort();
+  }
+
+  async readFile(runId: string, path: string): Promise<string> {
+    const text = this.task(runId).contents.get(path);
+    if (text === undefined) throw new Error(`Không mở được ${path}.`);
+    return text;
+  }
+
+  async writeFile(runId: string, path: string, content: string): Promise<void> {
+    const task = this.task(runId);
+    if (this.runs.get(runId)?.active) throw new Error('Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.');
+    if (!task.contents.has(path)) throw new Error(`${path} không còn trong worktree.`);
+    task.contents.set(path, content);
   }
 
   private task(runId: string): MockTask {
