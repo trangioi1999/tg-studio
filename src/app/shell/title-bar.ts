@@ -15,9 +15,9 @@ import { AgentAvatar } from './agent-avatar';
       <span class="brand" data-tauri-drag-region>TG Studio</span>
       @if (editing()) {
         <form class="repo-edit" (submit)="$event.preventDefault(); apply()">
-          <input class="mono" aria-label="Thư mục làm việc" [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown.escape)="editing.set(false)" spellcheck="false" />
+          <input class="mono" aria-label="Thư mục làm việc" [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown.escape)="cancelEdit()" spellcheck="false" />
           <button class="btn primary sm" type="submit">Mở</button>
-          <button class="btn ghost sm" type="button" (click)="editing.set(false)">Hủy</button>
+          <button class="btn ghost sm" type="button" (click)="cancelEdit()">Hủy</button>
         </form>
       } @else {
         <button class="repo" (click)="startEdit()" [title]="workspace.repo()?.root ?? workspace.folder()">
@@ -26,11 +26,14 @@ import { AgentAvatar } from './agent-avatar';
             <span class="dim">/</span>
             <span class="mono branch">{{ r.branch ?? '(HEAD tách rời)' }}</span>
           } @else {
-            <span class="mono ellipsis">{{ workspace.folder() || 'Chọn thư mục…' }}</span>
-            <span class="tag warn">không phải repo Git</span>
+            <span class="mono ellipsis">{{ workspace.folder() || 'Nhập đường dẫn…' }}</span>
+            @if (workspace.folder()) { <span class="tag warn">không phải repo Git</span> }
           }
+          @if (workspace.project()?.git === 'no_commits') { <span class="tag warn">chưa có commit</span> }
         </button>
       }
+      <button class="btn ghost sm" (click)="pick()">Mở thư mục</button>
+      @if (workspace.folderError(); as e) { <span class="error-text ellipsis" role="alert" [title]="e">{{ e }}</span> }
       <span class="spacer" data-tauri-drag-region></span>
       <div class="presence">
         @for (r of live(); track r.id) {
@@ -63,13 +66,23 @@ export class TitleBar {
     return 'đang chạy';
   }
 
+  protected async pick(): Promise<void> {
+    await this.workspace.pickFolder();
+    if (!this.workspace.folderError()) this.editing.set(false);
+  }
+
+  protected cancelEdit(): void {
+    this.editing.set(false);
+    this.workspace.folderError.set(null);
+  }
+
   protected startEdit(): void {
     this.draft.set(this.workspace.folder());
     this.editing.set(true);
   }
 
   protected async apply(): Promise<void> {
-    await this.workspace.setFolder(this.draft().trim());
-    this.editing.set(false);
+    // A failed path stays in the box so it can be corrected.
+    if (await this.workspace.setFolder(this.draft())) this.editing.set(false);
   }
 }

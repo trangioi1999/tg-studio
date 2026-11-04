@@ -5,7 +5,6 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::Mut
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use tokio::process::Command;
 
 use crate::{diff::{self, FileDiff}, env, store::Store, worktree::{self, Worktree}};
 
@@ -67,9 +66,9 @@ pub fn compose(repo: &Path, id: &str, sources: &HashMap<String, Worktree>, picks
 pub async fn run_check(cwd: &Path, command: &str) -> Result<CheckResult, String> {
     if command.trim().is_empty() { return Err("Hãy nhập lệnh kiểm tra, ví dụ npm test.".into()); }
     #[cfg(windows)]
-    let mut cmd = { let mut c = Command::new("cmd"); c.args(["/C", command]); c };
+    let mut cmd = { let mut c = env::command("cmd"); c.args(["/C", command]); c };
     #[cfg(not(windows))]
-    let mut cmd = { let mut c = Command::new("sh"); c.args(["-c", command]); c };
+    let mut cmd = { let mut c = env::command("sh"); c.args(["-c", command]); c };
     cmd.current_dir(cwd).env("PATH", env::login_path()).stdin(Stdio::null())
         .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     let started = Instant::now();

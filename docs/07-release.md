@@ -5,7 +5,7 @@ Tài liệu Tauri về phân phối: <https://v2.tauri.app/distribute/> — ki�
 ## 1. Phiên bản
 
 - SemVer `MAJOR.MINOR.PATCH`; beta: `0.x.y-beta.n`.
-- Một nguồn sự thật: `version` trong `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` phải khớp (script `npm run version:sync` — cần viết).
+- Một nguồn sự thật: `version` trong `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` phải khớp (`npm run version:sync`, CI kiểm tra bằng `version:check`).
 - Ghi `CHANGELOG.md` mỗi bản phát hành.
 
 ## 2. Build cục bộ

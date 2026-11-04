@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
 import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
@@ -35,9 +36,6 @@ class FakeBackend extends MockBackend {
   history: Promise<StoredRun[]> = Promise.resolve([]);
   override detectAgents(): Promise<DetectedAgent[]> {
     return Promise.resolve([]);
-  }
-  override homeDir() {
-    return Promise.resolve(null);
   }
   override start(_agent: AgentId, _prompt: string, _cwd: string) {
     return Promise.resolve('new');
@@ -508,5 +506,28 @@ describe('RunsService tg-bridge events', () => {
     expect(service.runs().find((x) => x.id === next)?.prompt).toBe(h.task);
     expect(service.handoffs()).toEqual([]);
     await expect(service.acceptHandoff('gone', '/repo')).rejects.toThrow('không còn');
+  });
+});
+
+describe('RunsService clock', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('ticks only while a run is running', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    const { backend, service } = setup([]);
+    await flush();
+    TestBed.tick();
+    const idle = service.now();
+    vi.advanceTimersByTime(5000);
+    expect(service.now()).toBe(idle);
+    backend.handler(liveEvent({ kind: 'started' }));
+    TestBed.tick();
+    vi.advanceTimersByTime(1000);
+    expect(service.now()).toBeGreaterThan(idle);
+    backend.handler(liveEvent({ kind: 'exit', code: 0 }));
+    TestBed.tick();
+    const ended = service.now();
+    vi.advanceTimersByTime(5000);
+    expect(service.now()).toBe(ended);
   });
 });

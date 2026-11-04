@@ -3,7 +3,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -16,7 +16,7 @@ pub struct Worktree {
 }
 
 pub fn git(cwd: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut child = crate::env::std_command("git")
         .current_dir(cwd)
         .env("PATH", crate::env::login_path())
         .args(["-c", "core.quotepath=false"])
@@ -130,11 +130,6 @@ pub fn info(path: &Path) -> Result<RepoInfo, String> {
         .map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
     let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok(RepoInfo { root: root.to_string_lossy().into_owned(), name, branch })
-}
-
-#[tauri::command]
-pub async fn repo_info(path: String) -> Result<RepoInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || info(Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
 pub fn list(repo: &Path) -> Result<Vec<Worktree>, String> {

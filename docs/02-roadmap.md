@@ -3,6 +3,18 @@
 Tổng: ~14 tuần tới beta. Mỗi giai đoạn kết thúc bằng bản chạy được trên **cả macOS và Windows**.
 Ký hiệu: `[x]` xong · `[ ]` chưa · **XK** = tiêu chí "xong khi".
 
+## Làm lại trải nghiệm chính (chat-first)
+
+Thiết kế: `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Thứ tự: M-D → M0, M1, M2 → M3 → M4 → M5.
+
+- [x] **M-D Tự dùng app** — lõi đã kiểm chứng với Claude và Codex thật (`live_codex_edit_diff_accept_commit`, `live_claude_and_codex_in_parallel_use_one`); còn bấm thử trọn luồng trong app desktop. Plan: `docs/superpowers/plans/2026-11-05-m-d-self-hosting.md`
+- [ ] **M0** Windows ổn — còn thử bản cài trên máy thật
+- [ ] **M1** Mở dự án đầy đủ: dự án gần đây, chuẩn bị Git, xem source chỉ đọc
+- [ ] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
+- [ ] **M3** Chat trong một phiên agent, phạm vi thư mục
+- [ ] **M4** Bố cục mới
+- [ ] **M5** Dọn thuật ngữ, thông báo, tài liệu, nghiệm thu
+
 ## Giai đoạn 0 — Nền móng (tuần 1–2)
 
 - [x] Angular 22 + Tauri 2, dark IDE shell

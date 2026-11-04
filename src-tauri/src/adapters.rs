@@ -2,7 +2,15 @@
 //! (non-interactive) mode; phase 1 adds an ACP client for richer control.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::{Path, PathBuf}, time::Duration};
+
+/// npm may need to download the adapter before its first ACP reply.
+pub fn setup_timeout(program: &Path) -> Duration {
+    // Also recognize Windows paths when checking configuration on macOS/Unix.
+    let normalized = program.to_string_lossy().replace('\\', "/");
+    let is_npx = Path::new(&normalized).file_stem().is_some_and(|stem| stem == "npx");
+    Duration::from_secs(if is_npx { 300 } else { 60 })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -43,7 +51,7 @@ impl AgentKind {
     pub fn acp_command(self, which: impl Fn(&str) -> Option<PathBuf>) -> Option<(PathBuf, Vec<String>)> {
         let (binary, package) = match self {
             AgentKind::Claude => ("claude-agent-acp", "@agentclientprotocol/claude-agent-acp@0.100.0"),
-            AgentKind::Codex => ("codex-acp", "@zed-industries/codex-acp@0.16.0"),
+            AgentKind::Codex => ("codex-acp", "@agentclientprotocol/codex-acp@2.5.0"),
             AgentKind::Kiro => return which("kiro-cli").map(|path| (path, vec!["acp".into()])),
             AgentKind::Gemini => return which("gemini").map(|path| (path, vec!["--experimental-acp".into()])),
         };
@@ -82,6 +90,13 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
+    fn setup_timeout_is_longer_through_npx() {
+        assert_eq!(setup_timeout(&PathBuf::from("/bin/npx")), std::time::Duration::from_secs(300));
+        assert_eq!(setup_timeout(&PathBuf::from(r"C:\n\npx.cmd")), std::time::Duration::from_secs(300));
+        assert_eq!(setup_timeout(&PathBuf::from("/bin/codex-acp")), std::time::Duration::from_secs(60));
+    }
+
+    #[test]
     fn acp_prefers_dedicated_adapters() {
         for (agent, binary) in [(AgentKind::Claude, "claude-agent-acp"), (AgentKind::Codex, "codex-acp")] {
             let command = agent.acp_command(|name| Some(PathBuf::from(format!("/bin/{name}")))).unwrap();
@@ -91,7 +106,7 @@ mod tests {
 
     #[test]
     fn acp_fallback_uses_pinned_packages() {
-        for (agent, package) in [(AgentKind::Claude, "@agentclientprotocol/claude-agent-acp@0.100.0"), (AgentKind::Codex, "@zed-industries/codex-acp@0.16.0")] {
+        for (agent, package) in [(AgentKind::Claude, "@agentclientprotocol/claude-agent-acp@0.100.0"), (AgentKind::Codex, "@agentclientprotocol/codex-acp@2.5.0")] {
             assert_eq!(agent.acp_command(|name| (name == "npx").then(|| PathBuf::from("/bin/npx"))),
                 Some((PathBuf::from("/bin/npx"), vec!["-y".into(), package.into()])));
         }

@@ -46,6 +46,11 @@ interface Row {
         } @empty {
           <p class="dim pad">Worktree chưa có tệp.</p>
         }
+      } @else if (!workspace.folder()) {
+        <div class="pad">
+          <p class="dim">Chưa mở dự án nào.</p>
+          <button class="btn primary sm" (click)="workspace.pickFolder()">Mở thư mục</button>
+        </div>
       } @else {
         <p class="dim pad">Chọn một task Sửa code (ở mục Worktrees bên dưới hoặc tab Runs) để xem tệp của nó. Giao việc ở ô bên phải.</p>
       }
@@ -67,7 +72,7 @@ interface Row {
 })
 export class Explorer {
   protected readonly runs = inject(RunsService);
-  private readonly workspace = inject(WorkspaceService);
+  protected readonly workspace = inject(WorkspaceService);
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly collapsed = signal(new Set<string>());

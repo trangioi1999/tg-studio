@@ -18,6 +18,7 @@ npm test -- --watch=false --include src/app/app.spec.ts # một file spec
 (cd src-tauri && cargo test)                            # test Rust
 (cd src-tauri && cargo test claude_result_line)         # một test Rust
 (cd src-tauri && TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture)  # chạy adapter Claude thật, tốn token
+(cd src-tauri && TG_LIVE_ACP=1 cargo test live_codex -- --ignored --nocapture)   # chạy adapter Codex thật, tốn token
 (cd src-tauri && cargo build && TG_LIVE_ACP=1 TG_BRIDGE_EXE=$PWD/target/debug/tg-studio cargo test live_claude_tg_bridge -- --ignored)  # tg-bridge với Claude thật
 ```
 
@@ -42,6 +43,9 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Chi phí:** dùng `costUsd` do CLI báo nếu có, không thì ước tính bằng giá có hiệu lực lúc lượt chạy bắt đầu (`PRICE_HISTORY` trong `pricing.ts`, nạp từ SQLite, sửa ở màn Usage). Luôn truyền `startedAt` vào `estimateCost`/`costOf`. Biểu đồ dùng `AGENT_META[a].chart`, không dùng `color`.
 - **Trạng thái dừng:** `stop_agent` kill tiến trình và event `exit` có `code` là null. UI phân biệt `stopped` với `failed` bằng tập `stopping` trong `RunsService`, không phải bằng dữ liệu từ lõi.
 - **PATH:** mọi tiến trình con phải dùng `env::which` và `.env("PATH", env::login_path())`, nếu không app mở từ Finder sẽ không thấy CLI cài qua nvm hoặc Homebrew.
+- **Tiến trình con:** luôn tạo bằng `env::command` / `env::std_command`, không dùng `Command::new`. Trên Windows nếu thiếu cờ `CREATE_NO_WINDOW`, mỗi tiến trình bật một cửa sổ cmd trống, đóng nó là chết agent. Có test chặn.
+- **Mở thư mục:** `project.rs` chuẩn hoá và kiểm tra đường dẫn; `WorkspaceService` chỉ lưu sau khi thành công. Mock mô phỏng lỗi qua chữ trong đường dẫn: `missing`, `nogit`, `nocommit`.
+- **Hàng chờ duyệt:** index của worktree có thể bị agent đổi bằng `git add`/`commit`, nên phần đã nhận lưu ở tệp `tg-accepted` trong git dir của worktree; `diff::pending` khôi phục index từ đó trước khi diff.
 - **Kiro:** `headless_args` trả về `None`, và `detect.rs` dựa vào đó để đặt cờ `headless`. Kiro chỉ dò được, chưa chạy được cho đến khi có ACP ở giai đoạn 1.
 - **Lịch sử:** `runner.rs` ghi event vào SQLite (`store.rs`) trước khi phát lên UI, và lỗi ghi không được làm hỏng lượt chạy. Lượt nạp lại có `restored: true`, nên logic usage của phiên phải dùng `sessionRuns`, không dùng `runs`.
 
@@ -63,4 +67,4 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 
 **Giao diện:** component trong `src/app/shell/` không có style riêng; toàn bộ CSS nằm trong `src/styles.scss`. Chuỗi hiển thị cho người dùng, kể cả lỗi trả về từ Rust, viết bằng tiếng Việt.
 
-Trạng thái hiện tại là giai đoạn 4 (đóng gói); phần còn lại cần tài khoản/chứng chỉ của chủ repo. Lộ trình nằm trong `docs/02-roadmap.md`, hướng dẫn người dùng ở `docs/user-guide.md`. Phát hành: `npm run version:sync` rồi đẩy tag `vX.Y.Z` (xem `docs/07-release.md` §6).
+Đang làm lại trải nghiệm chính theo `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Giai đoạn 4 (đóng gói) tạm dừng tới sau M5; phần còn lại cần tài khoản/chứng chỉ của chủ repo. Lộ trình nằm trong `docs/02-roadmap.md`, hướng dẫn người dùng ở `docs/user-guide.md`. Phát hành: `npm run version:sync` rồi đẩy tag `vX.Y.Z` (xem `docs/07-release.md` §6).
