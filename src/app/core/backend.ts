@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -18,6 +18,9 @@ export abstract class AgentBackend {
   abstract listProjectFiles(root: string): Promise<string[]>;
   /** Reads a file of an opened project. There is no way to write through here. */
   abstract readProjectFile(root: string, path: string): Promise<string>;
+  abstract gitPlan(root: string): Promise<GitPlan>;
+  /** Makes the folder a repository with a first commit, never including secrets. */
+  abstract gitPrepare(root: string, name: string | null, email: string | null): Promise<Project>;
   abstract start(agent: AgentId, prompt: string, cwd: string, thread?: string | null): Promise<string>;
   /**
    * `reuse`: continue in the worktree of this finished run. `singleTurn`: close the session
@@ -100,6 +103,12 @@ export class TauriBackend extends AgentBackend {
   }
   readProjectFile(root: string, path: string) {
     return invoke<string>('read_project_file', { root, path });
+  }
+  gitPlan(root: string) {
+    return invoke<GitPlan>('git_plan', { root });
+  }
+  gitPrepare(root: string, name: string | null, email: string | null) {
+    return invoke<Project>('git_prepare', { root, name, email });
   }
   start(agent: AgentId, prompt: string, cwd: string, thread: string | null = null) {
     return invoke<string>('start_agent', { agent, prompt, cwd, thread });

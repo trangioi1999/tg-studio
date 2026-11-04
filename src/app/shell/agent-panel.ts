@@ -5,7 +5,8 @@ import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
 import { KEYS } from '../core/keys';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
 import { estimateCost } from '../core/pricing';
-import { AGENT_IDS, AGENT_META, AgentId, BridgeNote } from '../core/protocol';
+import { AgentBackend } from '../core/backend';
+import { AGENT_IDS, AGENT_META, AgentId, BridgeNote, GitPlan } from '../core/protocol';
 import { Run, RunsService, isQuiet, recapOf } from '../core/runs.service';
 import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
@@ -222,6 +223,36 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
           <p class="dim ap-hint"><code>{{ '{{task}}' }}</code> yêu cầu · <code>{{ '{{previous}}' }}</code> tin nhắn cuối của bước trước · <code>{{ '{{diff}}' }}</code> diff hiện tại. <button class="link" (click)="resetSteps()">Khôi phục mặc định</button></p>
         }
       }
+      @if (needsGit(); as label) {
+        @if (gitPlan(); as plan) {
+          <div class="ap-git" role="group" aria-label="Chuẩn bị Git">
+            <p>Sẽ tạo commit đầu tiên gồm {{ plan.files }} tệp.</p>
+            @if (plan.ignore.length) {
+              <p class="dim">Thêm vào <code>.gitignore</code> để không commit nhầm bí mật và thư viện:</p>
+              <pre class="mono ap-git-ignore">{{ plan.ignore.join('\n') }}</pre>
+            }
+            @if (!workspace.project()?.gitUser) {
+              <input aria-label="Tên trong Git" placeholder="Tên của bạn" [value]="gitName()" (input)="gitName.set($any($event.target).value)" />
+              <input aria-label="Email trong Git" placeholder="Email" [value]="gitEmail()" (input)="gitEmail.set($any($event.target).value)" />
+            }
+            <div class="permission-actions">
+              <button class="btn ghost sm" (click)="gitPlan.set(null)">Hủy</button>
+              <button class="btn primary sm" [disabled]="gitBusy()" (click)="prepareGit()">Đồng ý</button>
+            </div>
+          </div>
+        } @else {
+          <div><button class="btn ghost sm" [disabled]="gitBusy()" (click)="planGit()">{{ label }}</button></div>
+        }
+      }
+      @if (dirtyWarning(); as n) {
+        <div class="ap-quiet" role="alert">
+          <span>Bạn có {{ n }} tệp chưa commit. Bản nháp bắt đầu từ commit mới nhất nên agent sẽ không thấy chúng.</span>
+          <span class="permission-actions">
+            <button class="btn ghost sm" (click)="dirtyWarning.set(null)">Hủy</button>
+            <button class="btn primary sm" (click)="sendAnyway()">Tiếp tục</button>
+          </span>
+        </div>
+      }
       @if (blocked(); as b) { <p class="dim ap-hint">{{ b }}</p> }
       @else if (loginHint(); as h) { <p class="ap-hint warn-text">{{ h }}</p> }
       @if (error()) { <p class="error-text">{{ error() }}</p> }
@@ -233,7 +264,7 @@ export class AgentPanel {
   private readonly agents = inject(AgentsService);
   private readonly pipelines = inject(PipelineService);
   private readonly budget = inject(BudgetService);
-  private readonly workspace = inject(WorkspaceService);
+  protected readonly workspace = inject(WorkspaceService);
   private readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
   protected readonly keys = KEYS;
@@ -313,8 +344,8 @@ export class AgentPanel {
     if (this.mode() === 'task' && this.run()?.task && this.run()?.status === 'running') return 'Agent đang chạy. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
     if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
-    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: mở thư mục khác, hoặc dùng Chỉ đọc.';
-    if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: hãy commit trong dự án, hoặc dùng Chỉ đọc.';
+    if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: bấm Khởi tạo Git, hoặc dùng Chỉ đọc.';
+    if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: bấm Tạo commit đầu tiên, hoặc dùng Chỉ đọc.';
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Song song cần ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
@@ -325,6 +356,49 @@ export class AgentPanel {
     const found = id ? this.agents.agents().find((a) => a.id === id) : null;
     return found?.auth === 'none' ? `${found.name} có thể chưa đăng nhập. Chạy trong terminal: ${AGENT_META[found.id].login}` : null;
   });
+  protected readonly gitPlan = signal<GitPlan | null>(null);
+  protected readonly gitBusy = signal(false);
+  protected readonly gitName = signal('');
+  protected readonly gitEmail = signal('');
+  protected readonly dirtyWarning = signal<number | null>(null);
+  private readonly backend = inject(AgentBackend);
+  private dirtyAccepted = false;
+  /** The button that makes this folder usable for code tasks, if it needs one. */
+  protected readonly needsGit = computed(() => {
+    const project = this.workspace.project();
+    if (!project || this.mode() === 'read') return null;
+    return project.git === 'none' ? 'Khởi tạo Git…' : project.git === 'no_commits' ? 'Tạo commit đầu tiên…' : null;
+  });
+
+  protected async planGit(): Promise<void> {
+    await this.gitAction(async () => this.gitPlan.set(await this.backend.gitPlan(this.workspace.folder())));
+  }
+
+  protected async prepareGit(): Promise<void> {
+    await this.gitAction(async () => {
+      this.workspace.applyProject(await this.backend.gitPrepare(this.workspace.folder(), this.gitName() || null, this.gitEmail() || null));
+      this.gitPlan.set(null);
+    });
+  }
+
+  private async gitAction(work: () => Promise<void>): Promise<void> {
+    this.gitBusy.set(true);
+    this.error.set(null);
+    try {
+      await work();
+    } catch (e) {
+      this.error.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.gitBusy.set(false);
+    }
+  }
+
+  protected sendAnyway(): Promise<void> {
+    this.dirtyAccepted = true;
+    this.dirtyWarning.set(null);
+    return this.send();
+  }
+
   /** What this conversation's agent has changed and is waiting on the user. */
   protected readonly changed = computed(() => {
     const r = this.run();
@@ -447,6 +521,16 @@ export class AgentPanel {
     this.error.set(null);
     this.sending.set(true);
     try {
+      // Only a new draft starts from the latest commit; warn once per decision.
+      if (this.mode() !== 'read' && !this.run()?.task && !this.dirtyAccepted) {
+        await this.workspace.reloadProject();
+        const dirty = this.workspace.project()?.uncommitted ?? 0;
+        if (dirty > 0) {
+          this.dirtyWarning.set(dirty);
+          return;
+        }
+      }
+      this.dirtyAccepted = false;
       if (this.mode() === 'pipeline') {
         const started = await this.pipelines.start(text, cwd, this.steps());
         // No run exists yet to show this in the thread, and the prompt must not be lost.
