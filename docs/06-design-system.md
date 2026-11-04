@@ -4,7 +4,7 @@ Mockup tham chiếu: canvas **"Multi-Agent Coding App"** trên claude.ai (artboa
 
 ## 1. Nguyên tắc
 
-1. **Code là trung tâm, khung giao diện lùi lại.** Nền gần đen, viền 1px, không gradient, không bóng đổ lớn.
+1. **Cuộc trò chuyện là trung tâm, khung giao diện lùi lại.** Nền gần đen, viền 1px, không gradient, không bóng đổ lớn.
 2. **Màu = danh tính agent.** Khung UI trung tính; màu rực chỉ dùng cho agent và trạng thái.
 3. **Mật độ cao, chữ nhỏ nhưng đủ tương phản.** 12–13px cho UI, 12.5px mono cho code.
 4. **Mọi thao tác chính có phím tắt** và hiện phím tắt cạnh nút.
@@ -54,7 +54,7 @@ Thêm agent mới: chọn màu khác biệt cả về **độ sáng**, không ch
 - Lưới 4px. Padding panel 12px; thẻ 10–12px; khoảng giữa nhóm 14px.
 - Bo góc: 4px (avatar, tag) · 6px (nút, input) · 8–10px (thẻ, console).
 - Chiều cao: title bar 40 · tab 36 · hàng cây 24 · nút 28–30 (sm 24) · status bar 24.
-- Bố cục desktop: activity 48 · sidebar 236–260 · panel agent 340–372 · editor co giãn.
+- Bố cục desktop: sidebar 260 · cột chat tối đa 760 · panel phải (cây tệp 220 + editor) co giãn, thành lớp phủ dưới 1200px.
 - macOS: title bar dùng `titleBarStyle: Overlay`, chừa 84px bên trái cho nút cửa sổ.
 
 ## 5. Component
