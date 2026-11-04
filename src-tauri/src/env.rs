@@ -11,17 +11,42 @@ pub fn login_path() -> String {
     LOGIN_PATH.get_or_init(read_login_path).clone()
 }
 
+/// A shell startup file can wait on something forever, and then nothing could ever be detected.
+#[cfg(unix)]
+const SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Stdout up to `marker`, or None if it has not appeared in time. Does not wait for the
+/// process to end, since something it left in the background can hold the pipe open.
+#[cfg(unix)]
+fn output_until(mut command: std::process::Command, marker: &str, timeout: std::time::Duration) -> Option<String> {
+    use std::{io::Read, process::Stdio, sync::mpsc};
+    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = mpsc::channel();
+    let marker = marker.to_string();
+    std::thread::spawn(move || {
+        let (mut seen, mut buffer) = (Vec::new(), [0; 4096]);
+        while let Ok(n) = stdout.read(&mut buffer) {
+            if n == 0 { break; }
+            seen.extend_from_slice(&buffer[..n]);
+            if String::from_utf8_lossy(&seen).contains(&marker) { break; }
+        }
+        let _ = tx.send(String::from_utf8_lossy(&seen).into_owned());
+    });
+    let text = rx.recv_timeout(timeout).ok();
+    let _ = child.kill();
+    std::thread::spawn(move || { let _ = child.wait(); });
+    text
+}
+
 #[cfg(unix)]
 fn read_login_path() -> String {
     const START: &str = "__TG_PATH__";
     const END: &str = "__END__";
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let output = std::process::Command::new(&shell)
-        .args(["-ilc", "printf '__TG_PATH__%s__END__' \"$PATH\""])
-        .stdin(std::process::Stdio::null())
-        .output();
-    if let Ok(out) = output {
-        let text = String::from_utf8_lossy(&out.stdout);
+    let mut command = std::process::Command::new(&shell);
+    command.args(["-ilc", "printf '__TG_PATH__%s__END__' \"$PATH\""]);
+    if let Some(text) = output_until(command, END, SHELL_TIMEOUT) {
         if let Some(start) = text.find(START) {
             let rest = &text[start + START.len()..];
             if let Some(end) = rest.find(END) {
@@ -120,6 +145,20 @@ pub fn which(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[cfg(unix)]
+    #[test]
+    fn output_stops_at_the_marker_and_gives_up_on_a_stuck_shell() {
+        use std::time::{Duration, Instant};
+        let shell = |script: &str| { let mut c = std::process::Command::new("sh"); c.args(["-c", script]); c };
+        let started = Instant::now();
+        let text = super::output_until(shell("printf 'a__END__'; sleep 30"), "__END__", Duration::from_secs(10)).unwrap();
+        assert!(text.contains("a__END__"));
+        assert!(started.elapsed() < Duration::from_secs(5), "không được chờ tiến trình kết thúc");
+        let started = Instant::now();
+        assert_eq!(super::output_until(shell("sleep 30"), "__END__", Duration::from_millis(200)), None);
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
 
     #[cfg(unix)]
     #[tokio::test]
