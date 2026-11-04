@@ -4,6 +4,10 @@
 
 ## [Chưa phát hành]
 
+### Mở dự án
+- Nút Khởi tạo Git và Tạo commit đầu tiên, xem trước số tệp và các dòng thêm vào `.gitignore`; bí mật và `node_modules` không bao giờ vào commit đầu.
+- Cảnh báo một lần khi có tệp chưa commit mà agent sẽ không thấy.
+
 ### Bố cục mới
 - Chat ở giữa; cột trái là cây dự án và cuộc trò chuyện, mở nhiều dự án cùng lúc, có dự án gần đây; tệp và thay đổi nằm ở panel phải, tự mở một lần khi có thay đổi đầu tiên.
 - Thẻ duyệt luôn hiện đủ, kể cả ở cửa sổ nhỏ nhất. Có thẻ tóm tắt "Đã đổi N tệp". Bỏ activity bar và tab Runs.

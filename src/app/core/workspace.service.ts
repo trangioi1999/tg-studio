@@ -94,6 +94,22 @@ export class WorkspaceService {
     if (picked) await this.setFolder(picked);
   }
 
+  /** Takes the state of the open project again, say after the user committed. */
+  async reloadProject(): Promise<void> {
+    const root = this.folder();
+    if (!root) return;
+    try {
+      const project = await this.backend.openProject(root);
+      if (project.root === this.folder()) this.apply(project);
+    } catch {
+      /* the next action reports it */
+    }
+  }
+
+  applyProject(project: Project): void {
+    this.apply(project);
+  }
+
   private apply(project: Project): void {
     this.project.set(project);
     this.folder.set(project.root);

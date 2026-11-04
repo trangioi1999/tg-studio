@@ -13,6 +13,20 @@ pub struct Project {
     pub branch: Option<String>,
     pub git: &'static str,
     pub adjusted: Option<&'static str>,
+    /// Files a new draft will not see, because it starts from the latest commit.
+    pub uncommitted: usize,
+    /// Git has a name and email to commit with.
+    pub git_user: bool,
+}
+
+/// What preparing Git would do, for the user to confirm.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPlan {
+    /// Files the first commit would include.
+    pub files: usize,
+    /// Lines to add to `.gitignore`, so secrets and dependencies stay out of the commit.
+    pub ignore: Vec<String>,
 }
 
 fn decode_percent(input: &str) -> String {
@@ -102,6 +116,8 @@ pub fn open(input: &str) -> Result<Project, String> {
         branch: None,
         git: "none",
         adjusted: is_file.then_some("file"),
+        uncommitted: 0,
+        git_user: false,
     };
     if let Ok(repo) = crate::worktree::info(folder) {
         if !is_file && Path::new(&repo.root) != folder {
@@ -112,6 +128,12 @@ pub fn open(input: &str) -> Result<Project, String> {
         } else {
             "no_commits"
         };
+        let root = Path::new(&repo.root);
+        if project.git == "ready" {
+            project.uncommitted = crate::worktree::git(root, &["status", "--porcelain", "-z"], None)
+                .map_or(0, |out| out.split('\0').filter(|line| !line.is_empty()).count());
+        }
+        project.git_user = has_identity(root);
         project.root = repo.root;
         project.name = repo.name;
         project.branch = repo.branch;
@@ -130,6 +152,85 @@ impl OpenedProjects {
         let opened = self.0.lock().map_err(|_| "Không truy cập được danh sách dự án.".to_string())?;
         check_opened(&opened, root)
     }
+}
+
+fn has_identity(root: &Path) -> bool {
+    let set = |key: &str| crate::worktree::git(root, &["config", key], None).is_ok_and(|v| !v.trim().is_empty());
+    set("user.name") && set("user.email")
+}
+
+/// Patterns for what must never reach a first commit by accident, and how to spot it.
+fn sensitive_pattern(path: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let name = *parts.last()?;
+    if let Some(i) = parts.iter().position(|p| *p == "node_modules") {
+        return Some(format!("{}/", parts[..=i].join("/")));
+    }
+    let secret = name == ".env" || name.starts_with(".env.") || name.ends_with(".pem") || name.ends_with(".key") || name.starts_with("id_rsa");
+    secret.then(|| name.to_string())
+}
+
+/// Files Git would add, from a folder that may not be a repository yet.
+fn untracked(root: &Path) -> Result<Vec<String>, String> {
+    if crate::worktree::git(root, &["rev-parse", "--git-dir"], None).is_ok() {
+        let out = crate::worktree::git(root, &["ls-files", "-z", "--others", "--exclude-standard"], None)?;
+        return Ok(out.split('\0').filter(|p| !p.is_empty()).map(String::from).collect());
+    }
+    // Not a repository: `.git` does not exist, and only a real init could read `.gitignore`.
+    let probe = std::env::temp_dir().join(format!("tg-git-probe-{}", uuid::Uuid::new_v4()));
+    let git_dir = probe.to_string_lossy().into_owned();
+    crate::worktree::git(root, &["--git-dir", &git_dir, "init", "-q"], None)?;
+    let listed = crate::worktree::git(root, &["--git-dir", &git_dir, "--work-tree", ".", "ls-files", "-z", "--others", "--exclude-standard"], None);
+    let _ = fs::remove_dir_all(&probe);
+    Ok(listed?.split('\0').filter(|p| !p.is_empty()).map(String::from).collect())
+}
+
+pub fn plan_git(root: &Path) -> Result<GitPlan, String> {
+    let files = untracked(root)?;
+    let mut ignore: Vec<String> = files.iter().filter_map(|f| sensitive_pattern(f)).collect();
+    ignore.sort();
+    ignore.dedup();
+    let kept = files.iter().filter(|f| sensitive_pattern(f).is_none()).count();
+    Ok(GitPlan { files: kept, ignore })
+}
+
+/// Makes a folder usable for code tasks: a repository with a first commit. Secrets and
+/// dependencies found are ignored first, so they cannot end up in the commit.
+pub fn prepare_git(root: &Path, name: Option<&str>, email: Option<&str>) -> Result<Project, String> {
+    let plan = plan_git(root)?;
+    let git = |args: &[&str]| crate::worktree::git(root, args, None);
+    if git(&["rev-parse", "--git-dir"]).is_err() { git(&["init"])?; }
+    if let (Some(name), Some(email)) = (name.filter(|v| !v.trim().is_empty()), email.filter(|v| !v.trim().is_empty())) {
+        git(&["config", "--local", "user.name", name.trim()])?;
+        git(&["config", "--local", "user.email", email.trim()])?;
+    }
+    if !has_identity(root) { return Err("Git chưa có tên và email để commit. Hãy nhập cả hai.".into()); }
+    if !plan.ignore.is_empty() {
+        let path = root.join(".gitignore");
+        let mut text = fs::read_to_string(&path).unwrap_or_default();
+        if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
+        text.push_str(&plan.ignore.join("\n"));
+        text.push('\n');
+        fs::write(&path, text).map_err(|e| format!("Không ghi được .gitignore: {e}"))?;
+    }
+    git(&["add", "-A"])?;
+    git(&["commit", "--allow-empty", "-m", "Khởi tạo dự án"])?;
+    open(&root.to_string_lossy())
+}
+
+#[tauri::command]
+pub async fn git_plan(opened: State<'_, OpenedProjects>, root: String) -> Result<GitPlan, String> {
+    let root = opened.root(&root)?;
+    tauri::async_runtime::spawn_blocking(move || plan_git(&root)).await.map_err(|e| format!("Không đọc được thư mục: {e}"))?
+}
+
+#[tauri::command]
+pub async fn git_prepare(opened: State<'_, OpenedProjects>, root: String, name: Option<String>, email: Option<String>) -> Result<Project, String> {
+    let root = opened.root(&root)?;
+    let project = tauri::async_runtime::spawn_blocking(move || prepare_git(&root, name.as_deref(), email.as_deref())).await
+        .map_err(|e| format!("Không chuẩn bị được Git: {e}"))??;
+    opened.0.lock().map_err(|_| "Không truy cập được danh sách dự án.".to_string())?.insert(PathBuf::from(&project.root));
+    Ok(project)
 }
 
 #[tauri::command]
@@ -175,6 +276,67 @@ mod tests {
     }
 
     fn open_path(path: &Path) -> Project { open(path.to_str().unwrap()).unwrap() }
+
+    fn identity(path: &Path) {
+        git(path, &["config", "user.name", "Test"], None).unwrap();
+        git(path, &["config", "user.email", "t@example.com"], None).unwrap();
+    }
+
+    #[test]
+    fn counts_files_a_new_draft_will_not_see() {
+        let repo = Repo::new();
+        assert_eq!(open_path(&repo.0).uncommitted, 0);
+        repo.write("moi.txt", "x");
+        repo.write("file.txt", "đã sửa");
+        assert_eq!(open_path(&repo.0).uncommitted, 2);
+    }
+
+    #[test]
+    fn plan_lists_what_would_be_kept_out() {
+        let folder = Folder::new();
+        for (path, text) in [("a.txt", "x"), (".env", "SECRET"), ("cfg/.env.local", "SECRET"), ("server.pem", "k"), ("node_modules/x/i.js", "x"), ("sub/node_modules/y.js", "x")] {
+            let file = folder.0.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, text).unwrap();
+        }
+        let plan = plan_git(&folder.0).unwrap();
+        assert_eq!(plan.files, 1);
+        assert_eq!(plan.ignore, vec![".env", ".env.local", "node_modules/", "server.pem", "sub/node_modules/"]);
+        assert!(!folder.0.join(".git").exists(), "chỉ xem trước, chưa được khởi tạo gì");
+    }
+
+    #[test]
+    fn prepare_never_commits_secrets_or_dependencies() {
+        let folder = Folder::new();
+        fs::write(folder.0.join("a.txt"), "x").unwrap();
+        fs::write(folder.0.join(".env"), "SECRET").unwrap();
+        fs::create_dir_all(folder.0.join("node_modules/x")).unwrap();
+        fs::write(folder.0.join("node_modules/x/i.js"), "x").unwrap();
+        let project = prepare_git(&folder.0, Some("Tên"), Some("a@b.c")).unwrap();
+        assert_eq!(project.git, "ready");
+        let committed = git(&folder.0, &["ls-tree", "-r", "--name-only", "HEAD"], None).unwrap();
+        assert_eq!(committed.lines().collect::<Vec<_>>(), vec![".gitignore", "a.txt"]);
+        assert_eq!(project.uncommitted, 0);
+        assert!(project.git_user);
+    }
+
+    #[test]
+    fn prepare_keeps_an_existing_gitignore_and_makes_a_first_commit() {
+        let folder = Folder::new();
+        git(&folder.0, &["init"], None).unwrap();
+        identity(&folder.0);
+        fs::write(folder.0.join(".gitignore"), "*.log").unwrap();
+        fs::write(folder.0.join(".env"), "SECRET").unwrap();
+        let project = prepare_git(&folder.0, None, None).unwrap();
+        assert_eq!(project.git, "ready");
+        assert_eq!(fs::read_to_string(folder.0.join(".gitignore")).unwrap(), "*.log\n.env\n");
+    }
+
+    #[test]
+    fn prepare_empty_folder_still_gives_a_commit_to_start_from() {
+        let folder = Folder::new();
+        assert_eq!(prepare_git(&folder.0, Some("Tên"), Some("a@b.c")).unwrap().git, "ready");
+    }
 
     #[test]
     fn project_root_must_have_been_opened() {

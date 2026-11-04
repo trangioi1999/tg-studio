@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan } from './protocol';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -159,7 +159,23 @@ export class MockBackend extends AgentBackend {
     if (!root || root.includes('missing')) throw new Error(`Thư mục không tồn tại: ${path.trim()}`);
     const name = root.split(/[\\/]/).pop() ?? root;
     const git = root.includes('nogit') ? 'none' : root.includes('nocommit') ? 'no_commits' : 'ready';
-    return { root, name, branch: git === 'none' ? null : 'main', git, adjusted: null };
+    const prepared = this.prepared.has(root);
+    return {
+      root, name, branch: git === 'none' && !prepared ? null : 'main', git: prepared ? 'ready' : git, adjusted: null,
+      uncommitted: root.includes('dirty') ? 3 : 0, gitUser: !root.includes('noname'),
+    };
+  }
+
+  private readonly prepared = new Set<string>();
+
+  async gitPlan(_root: string): Promise<GitPlan> {
+    return { files: 12, ignore: ['.env', 'node_modules/'] };
+  }
+
+  async gitPrepare(root: string, name: string | null, _email: string | null): Promise<Project> {
+    if (root.includes('noname') && !name?.trim()) throw new Error('Git chưa có tên và email để commit. Hãy nhập cả hai.');
+    this.prepared.add(root);
+    return this.openProject(root);
   }
 
   async listProjectFiles(_root: string): Promise<string[]> {
