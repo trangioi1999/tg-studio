@@ -578,12 +578,16 @@ mod tests {
     }
 
     async fn run_live_with(store: &Store, repo: &Path, prompt: &str, group: Option<&str>, servers: &[McpServer]) -> LiveRun {
-        let command = AgentKind::Claude.acp_command(env::which).expect("claude-agent-acp hoặc npx");
+        run_live_agent(AgentKind::Claude, store, repo, prompt, group, servers).await
+    }
+
+    async fn run_live_agent(agent: AgentKind, store: &Store, repo: &Path, prompt: &str, group: Option<&str>, servers: &[McpServer]) -> LiveRun {
+        let command = agent.acp_command(env::which).expect("adapter ACP hoặc npx");
         let timeout = setup_timeout(&command.0);
-        let (id, wt, mut child) = prepare(store, AgentKind::Claude, prompt, repo, command, group, None).await.unwrap();
+        let (id, wt, mut child) = prepare(store, agent, prompt, repo, command, group, None).await.unwrap();
         let pid = child.id();
         let sink = Arc::new(Recorder::default());
-        let session = Arc::new(TaskSession::new(&id, AgentKind::Claude, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
+        let session = Arc::new(TaskSession::new(&id, agent, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
         let traffic = Arc::new(Mutex::new(Vec::new()));
         let (client_in, tee_out) = tokio::io::duplex(1 << 20);
         let (tee_in, client_out) = tokio::io::duplex(1 << 20);
@@ -623,7 +627,7 @@ mod tests {
         let (status, error) = tokio::time::timeout(Duration::from_secs(300), drive(&client, &session, &wt.path, prompt, servers, rx, async { std::future::pending::<()>().await })).await.expect("quá 5 phút");
         client.close();
         terminate_adapter(&mut child, pid).await;
-        sink.emit(AgentEvent::new(&wt.run_id, AgentKind::Claude, "exit"));
+        sink.emit(AgentEvent::new(&id, agent, "exit"));
         let asked = approver.await.unwrap();
         let events = sink.0.lock().unwrap().clone();
         let traffic = traffic.lock().unwrap().clone();
@@ -673,6 +677,60 @@ mod tests {
         assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello ACP\n");
         assert_eq!(std::fs::read_to_string(repo.0.join("checked.txt")).unwrap().trim(), "checked");
         worktree::remove(&repo.0, &wt, true).unwrap();
+    }
+
+    fn greeting_repo() -> Repo {
+        let repo = Repo::new();
+        repo.write("hello.txt", "Hello world\n");
+        worktree::git(&repo.0, &["add", "."], None).unwrap();
+        worktree::git(&repo.0, &["commit", "-m", "hello"], None).unwrap();
+        repo
+    }
+
+    const GREETING_PROMPT: &str = "Edit hello.txt so that its only line reads exactly `Hello ACP` (keep the trailing newline). Do not change anything else and do not commit.";
+
+    /// M-D acceptance against the real Codex adapter (needs network and a logged-in `codex`):
+    /// `TG_LIVE_ACP=1 cargo test live_codex -- --ignored --nocapture`.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_codex_edit_diff_accept_commit() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = greeting_repo();
+        let store = Store::open_in_memory().unwrap();
+        let LiveRun { wt, status, error, events, .. } = run_live_agent(AgentKind::Codex, &store, &repo.0, GREETING_PROMPT, None, &[]).await;
+        eprintln!("status={status} error={error:?}\nmessage={}\nusage={:?}", message_of(&events), events.iter().rev().find_map(|e| e.usage.clone()));
+        assert_eq!(status, "done", "{error:?}");
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello world\n", "repo chỉ đổi khi duyệt");
+        let pending = diff::pending(&wt).unwrap();
+        assert!(pending.iter().any(|f| f.path == "hello.txt"), "diff phải có hello.txt: {pending:?}");
+        assert!(events.iter().rev().find_map(|e| e.usage.clone()).is_some_and(|u| u.output_tokens > 0), "phải có token");
+        diff::accept_all(&repo.0, &wt).unwrap();
+        assert!(!diff::commit(&repo.0, "Đổi lời chào").unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello ACP\n");
+        worktree::remove(&repo.0, &wt, true).unwrap();
+    }
+
+    /// The M-D scenario: Claude and Codex on one prompt at once, then one result is used.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_claude_and_codex_in_parallel_use_one() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let repo = greeting_repo();
+        let store = Store::open_in_memory().unwrap();
+        let (claude, codex) = tokio::join!(
+            run_live_agent(AgentKind::Claude, &store, &repo.0, GREETING_PROMPT, Some("nhom-m-d"), &[]),
+            run_live_agent(AgentKind::Codex, &store, &repo.0, GREETING_PROMPT, Some("nhom-m-d"), &[]),
+        );
+        assert_eq!(claude.status, "done", "{:?}", claude.error);
+        assert_eq!(codex.status, "done", "{:?}", codex.error);
+        assert_ne!(claude.wt.path, codex.wt.path);
+        assert!(diff::pending(&claude.wt).unwrap().iter().any(|f| f.path == "hello.txt"));
+        assert!(diff::pending(&codex.wt).unwrap().iter().any(|f| f.path == "hello.txt"));
+        diff::accept_all(&repo.0, &codex.wt).unwrap();
+        assert!(!diff::commit(&repo.0, "Dùng bản của Codex").unwrap().is_empty());
+        assert_eq!(std::fs::read_to_string(repo.0.join("hello.txt")).unwrap(), "Hello ACP\n");
+        worktree::remove(&repo.0, &claude.wt, true).unwrap();
+        worktree::remove(&repo.0, &codex.wt, true).unwrap();
     }
 
     /// Phase 2: two Claude runs on one prompt at once, in one group. Each works in its own
