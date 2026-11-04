@@ -4,7 +4,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::{Child, Command}, sync::oneshot};
-use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, worktree::{self, Worktree}};
+use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::AgentKind, diff::{self, FileDiff}, env, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -206,6 +206,25 @@ pub fn reject_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_i
 pub fn commit_accepted(store: State<'_, Store>, run_id: String, message: String) -> Result<String, String> {
     let (repo, _) = stored_worktree(&store, &run_id)?;
     diff::commit(&repo, &message)
+}
+#[tauri::command]
+pub fn list_worktree_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    workspace::list_files(&wt)
+}
+#[tauri::command]
+pub fn read_worktree_file(store: State<'_, Store>, run_id: String, path: String) -> Result<String, String> {
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    workspace::read_file(&wt, &path)
+}
+#[tauri::command]
+pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, content: String) -> Result<(), String> {
+    // The agent may be writing the same file; edits wait until it is done.
+    if tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.contains_key(&run_id) {
+        return Err("Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.".into());
+    }
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    workspace::write_file(&wt, &path, &content)
 }
 #[tauri::command]
 pub fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<(), String> {

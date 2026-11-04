@@ -96,6 +96,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .status[data-status='failed'] { color: var(--err); }
 .status[data-status='stopped'], .status[data-status='interrupted'] { color: var(--warn); }
 
+tg-diff-viewer, tg-code-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .console { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 16px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .console-head { height: 38px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
 .console-body { flex: 1; overflow: auto; padding: 10px 12px; line-height: 20px; }
@@ -142,6 +143,25 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .commit-box { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #2a2a30; border-radius: 8px; background: var(--raised); }
 .commit-box textarea { padding: 6px 8px; border: 1px solid #2a2a30; border-radius: 6px; background: var(--bg); resize: vertical; }
 .ok-text { margin: 0; color: var(--ok); font-size: 12px; }
+
+/* Editor */
+.editor { flex: 1; min-height: 0; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+.editor-files { min-height: 0; overflow: auto; padding: 6px 0; border-right: 1px solid var(--line); background: var(--panel); }
+.editor-group { padding: 8px 12px 4px; }
+.file-row { width: 100%; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; background: transparent; color: var(--text-2); text-align: left; cursor: pointer; }
+.file-row:hover { background: var(--hover); }
+.file-row.active { background: #1b1b20; color: var(--text); }
+.file-row .mono { flex: 1; }
+.agent-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--agent); }
+.editor-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.editor-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
+.editor-bar .dirty { flex: none; color: var(--warn); font-size: 12px; }
+.editor-confirm { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid #4a3820; background: #19150f; }
+.editor-host { flex: 1; min-height: 0; }
+.editor-host.hidden { display: none; }
+.editor-host .agent-line { background: rgba(63, 182, 139, 0.09); }
+.editor-host .agent-gutter { margin-left: 2px; width: 3px !important; background: var(--agent); }
+.editor-host .agent-gutter-del { margin-left: 1px; width: 0 !important; height: 0 !important; border-left: 5px solid #f85149; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transform: translateY(-4px); }
 
 /* Usage */
 .usage-table { display: flex; flex-direction: column; }
