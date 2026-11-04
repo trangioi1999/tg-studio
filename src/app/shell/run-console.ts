@@ -4,6 +4,7 @@ import { AgentsService } from '../core/agents.service';
 import { fmtDuration, fmtTokens } from '../core/format';
 import { AGENT_META, AgentId } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
+import { UiService } from '../core/ui.service';
 import { AgentAvatar } from './agent-avatar';
 import { CodeEditor } from './code-editor';
 import { Compare } from './compare';
@@ -121,7 +122,7 @@ export class RunConsole implements OnInit {
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly mode = signal<'task' | 'parallel' | 'read'>('task');
-  protected readonly view = signal<'log' | 'changes' | 'editor' | 'compare'>('log');
+  protected readonly view = inject(UiService).view;
   /** The selected run belongs to a parallel group of at least two runs. */
   protected readonly grouped = computed(() => this.runs.groupRuns(this.runs.selected()?.group ?? null).length > 1);
   /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */

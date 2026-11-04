@@ -97,6 +97,17 @@ describe('RunsService ACP events', () => {
     expect(run.task).toBe(true);
   });
 
+  it('records approval waits and closes them on resolve or exit', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'permission', data: { ...request, requestId: 'a' }, atMs: 100 }));
+    backend.handler(liveEvent({ kind: 'permission_resolved', data: { requestId: 'a' }, atMs: 250 }));
+    backend.handler(liveEvent({ kind: 'permission', data: { ...request, requestId: 'b' }, atMs: 400 }));
+    expect(service.runs()[0].waits).toEqual([{ from: 100, to: 250 }, { from: 400, to: null }]);
+    backend.handler(liveEvent({ kind: 'exit', code: null, atMs: 500 }));
+    expect(service.runs()[0].waits).toEqual([{ from: 100, to: 250 }, { from: 400, to: 500 }]);
+  });
+
   it('tracks the file an agent works on across partial tool updates', async () => {
     const { backend, service } = setup([]);
     await flush();
