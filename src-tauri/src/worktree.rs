@@ -81,6 +81,9 @@ pub fn create(repo: &Path, agent: &str, title: &str, run_id: &str) -> Result<Wor
     }
     let branch = format!("tg/{agent}/{}-{}", slugify(title), run_id.chars().take(8).collect::<String>());
     let path = repo.join(".tg/worktrees").join(run_id);
+    // Parallel tasks create worktrees at once; `info/exclude` is read-modify-write.
+    static CREATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = CREATE.lock().unwrap_or_else(|e| e.into_inner());
     let common = git(&repo, &["rev-parse", "--git-common-dir"], None)?;
     let exclude = repo.join(common.trim()).join("info/exclude");
     fs::create_dir_all(exclude.parent().unwrap()).map_err(io_error)?;
@@ -175,6 +178,19 @@ pub(crate) mod tests {
         assert_eq!(w.base, git(&r.0, &["rev-parse", "HEAD"], None).unwrap().trim());
         assert!(w.path.join("file.txt").exists());
         assert!(git(&r.0, &["status", "--porcelain"], None).unwrap().is_empty());
+    }
+    #[test] fn parallel_creates_on_one_repo_all_succeed() {
+        let r = Repo::new();
+        let repo = r.0.clone();
+        let handles: Vec<_> = (0..6).map(|i| {
+            let repo = repo.clone();
+            std::thread::spawn(move || create(&repo, "claude", "Cùng một task", &format!("{i}{i}{i}{i}{i}{i}{i}{i}-run")))
+        }).collect();
+        let made: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for w in &made { assert!(w.as_ref().unwrap().path.join("file.txt").exists(), "{w:?}"); }
+        assert_eq!(list(&repo).unwrap().len(), 6);
+        let exclude = fs::read_to_string(repo.join(".git/info/exclude")).unwrap();
+        assert_eq!(exclude.lines().filter(|l| *l == ".tg/").count(), 1);
     }
     #[test] fn create_twice_keeps_one_exclude_line() {
         let r = Repo::new(); r.wt();

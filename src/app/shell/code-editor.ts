@@ -17,17 +17,19 @@ import { RunsService } from '../core/runs.service';
         @if (changed().length) {
           <div class="label editor-group">ĐÃ SỬA</div>
           @for (f of changed(); track f.path) {
-            <button class="file-row" [class.active]="f.path === path()" [attr.aria-current]="f.path === path()" (click)="open(f.path)">
+            <button class="file-row" [class.active]="f.path === path()" [attr.aria-current]="f.path === path()" (click)="pick(f.path)">
               <span class="agent-dot" aria-hidden="true"></span>
               <span class="mono ellipsis">{{ f.path }}</span>
+              @if (f.path === agentFile()) { <span class="agent-here" [title]="meta[agent()].name + hereLabel()">{{ hereLabel() }}</span> }
               <span class="file-status" [attr.data-status]="f.status" [attr.aria-label]="statusLabel[f.status]">{{ f.status }}</span>
             </button>
           }
         }
         <div class="label editor-group">TẤT CẢ TỆP</div>
         @for (p of others(); track p) {
-          <button class="file-row" [class.active]="p === path()" [attr.aria-current]="p === path()" (click)="open(p)">
+          <button class="file-row" [class.active]="p === path()" [attr.aria-current]="p === path()" (click)="pick(p)">
             <span class="mono ellipsis">{{ p }}</span>
+            @if (p === agentFile()) { <span class="agent-here" [title]="meta[agent()].name + hereLabel()">{{ hereLabel() }}</span> }
           </button>
         }
         @if (truncated()) { <p class="dim pad">Chỉ hiện {{ files().length }} tệp đầu.</p> }
@@ -41,7 +43,10 @@ import { RunsService } from '../core/runs.service';
             @if (marks().added.length || marks().removedBefore.length) {
               <span class="dim">{{ meta[agent()].name }} sửa {{ marks().added.length }} dòng</span>
             }
-            @if (running()) { <span class="dim">Chỉ đọc khi agent đang chạy</span> }
+            @if (running()) {
+              <span class="dim">Chỉ đọc khi agent đang chạy</span>
+              <button class="btn ghost sm" [class.on]="follow()" [attr.aria-pressed]="follow()" (click)="follow.set(!follow())" title="Tự mở tệp agent đang làm">Theo agent</button>
+            }
             @if (dirty()) { <button class="btn ghost sm" [disabled]="busy()" (click)="revert()">Hoàn tác</button> }
             <button class="btn primary sm" [disabled]="busy() || running() || !dirty()" (click)="save()">Lưu<span class="kbd">⌘S</span></button>
           } @else {
@@ -88,6 +93,15 @@ export class CodeEditor implements OnDestroy {
   });
   protected readonly truncated = computed(() => this.files().length >= 5000);
   protected readonly marks = computed(() => lineMarks(this.diffs().find((f) => f.path === this.path())));
+  /** While the agent runs, open whatever file it is working on. */
+  protected readonly follow = signal(true);
+  private readonly activity = computed(() => (this.running() ? (this.runs.activity()[this.runId()] ?? null) : null));
+  /** The agent's current file, relative to the worktree. */
+  protected readonly agentFile = computed(() => {
+    const a = this.activity();
+    return a ? this.relative(a.path) : null;
+  });
+  protected readonly hereLabel = computed(() => (this.activity()?.editing ? ' đang sửa' : ' đang xem'));
 
   private monaco: MonacoApi | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
@@ -106,9 +120,47 @@ export class CodeEditor implements OnDestroy {
       });
     });
     effect(() => {
-      const marks = this.marks();
-      untracked(() => this.paint(marks));
+      this.marks();
+      this.agentFile();
+      this.path();
+      untracked(() => this.paint());
     });
+    // Follow the agent and pick up its edits as soon as each tool call completes.
+    effect(() => {
+      const a = this.activity();
+      if (a) untracked(() => void this.onActivity(a.path, a.editing && a.done));
+    });
+  }
+
+  /** Paths from the agent are absolute; match them to the worktree's file list. */
+  private relative(path: string): string | null {
+    const norm = path.replace(/\\/g, '/');
+    const marker = `/.tg/worktrees/${this.runId()}/`;
+    const at = norm.indexOf(marker);
+    if (at >= 0) return norm.slice(at + marker.length);
+    return this.files().filter((f) => norm === f || norm.endsWith(`/${f}`)).sort((a, b) => b.length - a.length)[0] ?? null;
+  }
+
+  private async onActivity(path: string, wrote: boolean): Promise<void> {
+    if (wrote) {
+      // New files only show up in the list after the write.
+      const [files, diffs] = await Promise.all([this.runs.listFiles(this.runId()), this.runs.getDiff(this.runId())]);
+      this.files.set(files);
+      this.diffs.set(diffs);
+    }
+    const rel = this.relative(path);
+    if (!rel || !this.files().includes(rel) || this.dirty()) return;
+    if (rel === this.path()) {
+      if (wrote) await this.load(rel, false);
+    } else if (this.follow()) {
+      await this.load(rel, false);
+    }
+  }
+
+  /** A click from the user: stop following the agent until asked again. */
+  protected pick(path: string): void {
+    if (this.running()) this.follow.set(false);
+    this.open(path);
   }
 
   ngOnDestroy(): void {
@@ -200,7 +252,7 @@ export class CodeEditor implements OnDestroy {
     });
   }
 
-  private async load(path: string): Promise<void> {
+  private async load(path: string, reveal = true): Promise<void> {
     await this.guard(async () => {
       const text = await this.runs.readFile(this.runId(), path);
       this.path.set(path);
@@ -214,13 +266,22 @@ export class CodeEditor implements OnDestroy {
       if (model.getValue() !== text) model.setValue(text);
       this.editor.setModel(model);
       if (old && old !== model) old.dispose();
-      this.paint(this.marks());
-      const first = this.marks().added[0] ?? this.marks().removedBefore[0];
-      if (first) this.editor.revealLineInCenter(first);
+      this.paint();
+      const cursor = this.cursorLine();
+      const first = cursor ?? this.marks().added[0] ?? this.marks().removedBefore[0];
+      if (first && (reveal || cursor)) this.editor.revealLineInCenterIfOutsideViewport(first);
     });
   }
 
-  private paint(marks: ReturnType<typeof lineMarks>): void {
+  /** Where to draw the agent's cursor in the open file, if the agent is in it. */
+  private cursorLine(): number | null {
+    const a = this.activity();
+    if (!a || this.agentFile() !== this.path()) return null;
+    return a.line ?? this.marks().added[0] ?? 1;
+  }
+
+  private paint(): void {
+    const marks = this.marks();
     const monaco = this.monaco;
     const model = this.editor?.getModel();
     if (!monaco || !model || !this.decorations) return;
@@ -229,9 +290,20 @@ export class CodeEditor implements OnDestroy {
       range: new monaco.Range(Math.min(line, last), 1, Math.min(line, last), 1),
       options: { isWholeLine: true, ...options },
     });
+    const cursor = this.cursorLine();
+    const at = cursor === null ? null : Math.min(cursor, last);
     this.decorations.set([
       ...marks.added.map((l) => whole(l, { className: 'agent-line', linesDecorationsClassName: 'agent-gutter' })),
       ...marks.removedBefore.map((l) => whole(l, { linesDecorationsClassName: 'agent-gutter-del' })),
+      ...(at === null ? [] : [{
+        range: new monaco.Range(at, model.getLineMaxColumn(at), at, model.getLineMaxColumn(at)),
+        options: {
+          className: 'agent-cursor-line',
+          isWholeLine: true,
+          showIfCollapsed: true,
+          after: { content: ` ${AGENT_META[this.agent()].name}`, inlineClassName: 'agent-cursor' },
+        },
+      }]),
     ]);
   }
 

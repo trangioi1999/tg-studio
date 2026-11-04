@@ -8,7 +8,7 @@ import { AgentAvatar } from './agent-avatar';
   template: `
     <header class="titlebar" data-tauri-drag-region [class.mac]="isMac">
       <span class="brand" data-tauri-drag-region>TG Studio</span>
-      <span class="crumb" data-tauri-drag-region>Phase 1 · ACP tasks</span>
+      <span class="crumb" data-tauri-drag-region>Giai đoạn 2 · Nhiều agent</span>
       <div class="presence">
         @for (run of runs.running(); track run.id) {
           <span class="chip"><tg-agent-avatar [agent]="run.agent" [size]="16" /> running</span>

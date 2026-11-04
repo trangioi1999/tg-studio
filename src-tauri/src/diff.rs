@@ -150,6 +150,25 @@ pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Res
     Ok(())
 }
 
+/// "Use this" in the compare view: every pending change of the run, binary files
+/// included, applied to the user's repo in one go. Nothing is applied if any part fails.
+pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
+    let files = pending(wt)?;
+    if files.is_empty() { return Err("Không còn thay đổi nào để áp dụng.".into()); }
+    let patch = git(&wt.path, &["diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"], None)?;
+    git(repo, &["apply", "--check", "--index"], Some(patch.as_bytes()))
+        .map_err(|e| format!("Bản này không áp được vào repo (có thể bạn đã sửa cùng chỗ hoặc đã nhận bản khác): {e}"))?;
+    git(&wt.path, &["apply", "--check", "--cached"], Some(patch.as_bytes()))?;
+    git(repo, &["apply", "--index"], Some(patch.as_bytes()))?;
+    if let Err(error) = git(&wt.path, &["apply", "--cached"], Some(patch.as_bytes())) {
+        if let Err(rollback) = git(repo, &["apply", "-R", "--index"], Some(patch.as_bytes())) {
+            return Err(format!("{error}; Không hoàn tác được thay đổi đã duyệt: {rollback}"));
+        }
+        return Err(error);
+    }
+    Ok(files.len())
+}
+
 pub fn reject_hunk(wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), String> {
     let patch = selected_patch(wt, path, hunk_id)?;
     git(&wt.path, &["apply", "-R", "--recount"], Some(patch.as_bytes()))?;
@@ -174,6 +193,43 @@ mod tests {
         let p = w.path.join("file.txt");
         let s = fs::read_to_string(&p).unwrap().replace("line 2\n", "changed 2\n").replace("line 28\n", "changed 28\n");
         fs::write(p, s).unwrap();
+    }
+
+    #[test] fn accept_all_applies_text_new_deleted_and_binary_files() {
+        let r = Repo::new();
+        r.write("gone.txt", "bye\n");
+        git(&r.0, &["add", "."], None).unwrap();
+        git(&r.0, &["commit", "-m", "gone"], None).unwrap();
+        let w = r.wt();
+        change(&w);
+        fs::create_dir_all(w.path.join("thư mục")).unwrap();
+        fs::write(w.path.join("thư mục/mới.txt"), "mới\n").unwrap();
+        fs::write(w.path.join("img.bin"), [0u8, 1, 2, 255]).unwrap();
+        fs::remove_file(w.path.join("gone.txt")).unwrap();
+        assert_eq!(accept_all(&r.0, &w).unwrap(), 4);
+        assert!(pending(&w).unwrap().is_empty());
+        assert!(fs::read_to_string(r.0.join("file.txt")).unwrap().contains("changed 28\n"));
+        assert_eq!(fs::read_to_string(r.0.join("thư mục/mới.txt")).unwrap(), "mới\n");
+        assert_eq!(fs::read(r.0.join("img.bin")).unwrap(), vec![0u8, 1, 2, 255]);
+        assert!(!r.0.join("gone.txt").exists());
+        commit(&r.0, "use this").unwrap();
+        assert!(git(&r.0, &["status", "--porcelain"], None).unwrap().is_empty());
+        assert!(accept_all(&r.0, &w).unwrap_err().contains("Không còn"));
+    }
+
+    #[test] fn accept_all_conflict_changes_nothing() {
+        let r = Repo::new();
+        let w = r.wt();
+        change(&w);
+        fs::write(w.path.join("new.txt"), "x\n").unwrap();
+        // The user (or another agent's accepted run) changed line 28 too.
+        let p = r.0.join("file.txt");
+        fs::write(&p, fs::read_to_string(&p).unwrap().replace("line 28\n", "user 28\n")).unwrap();
+        let before = git(&r.0, &["status", "--porcelain"], None).unwrap();
+        assert!(accept_all(&r.0, &w).is_err());
+        assert_eq!(git(&r.0, &["status", "--porcelain"], None).unwrap(), before);
+        assert!(!r.0.join("new.txt").exists());
+        assert_eq!(pending(&w).unwrap().len(), 2);
     }
 
     #[test] fn hunk_id_ignores_line_numbers() {

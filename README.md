@@ -3,7 +3,7 @@
 Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
 Giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **Giai đoạn 1** — giao task sửa code qua ACP trong worktree riêng, duyệt lệnh, xem diff, sửa tay trong editor Monaco, accept từng hunk rồi commit. Lõi đã chạy với adapter Claude thật; Kiro chưa thử. Xem `docs/02-roadmap.md`.
+> Trạng thái: **Giai đoạn 2** — giao task sửa code qua ACP trong worktree riêng, duyệt lệnh, xem diff, sửa tay trong editor Monaco, accept từng hunk rồi commit. Chế độ *Song song* giao cùng một yêu cầu cho nhiều agent rồi so sánh và chọn một bản. Lõi đã chạy với adapter Claude thật; Kiro, Codex và Gemini qua ACP chưa thử. Xem `docs/02-roadmap.md`.
 
 ## Cài môi trường (làm 1 lần trên macOS)
 
@@ -84,8 +84,8 @@ docs/ARCHITECTURE.md
 | Giai đoạn | Nội dung |
 |---|---|
 | **0 — Nền móng** | Dò agent, chạy headless, log, usage theo agent |
-| **1 — Một agent trọn vẹn** (đang ở đây) | ACP client, thẻ duyệt quyền, diff viewer, git worktree |
-| 2 — Nhiều agent | Chạy song song, Mission control, so sánh kết quả, pipeline |
+| 1 — Một agent trọn vẹn | ACP client, thẻ duyệt quyền, diff viewer, git worktree |
+| **2 — Nhiều agent** (đang ở đây) | Chạy song song, Mission control, so sánh kết quả, pipeline |
 | 3 — Usage & tích hợp | Usage ledger (SQLite), ngân sách, quota gói, registry MCP/skills |
 | 4 — Đóng gói | Ký số + notarize macOS, installer Windows, tự cập nhật |
 

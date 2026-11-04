@@ -4,14 +4,16 @@ import { AgentsService } from '../core/agents.service';
 import { fmtDuration, fmtTokens } from '../core/format';
 import { AGENT_META, AgentId } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
+import { UiService } from '../core/ui.service';
 import { AgentAvatar } from './agent-avatar';
 import { CodeEditor } from './code-editor';
+import { Compare } from './compare';
 import { DiffViewer } from './diff-viewer';
 import { PermissionCard } from './permission-card';
 
 @Component({
   selector: 'tg-run-console',
-  imports: [AgentAvatar, CodeEditor, DiffViewer, PermissionCard],
+  imports: [AgentAvatar, CodeEditor, Compare, DiffViewer, PermissionCard],
   template: `
     <section class="composer">
       <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
@@ -19,17 +21,32 @@ import { PermissionCard } from './permission-card';
         [value]="prompt()" (input)="prompt.set($any($event.target).value)"
         (keydown.meta.enter)="run()" (keydown.control.enter)="run()"></textarea>
       <div class="composer-row">
-        <label class="field">
-          <span>Agent</span>
-          <select [value]="agent()" (change)="chosen.set($any($event.target).value)">
-            @for (a of choices(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
-            @if (!choices().length) { <option value="">Chưa có agent nào chạy được</option> }
-          </select>
-        </label>
+        @if (mode() === 'parallel') {
+          <fieldset class="field agent-picks">
+            <legend>Agent (chọn ít nhất 2)</legend>
+            <div class="picks">
+              @for (a of choices(); track a.id) {
+                <label class="pick" [class.on]="picked().includes(a.id)" [style.--agent]="meta[a.id].color">
+                  <input type="checkbox" [checked]="picked().includes(a.id)" (change)="toggle(a.id)" />
+                  <tg-agent-avatar [agent]="a.id" [size]="14" />{{ a.name }}
+                </label>
+              } @empty { <span class="dim">Chưa có agent nào chạy được</span> }
+            </div>
+          </fieldset>
+        } @else {
+          <label class="field">
+            <span>Agent</span>
+            <select [value]="agent()" (change)="chosen.set($any($event.target).value)">
+              @for (a of choices(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
+              @if (!choices().length) { <option value="">Chưa có agent nào chạy được</option> }
+            </select>
+          </label>
+        }
         <label class="field">
           <span>Chế độ</span>
           <select [value]="mode()" (change)="mode.set($any($event.target).value)">
             <option value="task">Sửa code</option>
+            <option value="parallel">Song song</option>
             <option value="read">Chỉ đọc</option>
           </select>
         </label>
@@ -47,6 +64,8 @@ import { PermissionCard } from './permission-card';
         <button role="tab" class="run-tab" [class.active]="r.id === runs.selectedId()" [attr.aria-selected]="r.id === runs.selectedId()" (click)="runs.selectedId.set(r.id)">
           <tg-agent-avatar [agent]="r.agent" [size]="14" />
           <span class="ellipsis">{{ r.prompt || meta[r.agent].name }}</span>
+          @if (r.group) { <span class="group-mark" title="Chạy song song">∥</span> }
+          @if (r.permissions.length) { <span class="needs" title="Cần bạn duyệt">!</span> }
           <span class="status" [attr.data-status]="r.status">{{ statusLabel[r.status] }}</span>
         </button>
       }
@@ -65,6 +84,9 @@ import { PermissionCard } from './permission-card';
           <span class="dim">{{ dur(r) }}</span>
           @if (r.task) {
             <div class="segmented" role="group" aria-label="Chế độ xem">
+              @if (grouped()) {
+                <button [class.active]="view() === 'compare'" [attr.aria-pressed]="view() === 'compare'" (click)="view.set('compare')">So sánh</button>
+              }
               <button [class.active]="view() === 'log'" [attr.aria-pressed]="view() === 'log'" (click)="view.set('log')">Log</button>
               <button [class.active]="view() === 'changes'" [attr.aria-pressed]="view() === 'changes'" (click)="view.set('changes')">Thay đổi</button>
               <button [class.active]="view() === 'editor'" [attr.aria-pressed]="view() === 'editor'" (click)="view.set('editor')">Editor</button>
@@ -73,7 +95,9 @@ import { PermissionCard } from './permission-card';
           @if (r.status === 'running') { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
         </div>
         @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
-        @if (r.task && view() === 'changes') {
+        @if (grouped() && view() === 'compare') {
+          <tg-compare [group]="r.group!" (review)="openReview($event)" />
+        } @else if (r.task && view() === 'changes') {
           <tg-diff-viewer [runId]="r.id" [agent]="r.agent" [running]="r.status === 'running'" [suggestion]="r.lastMessage" />
         } @else if (r.task && view() === 'editor') {
           <tg-code-editor [runId]="r.id" [agent]="r.agent" [running]="r.status === 'running'" />
@@ -97,11 +121,13 @@ export class RunConsole implements OnInit {
   private readonly backend = inject(AgentBackend);
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = { running: 'đang chạy', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
-  protected readonly mode = signal<'task' | 'read'>('task');
-  protected readonly view = signal<'log' | 'changes' | 'editor'>('log');
+  protected readonly mode = signal<'task' | 'parallel' | 'read'>('task');
+  protected readonly view = inject(UiService).view;
+  /** The selected run belongs to a parallel group of at least two runs. */
+  protected readonly grouped = computed(() => this.runs.groupRuns(this.runs.selected()?.group ?? null).length > 1);
   /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */
   protected readonly choices = computed(() =>
-    this.mode() === 'task' ? this.agents.agents().filter((a) => a.path) : this.agents.runnable(),
+    this.mode() !== 'read' ? this.agents.agents().filter((a) => a.path) : this.agents.runnable(),
   );
 
   protected readonly prompt = signal('');
@@ -109,23 +135,46 @@ export class RunConsole implements OnInit {
   protected readonly chosen = signal<AgentId | ''>('');
   protected readonly error = signal<string | null>(null);
   protected readonly agent = computed<AgentId | ''>(() => this.chosen() || this.choices()[0]?.id || '');
-  protected readonly canRun = computed(() => !!this.agent() && !!this.prompt().trim() && !!this.cwd().trim());
+  protected readonly picks = signal<AgentId[] | null>(null);
+  /** Defaults to every agent that can take a task. */
+  protected readonly picked = computed(() => {
+    const available = this.choices().map((a) => a.id);
+    return (this.picks() ?? available).filter((id) => available.includes(id));
+  });
+  protected readonly canRun = computed(() =>
+    (this.mode() === 'parallel' ? this.picked().length >= 2 : !!this.agent()) && !!this.prompt().trim() && !!this.cwd().trim());
 
   async ngOnInit() {
     this.cwd.set((await this.backend.homeDir()) ?? '');
   }
 
+  protected toggle(id: AgentId) {
+    const now = this.picked();
+    this.picks.set(now.includes(id) ? now.filter((a) => a !== id) : [...now, id]);
+  }
+
+  protected openReview(runId: string) {
+    this.runs.selectedId.set(runId);
+    this.view.set('changes');
+  }
+
   protected async run() {
     const agent = this.agent();
-    if (!agent || !this.canRun()) return;
+    if (!this.canRun()) return;
     this.error.set(null);
     try {
-      const start = this.mode() === 'task' ? this.runs.startTask : this.runs.start;
-      await start.call(this.runs, agent, this.prompt().trim(), this.cwd().trim());
-      this.view.set('log');
+      if (this.mode() === 'parallel') {
+        const failed = await this.runs.startParallel(this.picked(), this.prompt().trim(), this.cwd().trim());
+        if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
+        this.view.set('compare');
+      } else if (agent) {
+        const start = this.mode() === 'task' ? this.runs.startTask : this.runs.start;
+        await start.call(this.runs, agent, this.prompt().trim(), this.cwd().trim());
+        this.view.set('log');
+      }
       this.prompt.set('');
     } catch (e) {
-      this.error.set(String(e));
+      this.error.set(e instanceof Error ? e.message : String(e));
     }
   }
 

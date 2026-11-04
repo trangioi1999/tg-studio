@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -24,6 +24,31 @@ export interface Run {
   permissions: PermissionRequest[];
   /** Full text of the agent's latest message, used to suggest a commit message. */
   lastMessage: string;
+  /** Shared by runs started together in parallel mode. */
+  group: string | null;
+  /** Time spent waiting on approval cards; `to` is null while still waiting. Live runs only. */
+  waits: { from: number; to: number | null }[];
+}
+
+/** Where an agent is working right now, from its latest tool call that names a file. */
+export interface AgentActivity {
+  toolCallId: string;
+  /** As the agent sent it: usually absolute, inside the run's worktree. */
+  path: string;
+  line: number | null;
+  /** The tool writes the file (edit kind or a diff in its content). */
+  editing: boolean;
+  /** The tool call finished (completed or failed). */
+  done: boolean;
+  at: number;
+}
+
+/** The run picked with "Use this" for a parallel group, kept while the user moves around. */
+export interface GroupChoice {
+  runId: string;
+  files: number;
+  /** Short hash once committed. */
+  commit: string | null;
 }
 
 export interface AgentUsage {
@@ -49,6 +74,12 @@ export class RunsService {
   readonly selected = computed(() => this.runs().find((r) => r.id === this.selectedId()) ?? null);
   readonly running = computed(() => this.runs().filter((r) => r.status === 'running'));
   readonly sessionRuns = computed(() => this.runs().filter((r) => !r.restored));
+  readonly choices = signal<Record<string, GroupChoice>>({});
+  /** Latest plan limits per agent (Claude's 5-hour and weekly windows). */
+  readonly limits = signal<Partial<Record<AgentId, AccountLimits>>>({});
+  /** Per run: the file the agent touched last. Cleared when the run ends. */
+  readonly activity = signal<Record<string, AgentActivity>>({});
+  private readonly tools = new Map<string, { path: string | null; line: number | null; editing: boolean }>();
 
   readonly usageByAgent = computed<AgentUsage[]>(() =>
     AGENT_IDS.map((agent) => {
@@ -82,6 +113,21 @@ export class RunsService {
   constructor() {
     void this.backend.onEvent((e) => this.apply(e));
     void this.hydrate();
+    void this.loadLimits();
+  }
+
+  private async loadLimits(): Promise<void> {
+    try {
+      const saved = await this.backend.accountLimits();
+      // A live report may already have arrived; keep whichever is newer.
+      this.limits.update((now) => {
+        const next = { ...now };
+        for (const l of saved) if (!next[l.agent] || next[l.agent]!.at < l.at) next[l.agent] = l;
+        return next;
+      });
+    } catch (e) {
+      console.warn('Không đọc được hạn mức đã lưu', e);
+    }
   }
 
   /** Loads saved runs. History is a convenience, so a failure must not block the UI. */
@@ -112,9 +158,56 @@ export class RunsService {
   }
 
   async startTask(agent: AgentId, prompt: string, repo: string): Promise<void> {
-    const id = await this.backend.startTask(agent, prompt, repo);
+    const id = await this.backend.startTask(agent, prompt, repo, null);
     this.upsert(id, agent, (r) => ({ ...r, prompt, cwd: repo, task: true }));
     this.selectedId.set(id);
+  }
+
+  /**
+   * One prompt, one worktree per agent. Agents that fail to start are reported
+   * without stopping the others; throws only when none started.
+   */
+  async startParallel(agents: AgentId[], prompt: string, repo: string): Promise<string[]> {
+    const group = crypto.randomUUID();
+    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group)));
+    const errors: string[] = [];
+    let first: string | null = null;
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group }));
+        first ??= result.value;
+      } else {
+        errors.push(`${AGENT_META[agents[i]].name}: ${errorText(result.reason)}`);
+      }
+    });
+    if (!first) throw new Error(errors.join('\n'));
+    this.selectedId.set(first);
+    return errors;
+  }
+
+  /** Runs of the same parallel group, in agent order; empty for a solo run. */
+  groupRuns(group: string | null): Run[] {
+    if (!group) return [];
+    return this.runs().filter((r) => r.group === group).sort((a, b) => AGENT_IDS.indexOf(a.agent) - AGENT_IDS.indexOf(b.agent));
+  }
+
+  /** "Use this": applies the whole run and remembers it as the group's choice. */
+  async useRun(group: string, runId: string): Promise<void> {
+    if (this.choices()[group]) throw new Error('Nhóm này đã chọn một bản.');
+    const files = await this.backend.acceptAll(runId);
+    this.choices.update((c) => ({ ...c, [group]: { runId, files, commit: null } }));
+  }
+
+  async commitChoice(group: string, message: string): Promise<string> {
+    const choice = this.choices()[group];
+    if (!choice) throw new Error('Chưa chọn bản nào trong nhóm.');
+    const hash = await this.backend.commitAccepted(choice.runId, message);
+    this.choices.update((c) => ({ ...c, [group]: { ...choice, commit: hash.slice(0, 7) } }));
+    return hash;
+  }
+
+  acceptAll(runId: string): Promise<number> {
+    return this.backend.acceptAll(runId);
   }
 
   respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void> {
@@ -160,6 +253,13 @@ export class RunsService {
   }
 
   private apply(e: AgentEvent): void {
+    if (e.kind === 'limits') {
+      const windows = dataOf(e)['windows'];
+      if (Array.isArray(windows)) {
+        this.limits.update((l) => ({ ...l, [e.agent]: { agent: e.agent, windows: windows as unknown as AccountLimits['windows'], at: e.atMs } }));
+      }
+      return;
+    }
     this.upsert(e.runId, e.agent, (run) => {
       switch (e.kind) {
         case 'message': {
@@ -174,16 +274,19 @@ export class RunsService {
           };
         }
         case 'tool':
+          this.track(run.id, dataOf(e), e.atMs);
           return { ...run, task: true, lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
         case 'plan':
           return { ...run, lines: applyPlan(run.lines, dataOf(e)).slice(-MAX_LINES) };
         case 'permission': {
           const request = e.data as unknown as PermissionRequest;
-          return { ...run, task: true, permissions: [...run.permissions, request] };
+          return { ...run, task: true, permissions: [...run.permissions, request], waits: [...run.waits, { from: e.atMs, to: null }] };
         }
         case 'permission_resolved': {
           const id = dataOf(e)['requestId'];
-          return { ...run, permissions: run.permissions.filter((p) => p.requestId !== id) };
+          const open = run.waits.findIndex((w) => w.to === null);
+          const waits = open < 0 ? run.waits : run.waits.map((w, i) => (i === open ? { ...w, to: e.atMs } : w));
+          return { ...run, permissions: run.permissions.filter((p) => p.requestId !== id), waits };
         }
         case 'started':
         case 'log':
@@ -193,17 +296,50 @@ export class RunsService {
         }
         case 'usage':
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
+        case 'limits':
+          return run; // handled above: limits belong to the account, not the run
         case 'exit': {
           const stopped = this.stopping.delete(run.id);
           const reported = e.data !== null && typeof e.data === 'object' && !Array.isArray(e.data)
             ? e.data['status'] : null;
           const status: RunStatus = reported === 'done' || reported === 'failed' || reported === 'stopped'
             ? reported : stopped ? 'stopped' : e.code === 0 ? 'done' : 'failed';
-          return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [] };
+          this.forget(run.id);
+          const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
+          return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [], waits };
         }
       }
     });
     if (!this.selectedId()) this.selectedId.set(e.runId);
+  }
+
+  /** Tool updates repeat only what changed, so remember each call's file and kind by id. */
+  private track(runId: string, update: Json, at: number): void {
+    const id = update['toolCallId'];
+    if (typeof id !== 'string') return;
+    const key = `${runId}:${id}`;
+    const prev = this.tools.get(key) ?? { path: null, line: null, editing: false };
+    const location = Array.isArray(update['locations']) ? (update['locations'][0] as Json | undefined) : undefined;
+    const content = Array.isArray(update['content']) ? (update['content'] as Json[]) : [];
+    const diff = content.find((c) => c['type'] === 'diff');
+    const raw = (update['rawInput'] ?? {}) as Json;
+    const path = [location?.['path'], diff?.['path'], raw['file_path'], raw['path']].find((p): p is string => typeof p === 'string') ?? prev.path;
+    const line = typeof location?.['line'] === 'number' ? location['line'] : prev.line;
+    const editing = prev.editing || update['kind'] === 'edit' || !!diff;
+    this.tools.set(key, { path, line, editing });
+    if (!path) return;
+    const done = update['status'] === 'completed' || update['status'] === 'failed';
+    this.activity.update((a) => ({ ...a, [runId]: { toolCallId: id, path, line, editing, done, at } }));
+  }
+
+  private forget(runId: string): void {
+    for (const key of [...this.tools.keys()]) if (key.startsWith(`${runId}:`)) this.tools.delete(key);
+    if (this.activity()[runId]) {
+      this.activity.update((a) => {
+        const { [runId]: _, ...rest } = a;
+        return rest;
+      });
+    }
   }
 
   private upsert(id: string, agent: AgentId, change: (r: Run) => Run): void {
@@ -212,7 +348,7 @@ export class RunsService {
       const base: Run = existing ?? {
         id, agent, prompt: '', cwd: '', startedAt: Date.now(), endedAt: null,
         status: 'running', lines: [], usage: null, exitCode: null, restored: false,
-        task: false, permissions: [], lastMessage: '',
+        task: false, permissions: [], lastMessage: '', group: null, waits: [],
       };
       const next = change(base);
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
@@ -221,6 +357,10 @@ export class RunsService {
 }
 
 const MESSAGE_KEY = 'message';
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 type Json = Record<string, unknown>;
 
@@ -276,7 +416,7 @@ function restoreRun(s: StoredRun): Run {
   const lastMessage = lines.filter((l) => l.key === MESSAGE_KEY).at(-1)?.text ?? '';
   // A run still marked running belongs to this app session: the UI was only reloaded.
   const { worktree, ...run } = s;
-  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage };
+  return { ...run, lines, restored: s.status !== 'running', task: worktree !== null, permissions: [], lastMessage, waits: [] };
 }
 
 /**
@@ -297,6 +437,8 @@ function reattach(saved: Run, live: Run): Run {
     task: saved.task || live.task,
     permissions: live.permissions,
     lastMessage: live.lastMessage || saved.lastMessage,
+    group: saved.group ?? live.group,
+    waits: live.waits,
   };
 }
 
