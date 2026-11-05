@@ -434,7 +434,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
 }
 
 /// Changes how an open session answers permission requests (Hỏi trước, Tự động, Chỉ hỏi).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_approval(tasks: State<'_, TaskRuns>, run_id: String, approval: Approval) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     session.ok_or("Phiên này đã đóng.")?.set_approval(approval);
@@ -442,12 +442,12 @@ pub fn set_approval(tasks: State<'_, TaskRuns>, run_id: String, approval: Approv
 }
 
 /// Branches a draft can start from.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_branches(repo: String) -> Result<Vec<String>, String> {
     worktree::branches(Path::new(&repo))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'_, SessionInboxes>, store: State<'_, Store>, run_id: String, prompt: String) -> Result<(), String> {
     if prompt.trim().is_empty() { return Err("Hãy nhập nội dung tin nhắn.".into()); }
     let inbox = inboxes.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
@@ -464,7 +464,7 @@ pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn respond_permission(tasks: State<'_, TaskRuns>, run_id: String, request_id: String, option_id: String, always: bool) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned().ok_or("Lượt chạy này đã kết thúc.")?;
     session.respond_permission(&request_id, &option_id, always)
@@ -472,17 +472,17 @@ pub fn respond_permission(tasks: State<'_, TaskRuns>, run_id: String, request_id
 fn stored_worktree(store: &Store, id: &str) -> Result<(PathBuf, Worktree), String> {
     store.run_worktree(id).map_err(|e| format!("Không tìm thấy bản nháp của lượt chạy: {e}"))
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
     diff::pending(&wt)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accept_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     diff::accept_hunk(&repo, &wt, &path, &hunk_id)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<usize, String> {
     if tasks.busy(&run_id)? {
         return Err("Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.".into());
@@ -490,32 +490,32 @@ pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: S
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     diff::accept_all(&repo, &wt)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reject_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
     diff::reject_hunk(&wt, &path, &hunk_id)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn staged_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
     let (repo, _) = stored_worktree(&store, &run_id)?;
     diff::staged(&repo)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn commit_accepted(store: State<'_, Store>, run_id: String, message: String) -> Result<String, String> {
     let (repo, _) = stored_worktree(&store, &run_id)?;
     diff::commit(&repo, &message)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_worktree_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
     workspace::list_files(&wt)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn read_worktree_file(store: State<'_, Store>, run_id: String, path: String) -> Result<String, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
     workspace::read_file(&wt, &path)
 }
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, content: String) -> Result<(), String> {
     // The agent may be writing the same file; edits wait until it is done.
     if tasks.busy(&run_id)? {

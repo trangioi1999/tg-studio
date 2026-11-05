@@ -251,7 +251,7 @@ pub async fn start_agent(
     Ok(run_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_agent(runs: State<'_, Runs>, run_id: String) -> Result<(), String> {
     let sender = runs.0.lock().map_err(|e| e.to_string())?.remove(&run_id);
     match sender {

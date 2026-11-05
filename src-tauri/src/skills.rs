@@ -104,23 +104,23 @@ fn roots(app: &AppHandle, repo: Option<&str>) -> Result<Vec<(String, PathBuf)>, 
     Ok(roots)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_skills(app: AppHandle) -> Result<Vec<Skill>, String> {
     Ok(list_in(&library(&app)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_skill(app: AppHandle, content: String) -> Result<Skill, String> {
     save_in(&library(&app)?, &content)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_skill(app: AppHandle, name: String) -> Result<(), String> {
     if !valid_name(&name) { return Err("Tên skill không hợp lệ.".into()); }
     fs::remove_dir_all(library(&app)?.join(name)).map_err(|e| format!("Không xóa được skill: {e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn skill_targets(app: AppHandle, name: String, repo: Option<String>) -> Result<Vec<SkillTarget>, String> {
     let skill = list_in(&library(&app)?).into_iter().find(|s| s.name == name).ok_or("Không có skill này trong thư viện.")?;
     Ok(roots(&app, repo.as_deref())?.into_iter().map(|(scope, root)| {
@@ -129,7 +129,7 @@ pub fn skill_targets(app: AppHandle, name: String, repo: Option<String>) -> Resu
     }).collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn install_skill(app: AppHandle, name: String, scope: String, repo: Option<String>) -> Result<Installed, String> {
     let skill = list_in(&library(&app)?).into_iter().find(|s| s.name == name).ok_or("Không có skill này trong thư viện.")?;
     let (_, root) = roots(&app, repo.as_deref())?.into_iter().find(|(s, _)| *s == scope).ok_or("Chọn một repo Git để cài ở mức project.")?;
