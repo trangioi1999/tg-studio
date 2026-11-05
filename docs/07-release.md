@@ -82,15 +82,17 @@ Repo riêng tư nên không dùng GitHub Pages hay link Release được: ngư�
 - Workflow **Download site** (`.github/workflows/site.yml`) build bộ cài Windows và macOS (universal: chạy trên cả Intel và Apple Silicon) trên GitHub Actions, ghép trang tải (`site/`), ảnh giao diện (`docs/ui-review/`), logo agent và bộ cài (nén `.zip`), rồi đẩy sang nhánh **`site-dist`**, trong thư mục `site/`. Nhánh này chỉ có trang đã build, được thay mới mỗi lần chạy (không tích bộ cài cũ trong lịch sử).
 - **Cloudflare Pages** nối với repo trong dashboard và deploy nhánh `site-dist`. Máy build của Cloudflare không build bộ cài (nó chạy Linux), nên ở đó không có lệnh build nào.
 
-**Làm một lần trong Cloudflare**
-1. Workers & Pages → Create → tab **Pages** → **Connect to Git** → cấp quyền cho app Cloudflare trên GitHub, chỉ chọn repo `tg-studio`.
-2. Chọn repo `tg-studio`, rồi cấu hình:
-   - Production branch: **`site-dist`**
-   - Framework preset: **None**
-   - Build command: **để trống**
-   - Build output directory: **`site`**
-3. Save and Deploy. Lần đầu nhánh `site-dist` chưa có thì chạy workflow trước (bước dưới), rồi Retry deployment.
-4. Settings → Builds & deployments → Branch control → Preview deployments: **None**. Không bắt buộc (thư mục `site/` của các nhánh khác chỉ có trang, không có source), nhưng tránh tạo bản xem trước thừa.
+**Làm một lần trong Cloudflare.** Nhánh `site-dist` có `site/` và `wrangler.jsonc` (Worker chỉ phục vụ `site/` như tệp tĩnh), nên dùng được cả hai kiểu project:
+
+*Kiểu Worker* (màn hình mặc định của Workers & Pages → Create → Import a repository):
+1. Chọn repo `tg-studio` (cấp quyền cho app Cloudflare trên GitHub, chỉ repo này).
+2. Project name: **`tg-studio`**. Tên phải trùng `name` trong `wrangler.jsonc`; muốn tên khác thì đặt biến `CF_WORKER_NAME` ở GitHub → Settings → Secrets and variables → Actions → Variables.
+3. Build command: **để trống**. Deploy command: **`npx wrangler deploy`**. Root directory: **`/`**. API token: để mặc định.
+4. Sau khi tạo: Settings → Build → Branch control → Production branch: **`site-dist`**; tắt build cho các nhánh khác (non-production branch builds).
+
+*Kiểu Pages* (link "Looking to deploy Pages? Get started" cuối trang Create): Connect to Git → `tg-studio`, production branch **`site-dist`**, preset **None**, build command **để trống**, output directory **`site`**; Settings → Builds & deployments → Preview deployments: **None**.
+
+Cả hai kiểu chỉ publish `site/`: source không có trên `site-dist`, và nếu lỡ build nhánh `main` thì `wrangler deploy` dừng vì `main` không có `wrangler.jsonc`. Chạy workflow (bước dưới) trước để nhánh `site-dist` có sẵn khi Cloudflare build lần đầu.
 
 **Mỗi lần có bản mới:** GitHub → Actions → **Download site** → Run workflow (hoặc đẩy tag `vX.Y.Z`). Workflow cập nhật `site-dist`, Cloudflare tự deploy. Trang ở `https://<tên-project>.pages.dev`.
 
