@@ -241,7 +241,7 @@ export class MockBackend extends AgentBackend {
     emit({ kind: 'started', line: `mock ${agent} · ${prompt.slice(0, 40)}` }, 50);
     emit({ line: '› đọc cấu trúc thư mục' }, 400);
     emit({ line: '› read src/app/app.ts' }, 900);
-    emit({ line: 'Dự án dùng **Angular 21** (đọc từ `package.json`). Phản hồi giả lập của mock mode:\n\n- Signal forms chính thức\n- Build nhanh hơn với esbuild\n- Không có breaking change đáng kể\n\n```json\n\"@angular/core\": \"21.2.20\"\n```' }, 1500);
+    emit({ line: 'Dự án dùng **Angular 21** (đọc từ `package.json`). Điểm đáng chú ý:\n\n- Signal forms chính thức\n- Build nhanh hơn với esbuild\n- Không có breaking change đáng kể\n\n```json\n\"@angular/core\": \"21.2.20\"\n```' }, 1500);
     emit({ kind: 'usage', usage }, 1900);
     if (agent === 'claude') emit({ kind: 'limits', data: mockLimits() as unknown as AgentEvent['data'] }, 1950);
     this.endTurn(runId, run, 2100);
@@ -343,7 +343,8 @@ export class MockBackend extends AgentBackend {
     if (run.active) throw new Error('Agent đang chạy. Hãy chờ hoặc dừng trước.');
     run.active = true;
     this.later(runId, run, { kind: 'user', line: prompt }, 0);
-    this.later(runId, run, { kind: 'message', data: { text: `Đã nhận: ${prompt.slice(0, 60)}` } }, 300);
+    const reply = `Về "${prompt.slice(0, 60)}", mình xem lại các phần liên quan:\n\n- \`src/app/app.ts\`: trạng thái và các hàm chính\n- \`src/app\`: giao diện và dịch vụ\n- \`docs/\`: tài liệu dự án`;
+    this.later(runId, run, { kind: 'message', data: { text: reply } }, 300);
     this.endTurn(runId, run, 700);
   }
 

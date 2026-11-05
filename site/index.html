@@ -49,7 +49,8 @@ header.nav .wrap { display: flex; align-items: center; gap: 12px; padding-block:
 .meta { margin-top: 12px; color: var(--muted); font: 12.5px var(--mono); font-variant-numeric: tabular-nums; }
 .meta span + span::before { content: " · "; color: var(--faint); }
 .shot { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,.55); background: #000; }
-.shot img { display: block; width: 100%; height: auto; }
+.shot img, .shot video { display: block; width: 100%; height: auto; }
+.vid-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
 
 section { padding-block: 44px; border-top: 1px solid var(--line); }
 section h2 { margin: 0 0 6px; font: 600 26px/1.25 var(--body); letter-spacing: -0.015em; text-wrap: balance; }
@@ -120,7 +121,10 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
       </div>
       <div class="meta" id="dl-meta"><span id="m-os">Windows 10/11 · macOS 11+ (Intel và Apple Silicon)</span><span>tệp .zip chứa bộ cài</span></div>
     </div>
-    <div class="shot"><img src="ui-review/img/09-done-changes.webp" alt="TG Studio: agent làm xong, thẻ thay đổi và panel diff" width="1440" height="900"></div>
+    <div class="hero-media">
+      <div class="shot"><video id="demo" src="media/tg-studio-demo.webm" poster="media/tg-studio-demo.jpg" width="1440" height="900" autoplay muted loop playsinline preload="metadata" aria-label="Video 1 phút: hỏi về dự án, giao việc sửa code, duyệt từng đoạn thay đổi, chuyển việc cho Codex, giao cho nhiều agent, xem chi phí"></video></div>
+      <p class="vid-note">Video 1 phút ở chế độ mẫu: hỏi, sửa code, duyệt thay đổi, chuyển việc giữa các agent, xem chi phí.</p>
+    </div>
   </div>
 
   <section>
@@ -133,6 +137,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
         <div class="feature"><h3>Duyệt từng đoạn thay đổi</h3><p>Làm thẳng trong thư mục rồi Giữ / Hoàn tác từng đoạn, hoặc làm trong bản nháp riêng tạo từ nhánh bạn chọn.</p></div>
         <div class="feature"><h3>Biết ai đang làm gì</h3><p><span class="pill p-run">Đang làm</span><span class="pill p-wait">Chờ duyệt</span><span class="pill p-ok">✓ Xong</span> ngay ở cột trái, và một dòng trạng thái trên ô chat.</p></div>
         <div class="feature"><h3>Giao cho nhiều agent cùng lúc</h3><p>Cùng một việc cho Claude và Codex, mỗi bên một bản nháp, rồi so sánh và chọn bản tốt nhất hoặc ghép từng đoạn.</p></div>
+        <div class="feature"><h3>Hỏi nhanh như dùng CLI</h3><p>Ở Chỉ hỏi, Claude giữ một phiên cho cả cuộc trò chuyện nên câu sau trả lời ngay, và chữ hiện ra trong lúc agent đang viết.</p></div>
+        <div class="feature"><h3>Agent chuyển việc cho nhau</h3><p>Claude đề xuất giao phần tiếp theo cho Codex (hoặc ngược lại). Bạn bấm đồng ý, agent kia làm tiếp trong cùng cuộc trò chuyện và cùng thư mục.</p></div>
         <div class="feature"><h3>Chi phí trung thực</h3><p>Token và chi phí theo từng lượt, theo ngày, hạn mức gói Claude/Codex, ngân sách và xuất CSV.</p></div>
       </div>
     </div>
@@ -156,7 +162,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
       <p class="sub">Khoảng 5 phút nếu máy đã có agent.</p>
       <ol class="steps">
         <li data-os="win"><div><strong>Windows: giải nén và chạy bộ cài</strong><span>Giải nén tệp .zip, chạy <code>Setup.exe</code> bên trong. Bộ cài chưa ký số, nên SmartScreen sẽ cảnh báo: bấm <em>More info</em> → <em>Run anyway</em>.</span></div></li>
-        <li data-os="mac"><div><strong>macOS: giải nén, mở .dmg, kéo vào Applications</strong><span>Bản chưa ký số của Apple: lần đầu mở, bấm chuột phải vào TG Studio → <em>Open</em> → <em>Open</em>. Nếu macOS vẫn chặn: System Settings → Privacy &amp; Security → <em>Open Anyway</em>. Chạy được trên cả Mac Intel và Apple Silicon.</span></div></li>
+        <li data-os="mac"><div><strong>macOS: giải nén, mở .dmg, kéo vào Applications</strong><span>Bản chưa ký số của Apple: lần đầu mở, bấm chuột phải vào TG Studio → <em>Open</em> → <em>Open</em>. Nếu macOS vẫn chặn: System Settings → Privacy &amp; Security → <em>Open Anyway</em>. Nếu báo "app bị hỏng": chạy một lần trong Terminal <span class="copy"><code id="cmd-xattr">xattr -cr "/Applications/TG Studio.app"</code><button type="button" data-copy="cmd-xattr">Chép</button></span>. Chạy được trên cả Mac Intel và Apple Silicon.</span></div></li>
         <li><div><strong>Cài ít nhất một agent và đăng nhập</strong><span>Ví dụ Claude Code: <span class="copy"><code id="cmd-claude">npm i -g @anthropic-ai/claude-code</code><button type="button" data-copy="cmd-claude">Chép</button></span> rồi chạy <code>claude</code> để đăng nhập. Kiro: <code>kiro-cli login</code>.</span></div></li>
         <li><div><strong>Mở thư mục dự án và gõ yêu cầu</strong><span>Chọn quyền Chỉ hỏi để thử trước: agent chỉ đọc code, không sửa gì.</span></div></li>
       </ol>
@@ -226,6 +232,12 @@ document.addEventListener('click', async (e) => {
   catch { b.textContent = 'Bấm giữ để chép'; }
   setTimeout(() => (b.textContent = 'Chép'), 1500);
 });
+
+// The demo video loops silently; people who asked for less motion get the poster and controls.
+(() => {
+  const v = document.getElementById('demo');
+  if (v && matchMedia('(prefers-reduced-motion: reduce)').matches) { v.removeAttribute('autoplay'); v.pause(); v.controls = true; }
+})();
 </script>
 </body>
 </html>
