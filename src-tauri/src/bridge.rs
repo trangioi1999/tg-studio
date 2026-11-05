@@ -107,7 +107,7 @@ pub async fn call_tool(env: &dyn ToolEnv, tool: &str, args: &Value) -> Result<St
 #[derive(Default)]
 pub struct BridgeHub {
     addr: tokio::sync::Mutex<Option<String>>,
-    envs: Mutex<HashMap<String, Arc<dyn ToolEnv>>>,
+    envs: Mutex<HashMap<String, Option<Arc<dyn ToolEnv>>>>,
 }
 
 impl BridgeHub {
@@ -131,8 +131,25 @@ impl BridgeHub {
     /// A fresh unguessable token for one run.
     pub fn register(&self, env: Arc<dyn ToolEnv>) -> String {
         let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-        self.envs.lock().unwrap().insert(token.clone(), env);
+        self.envs.lock().unwrap().insert(token.clone(), Some(env));
         token
+    }
+
+    /// Reserves a token; tool calls are refused until its environment is bound.
+    pub fn reserve(&self) -> String {
+        let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+        self.envs.lock().unwrap().insert(token.clone(), None);
+        token
+    }
+
+    /// Binds a reserved token exactly once, while it is still registered.
+    pub fn bind(&self, token: &str, env: Arc<dyn ToolEnv>) -> Result<(), String> {
+        let mut envs = self.envs.lock().unwrap();
+        match envs.get_mut(token) {
+            Some(slot @ None) => { *slot = Some(env); Ok(()) }
+            Some(Some(_)) => Err("Phiên tg-bridge đã được gắn môi trường.".into()),
+            None => Err("Phiên tg-bridge không còn hiệu lực.".into()),
+        }
     }
 
     pub fn unregister(&self, token: &str) {
@@ -146,7 +163,7 @@ impl BridgeHub {
         let reply = match serde_json::from_str::<Value>(&line) {
             Err(_) => json!({ "ok": false, "error": "Yêu cầu không hợp lệ." }),
             Ok(req) => {
-                let env = req["token"].as_str().and_then(|t| self.envs.lock().unwrap().get(t).cloned());
+                let env = req["token"].as_str().and_then(|t| self.envs.lock().unwrap().get(t).cloned().flatten());
                 match env {
                     None => json!({ "ok": false, "error": "Phiên tg-bridge không còn hiệu lực." }),
                     Some(env) => match call_tool(env.as_ref(), req["tool"].as_str().unwrap_or(""), &req["args"]).await {
@@ -266,6 +283,41 @@ mod tests {
         assert_eq!(call_tool(&env, "request_approval", &json!({"action":"xóa build/","reason":"dọn"})).await.unwrap(), "denied");
         assert!(call_tool(&env, "get_task_context", &json!({})).await.unwrap().contains("Đổi tiêu đề"));
         assert!(call_tool(&env, "rm_rf", &json!({})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn reserved_token_only_runs_tools_after_binding() {
+        let hub = Arc::new(BridgeHub::default());
+        let addr = hub.address().await.unwrap();
+        let token = hub.reserve();
+        let env = Arc::new(Fake::default());
+        let args = json!({"topic":"plan","text":"xin chào"});
+
+        assert_eq!(forward(&addr, &token, "write_note", &args).await.unwrap_err(), "Phiên tg-bridge không còn hiệu lực.");
+        assert!(env.notes.lock().unwrap().is_empty());
+        hub.bind(&token, env.clone()).unwrap();
+        assert_eq!(forward(&addr, &token, "write_note", &args).await.unwrap(), "Đã lưu ghi chú \"plan\".");
+        assert_eq!(env.notes.lock().unwrap()[0].3, "xin chào");
+
+        assert!(hub.bind(&token, Arc::new(Fake::default())).is_err());
+        forward(&addr, &token, "write_note", &args).await.unwrap();
+        assert_eq!(env.notes.lock().unwrap().len(), 2);
+        hub.unregister(&token);
+        assert!(hub.bind(&token, env).is_err());
+        assert_eq!(forward(&addr, &token, "write_note", &args).await.unwrap_err(), "Phiên tg-bridge không còn hiệu lực.");
+    }
+
+    #[test]
+    fn bind_rejects_unknown_registered_and_unregistered_tokens() {
+        let hub = BridgeHub::default();
+        let env = Arc::new(Fake::default());
+        assert!(hub.bind("unknown", env.clone()).is_err());
+        let registered = hub.register(env.clone());
+        assert!(hub.bind(&registered, env.clone()).is_err());
+        let reserved = hub.reserve();
+        assert_ne!(registered, reserved);
+        hub.unregister(&reserved);
+        assert!(hub.bind(&reserved, env).is_err());
     }
 
     /// The whole path: MCP client → stdio server → loopback hub → tool → back.

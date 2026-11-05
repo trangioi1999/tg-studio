@@ -20,6 +20,7 @@ mod project;
 mod runner;
 mod store;
 mod usage;
+mod warm;
 mod workspace;
 mod worktree;
 
@@ -63,6 +64,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .manage(acp_tasks::TaskRuns::default())
         .manage(acp_tasks::SessionInboxes::default())
+        .manage(warm::WarmPool::default())
         .manage(compose::Composites::default())
         .manage(std::sync::Arc::new(bridge::BridgeHub::default()))
         .setup(|app| {
@@ -77,6 +79,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            warm::warm_task,
             detect::detect_agents,
             runner::start_agent,
             runner::stop_agent,
