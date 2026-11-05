@@ -104,6 +104,15 @@ jobs:
             (cd pack && zip -q -9 "../site/downloads/$mname" "TG Studio ${version}.dmg")
             cp "site/downloads/$mname" site/downloads/TG-Studio-latest-macos-universal.zip
             mac="$(printf ',"macos":{"file":"downloads/%s","bytes":%s}' "$mname" "$(stat -c%s "site/downloads/$mname")")"
+          elif git fetch --depth 1 origin site-dist && git show FETCH_HEAD:site/version.json > prev.json; then
+            # GitHub often has no macOS runner to spare: keep the build published last time
+            # rather than dropping macOS from the page.
+            mfile="$(node -p "(require('./prev.json').macos || {}).file || ''")"
+            if [ -n "$mfile" ] && git show "FETCH_HEAD:site/$mfile" > "site/$mfile"; then
+              cp "site/$mfile" site/downloads/TG-Studio-latest-macos-universal.zip
+              mac=",\"macos\":$(node -p "JSON.stringify(require('./prev.json').macos)")"
+              echo "macOS: kept $mfile from the previous publish"
+            fi
           fi
           printf '{"version":"%s","date":"%s","commit":"%s","windows":{"file":"downloads/%s","bytes":%s}%s}\n' \
             "$version" "$(date -u +%F)" "${GITHUB_SHA::7}" "$name" "$bytes" "$mac" > site/version.json
