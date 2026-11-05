@@ -63,7 +63,7 @@
   - `streams Claude text deltas into one message`: gộp mọi dòng qua `lines.reduce((all, l) => addLine(all, describeLine('claude', l)), [])`. Kết quả có đúng **một** dòng `tone: 'text'` cho mỗi câu trả lời trong fixture (câu 1 là `hello`, câu 2 là câu tiếng Việt), không có dòng nào là `[stream_event]`, và vẫn có dòng tool `› Read …` (hoặc tool thực có trong fixture) cùng `✓ success`.
   - `seals a message once its final copy arrives`: chuỗi `[delta 'Xin ', delta 'chào', assistant text 'Xin chào', delta 'Câu hai']` cho ra hai dòng text `'Xin chào'` và `'Câu hai'`.
   - `keeps a final message that had no deltas`: `assistant` text không có delta đứng trước cho ra dòng `{ text, tone: 'text' }`, không có `key`.
-  - Fixture `claude/2.1.317` giữ nguyên expected hiện có.
+  - Fixture `claude/2.1.317` giữ nguyên expected hiện có, nhưng test của nó gộp dòng qua `addLine` như test mới (`FINAL_KEY` là dấu tạm cho `addLine`, không bao giờ còn lại trong `run.lines`). Quyết định 2026-11-05 sau khi Codex phát hiện mâu thuẫn.
 - [ ] **Step 2: Chạy** `npm test -- --watch=false --include src/app/core/describe-line.spec.ts`. Expected: FAIL.
 - [ ] **Step 3: Cài đặt:**
   - Nhánh `claude` của `describeLine` xử lý `type === 'stream_event'`. Nếu `event.type === 'content_block_delta'` và `delta.type === 'text_delta'` thì trả `{ text: delta.text, tone: 'text', key: MESSAGE_KEY }`. Mọi `stream_event` khác trả `null`.
@@ -83,6 +83,7 @@
   - `export function nextReveal(shown: number, text: string, dtMs: number): number`: số code unit cần hiện sau `dtMs` mili giây.
   - `export const REVEAL_PER_MS = 0.12`: khoảng 120 ký tự mỗi giây khi không có chữ tồn đọng.
   - `export const REVEAL_CATCHUP_MS = 250`: chữ tồn đọng được đuổi kịp trong khoảng chừng này.
+  - `export const REVEAL_MAX_MS = 1500`: không tin nhắn nào hiện lâu hơn khoảng này (đuổi theo tỉ lệ giảm dần theo cấp số nhân nên không tự xong; quyết định 2026-11-05 sau khi test 50.000 ký tự của Codex dừng ở 49.941).
 
 - [ ] **Step 1: Viết test thất bại:**
   - `advances at least one char per frame`: `nextReveal(0, 'abc', 1) >= 1`.
@@ -92,7 +93,7 @@
   - `finishes a huge message fast`: với 50.000 ký tự và `dt = 16`, hiện hết trong ≤ 100 vòng.
   - `never splits a surrogate pair`: với `'a😀b'`, không có kết quả nào trên đường đi bằng `2`, tức là ngay sau high surrogate.
 - [ ] **Step 2: Chạy** `npm test -- --watch=false --include src/app/core/reveal.spec.ts`. Expected: FAIL (`Cannot find module './reveal'`).
-- [ ] **Step 3: Cài đặt** `step = max(2, ceil(dtMs * REVEAL_PER_MS), ceil(backlog * dtMs / REVEAL_CATCHUP_MS))`. Kết quả kẹp trong `[0, text.length]`. Nếu code unit tại `next - 1` là high surrogate (`0xD800–0xDBFF`) thì cộng thêm 1.
+- [ ] **Step 3: Cài đặt** `step = max(2, ceil(dtMs * REVEAL_PER_MS), ceil(backlog * dtMs / REVEAL_CATCHUP_MS), ceil(text.length * dtMs / REVEAL_MAX_MS))`. Kết quả kẹp trong `[0, text.length]`. Nếu code unit tại `next - 1` là high surrogate (`0xD800–0xDBFF`) thì cộng thêm 1.
 - [ ] **Step 4: Chạy lại.** Expected: PASS.
 - [ ] **Step 5: Commit** `feat(chat): reveal pacing for streamed text`.
 
