@@ -7,7 +7,7 @@ import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeli
 import { estimateCost } from '../core/pricing';
 import { AgentBackend } from '../core/backend';
 import { AGENT_IDS, AGENT_META, AgentId, BridgeNote, GitPlan } from '../core/protocol';
-import { Run, RunsService, isQuiet, recapOf } from '../core/runs.service';
+import { Run, RunsService, isQuiet, recapOf, turnStart } from '../core/runs.service';
 import { ThreadsService } from '../core/threads.service';
 import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
@@ -974,7 +974,7 @@ export class AgentPanel {
   }
 
   protected duration(r: Run): string {
-    return fmtDuration(Math.max(0, (r.endedAt ?? this.runs.now()) - r.startedAt));
+    return fmtDuration(Math.max(0, (r.endedAt ?? this.runs.now()) - turnStart(r)));
   }
 
   protected toggle(id: AgentId): void {
