@@ -1047,6 +1047,9 @@ export class AgentPanel {
           // The open session takes the message; only its approval mode changes.
           if (current!.perm !== perm) await this.runs.setApproval(current!.id, approval);
           await this.runs.sendMessage(current!.id, text);
+        } else if (perm === 'read' && !this.readViaAcp() && current && !current.task && current.agent === agent && current.status === 'idle') {
+          // Claude's Chỉ hỏi process is still open: the question goes straight to it.
+          await this.runs.sendMessage(current.id, text);
         } else if (perm === 'read' && !this.readViaAcp()) {
           // Read-only CLI run on the real folder; the core resumes this agent's CLI session.
           const resumable = current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;
