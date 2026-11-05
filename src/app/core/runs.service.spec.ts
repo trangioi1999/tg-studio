@@ -354,7 +354,7 @@ describe('MockBackend task flow', () => {
     const run = service.selected()!;
     expect(run.status).toBe('idle');
     expect(run.permissions).toEqual([]);
-    expect(run.lastMessage).toBe('fix: sửa lỗi theo yêu cầu');
+    expect(run.lastMessage.split('\n')[0]).toBe('fix: sửa lỗi theo yêu cầu');
 
     const files = await service.getDiff(run.id);
     expect(files.map((f) => f.path)).toEqual(['src/app/app.ts', 'docs/ghi chú mới.md']);

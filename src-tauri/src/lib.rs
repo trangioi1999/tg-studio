@@ -13,6 +13,7 @@ mod diff;
 mod env;
 mod ledger;
 mod mcp;
+mod options;
 mod skills;
 mod policy;
 mod project;
@@ -67,6 +68,12 @@ pub fn run() {
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
             app.manage(open_store(path));
+            // Windows and Linux draw the app's own title bar (window buttons included);
+            // macOS keeps its traffic lights over the overlay title bar.
+            #[cfg(not(target_os = "macos"))]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -97,6 +104,7 @@ pub fn run() {
             project::git_plan,
             project::git_prepare,
             acp_tasks::start_task,
+            options::agent_options,
             acp_tasks::send_message,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,

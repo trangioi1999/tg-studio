@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, HostListener, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
 import { BudgetService } from '../core/budget.service';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
@@ -13,12 +13,17 @@ import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
+import { Markdown } from './markdown';
+import { NgTemplateOutlet } from '@angular/common';
+import { segmentsOf, Segment } from '../core/timeline';
+import { ConfigChoice } from '../core/protocol';
 
 type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
+type TurnStatus = 'running' | 'needs_you' | 'waiting' | 'failed' | 'stopped';
 
 const PIPELINE_KEY = 'tg.pipeline';
 
-const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: '7 ngày' };
+const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: 'Rất thấp', low: 'Thấp', medium: 'Vừa', high: 'Cao', xhigh: 'Rất cao', max: 'Tối đa' };
 
 /**
  * Right side of the IDE: the selected task's thread, plan and runs, its usage,
@@ -26,198 +31,153 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
  */
 @Component({
   selector: 'tg-agent-panel',
-  imports: [AgentAvatar, PermissionCard],
+  imports: [AgentAvatar, PermissionCard, Markdown, NgTemplateOutlet],
   template: `
-    <div class="ap-tabs" role="tablist" aria-label="Panel agent">
-      @for (t of panelTabs; track t.id) {
-        <button role="tab" class="ap-tab" [class.active]="tab() === t.id" [attr.aria-selected]="tab() === t.id" (click)="tab.set(t.id)">{{ t.label }}</button>
-      }
-      <span class="spacer"></span>
-      <span class="dim mono ap-total">{{ usd(runs.totals().costUsd) }} · {{ tok(runs.totals().tokens) }} tok</span>
-    </div>
-
-    <div class="ap-body">
-      @switch (tab()) {
-        @case ('thread') {
-          @if (run(); as r) {
-            @if (pipelineOf(); as po) {
-              <h2 class="ap-title">{{ po.pipeline.task }}</h2>
-              <ol class="stepper" aria-label="Các bước pipeline">
-                @for (s of po.pipeline.steps; track $index; let i = $index) {
-                  <li [attr.data-state]="stepState(po.pipeline, i)" [style.--agent]="meta[s.agent].color" [class.current]="i === po.step">
-                    <button [disabled]="!po.pipeline.runIds[i]" (click)="runs.selectedId.set(po.pipeline.runIds[i]!)">
-                      <span class="stepper-bar"></span>
-                      <tg-agent-avatar [agent]="s.agent" [size]="14" />
-                      <span class="stepper-name ellipsis">{{ s.name }}</span>
-                    </button>
-                  </li>
+    <ng-template #composer>
+      <section class="cmp" [class.big]="!run()" aria-label="Giao việc">
+        @if (scopeShown(); as scope) {
+          <div class="cmp-scope dim">Trong thư mục <code>{{ scope }}/</code>
+            @if (!run()) { <button class="link" (click)="threads.draftScope.set(null)">Bỏ</button> }
+          </div>
+        }
+        <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
+        <textarea id="prompt" [rows]="run() ? 2 : 3" [placeholder]="placeholder()"
+          [value]="prompt()" (input)="prompt.set($any($event.target).value)"
+          (keydown.enter)="onEnter($any($event))"></textarea>
+        <div class="cmp-bar">
+          <div class="pop-anchor">
+            <button class="chip-btn" [class.open]="menu() === 'agent'" aria-haspopup="true" [attr.aria-expanded]="menu() === 'agent'" [title]="'Chọn agent và model (' + keys.model + ')'" (click)="toggleMenu('agent')">
+              @switch (team()) {
+                @case ('parallel') {
+                  <span class="av-stack">@for (a of picked(); track a) { <tg-agent-avatar [agent]="a" [size]="20" /> }</span>
+                  {{ picked().length }} agent<span class="dim">· so sánh</span>
                 }
-              </ol>
-              @if (po.pipeline.error) { <p class="error-text">{{ po.pipeline.error }}</p> }
-            } @else {
-              <h2 class="ap-title">{{ r.prompt || meta[r.agent].name }}</h2>
-            }
-            <section class="ap-card" aria-label="Usage của task">
-              <div class="ap-card-head"><span class="label">CHI PHÍ</span><span class="spacer"></span><strong>{{ usd(taskCost()) }}</strong><span class="dim">{{ tok(taskTokens()) }} tok</span></div>
-              @for (t of taskRuns(); track t.id) {
-                <div class="ap-usage-row">
-                  <tg-agent-avatar [agent]="t.agent" [size]="16" />
-                  <div class="ap-usage-main">
-                    <div>{{ meta[t.agent].name }} <span class="src" [attr.data-src]="t.usage?.costUsd != null ? 'reported' : 'unpriced'">{{ t.usage?.costUsd != null ? 'CLI báo' : t.status === 'running' ? 'đang chạy' : 'chưa có giá' }}</span></div>
-                    <div class="mono dim">in {{ tok(t.usage?.inputTokens ?? 0) }} · cache {{ tok(t.usage?.cachedInputTokens ?? 0) }} · out {{ tok(t.usage?.outputTokens ?? 0) }}</div>
-                  </div>
-                  <strong class="mono">{{ usd(costOf(t)) }}</strong>
-                </div>
+                @case ('pipeline') {
+                  <span class="av-stack">@for (s of steps(); track $index) { <tg-agent-avatar [agent]="s.agent" [size]="20" /> }</span>
+                  Theo các bước
+                }
+                @default {
+                  @if (agent(); as a) {
+                    <tg-agent-avatar [agent]="a" [size]="20" />{{ meta[a].name }}
+                    @if (agents.modelLabel(a); as m) { <span class="dim">· {{ m }}</span> }
+                  } @else { Chưa có agent }
+                }
               }
-              @if (limitsLine(); as l) { <div class="ap-limits dim">{{ l }}</div> }
-            </section>
-
-            @if (otherApprovals().length) {
-              <div class="ap-notice">
-                @for (o of otherApprovals(); track o.id) {
-                  <button class="btn ghost sm" (click)="runs.selectedId.set(o.id)"><tg-agent-avatar [agent]="o.agent" [size]="14" /> {{ meta[o.agent].name }} cần bạn duyệt</button>
-                }
-              </div>
-            }
-
-            @for (tr of threadRuns(); track tr.id; let first = $first) {
-              @if (!first) { <p class="ap-user">{{ tr.prompt }}</p> }
-            <div class="ap-thread" [style.--agent]="meta[tr.agent].color">
-              <div class="ap-who"><tg-agent-avatar [agent]="tr.agent" [size]="16" /><strong>{{ meta[tr.agent].name }}</strong><span class="dim">{{ statusLabel[tr.status] }} · {{ duration(tr) }}</span></div>
-              @if (tr.progress; as p) {
-                <div class="ap-progress" [attr.title]="p.note ?? ''">
-                  <span class="ellipsis">{{ p.step }}</span>
-                  @if (p.pct !== null) {
-                    <span class="meter" role="meter" aria-label="Tiến độ agent báo" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="p.pct"><span [style.width.%]="p.pct" [style.background]="meta[r.agent].color"></span></span>
-                    <span class="mono dim">{{ p.pct }}%</span>
+              <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            @if (menu() === 'agent') {
+              <div class="pop agent-pop" role="dialog" aria-label="Chọn agent và model" (keydown.escape)="menu.set(null)">
+                <div class="pop-col agents-col" role="listbox" aria-label="Agent">
+                  @for (a of agents.agents(); track a.id) {
+                    <button role="option" class="opt" [class.on]="team() === 'single' && agent() === a.id" [attr.aria-selected]="team() === 'single' && agent() === a.id"
+                      [disabled]="!usable(a.id)" (click)="pickAgent(a.id)">
+                      <tg-agent-avatar [agent]="a.id" [size]="20" /><span class="ellipsis grow">{{ a.name }}</span>
+                      @if (!a.path) { <span class="dim">chưa cài</span> } @else if (!usable(a.id)) { <span class="dim">chỉ Sửa code</span> } @else { <span class="dim">›</span> }
+                    </button>
+                  }
+                  <hr />
+                  <button class="opt" [class.on]="team() === 'parallel'" (click)="setTeam('parallel')">
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/><path d="M13 7h4a2 2 0 0 1 2 2v2M11 17H7a2 2 0 0 1-2-2v-2"/></svg>
+                    <span class="grow">Giao cho nhiều agent…</span>
+                  </button>
+                  <button class="opt" [class.on]="team() === 'pipeline'" (click)="setTeam('pipeline')">
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h4M15 6h4M5 18h14M9 6a3 3 0 1 0 6 0 3 3 0 1 0-6 0M12 9v6"/></svg>
+                    <span class="grow">Theo các bước…</span>
+                  </button>
+                </div>
+                <div class="pop-col detail-col">
+                  @switch (team()) {
+                    @case ('parallel') {
+                      <p class="pop-note">Cùng một việc, mỗi agent làm một bản nháp riêng. Xong thì so sánh và chọn bản tốt nhất.</p>
+                      @for (a of choices(); track a.id) {
+                        <label class="opt" [class.on]="picked().includes(a.id)">
+                          <input type="checkbox" [checked]="picked().includes(a.id)" (change)="toggle(a.id)" />
+                          <tg-agent-avatar [agent]="a.id" [size]="20" /><span class="grow">{{ a.name }}</span>
+                          <span class="dim">{{ agents.modelLabel(a.id) ?? 'mặc định' }}</span>
+                        </label>
+                      }
+                    }
+                    @case ('pipeline') {
+                      <p class="pop-note">Các agent làm nối tiếp trong cùng một bản nháp: lên kế hoạch → viết code → review. Chọn agent cho từng bước ngay dưới ô chat.</p>
+                    }
+                    @default {
+                      @if (agent(); as a) {
+                        <div class="pop-title">Model của {{ meta[a].name }}</div>
+                        @switch (optionsState(a)) {
+                          @case ('loading') { <p class="pop-note"><span class="spin"></span> Đang hỏi {{ meta[a].name }}…</p> }
+                          @case ('error') { <p class="pop-note">Không đọc được danh sách model. <button class="link" (click)="retryOptions(a)">Thử lại</button></p> }
+                          @case ('none') { <p class="pop-note">{{ meta[a].name }} không cho chọn model ở đây; dùng cài đặt của CLI.</p> }
+                          @default {
+                            @for (o of modelOptions(a); track o.value) {
+                              <button class="opt" [class.on]="currentModel(a) === o.value" (click)="agents.setPref(a, { model: o.value, effort: null })">
+                                <span class="grow">{{ o.name }}</span>
+                                @if (o.description) { <span class="dim ellipsis">{{ o.description }}</span> }
+                                @if (currentModel(a) === o.value) { <span aria-hidden="true">✓</span> }
+                              </button>
+                            }
+                            @if (effortOptions(a).length) {
+                              <hr />
+                              <div class="effort-row">
+                                <span class="dim">Mức suy nghĩ</span>
+                                <div class="segbar" role="group" aria-label="Mức suy nghĩ">
+                                  @for (o of effortOptions(a); track o.value) {
+                                    <button [class.on]="currentEffort(a) === o.value" [attr.aria-pressed]="currentEffort(a) === o.value" (click)="agents.setPref(a, { effort: o.value })">{{ effortLabel(o) }}</button>
+                                  }
+                                </div>
+                              </div>
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 </div>
-              }
-              @for (l of tr.lines; track $index) {
-                @switch (l.tone) {
-                  @case ('text') { <p class="ap-msg">{{ l.text }}</p> }
-                  @case ('user') { <p class="ap-user">{{ l.text }}</p> }
-                  @case ('tool') { <div class="ap-tool mono">{{ l.text }}</div> }
-                  @case ('error') { <div class="ap-tool mono err">{{ l.text }}</div> }
-                  @default { <div class="ap-tool mono dim">{{ l.text }}</div> }
-                }
-              }
-            </div>
-            }
-            @if (quiet()) {
-              <div class="ap-quiet" role="status">
-                <span>Agent chưa phản hồi 30 giây. Có thể vẫn đang xử lý.</span>
-                <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button>
               </div>
             }
-            @if (changed(); as c) {
-              <section class="ap-changed" aria-label="Thay đổi của agent">
-                <span>Đã đổi {{ c.files }} tệp, <span class="ok-text">+{{ c.added }}</span> <span class="err-text">−{{ c.removed }}</span></span>
-                <span class="spacer"></span>
-                <button class="btn primary sm" (click)="review(r.id)">Xem thay đổi</button>
-              </section>
-            }
-            @for (h of taskHandoffs(); track h.id) {
-              <section class="handoff" [style.--agent]="meta[h.agent].color" aria-label="Đề xuất chuyển việc">
-                <div class="handoff-head"><tg-agent-avatar [agent]="h.from" [size]="16" /> {{ meta[h.from].name }} đề xuất chuyển cho <tg-agent-avatar [agent]="h.agent" [size]="16" /> <strong>{{ meta[h.agent].name }}</strong></div>
-                <p>{{ h.task }}</p>
-                @if (h.files.length) { <p class="mono dim">{{ h.files.join(', ') }}</p> }
-                <div class="permission-actions">
-                  <button class="btn ghost sm" (click)="runs.dismissHandoff(h.id)">Bỏ qua</button>
-                  <button class="btn primary sm" [disabled]="handoffBusy() || !hasAgent(h.agent)" [title]="hasAgent(h.agent) ? '' : 'Agent này chưa cài'" (click)="acceptHandoff(h.id)">Giao cho {{ meta[h.agent].name }}</button>
-                </div>
-              </section>
-            }
-          } @else {
-            <div class="ap-empty">
-              <p>Chưa có task nào được chọn.</p>
-              <p class="dim">Gõ yêu cầu ở ô dưới. <strong>Sửa code</strong> làm trong worktree riêng: repo của bạn chỉ đổi khi bạn Accept. Gõ <code>&#64;codex</code>, <code>&#64;claude</code>… ở đầu câu để chọn agent.</p>
-            </div>
-          }
-        }
-        @case ('plan') {
-          @if (run()?.plan?.length) {
-            <ul class="ap-plan">
-              @for (p of run()!.plan; track $index) {
-                <li [attr.data-status]="p.status">
-                  <span class="plan-mark" aria-hidden="true"></span>
-                  <span>{{ p.content }}</span>
-                  <span class="sr-only">{{ planLabel[p.status] ?? p.status }}</span>
-                </li>
+          </div>
+          <div class="pop-anchor">
+            <button class="chip-btn" [class.open]="menu() === 'perm'" aria-haspopup="true" [attr.aria-expanded]="menu() === 'perm'" [disabled]="team() !== 'single'" [title]="team() !== 'single' ? 'Nhiều agent và Theo các bước luôn sửa trong bản nháp' : 'Agent được phép làm gì'" (click)="toggleMenu('perm')">
+              @if (mode() === 'read') {
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Chỉ hỏi
+              } @else {
+                <svg class="ic perm-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Sửa code
               }
-            </ul>
-          } @else {
-            <p class="dim pad">Agent chưa gửi kế hoạch cho task này.</p>
+              <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            @if (menu() === 'perm') {
+              <div class="pop perm-pop" role="listbox" aria-label="Quyền của agent" (keydown.escape)="menu.set(null)">
+                <button role="option" class="opt tall" [class.on]="mode() === 'read'" [attr.aria-selected]="mode() === 'read'" (click)="setPerm('read')">
+                  <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span class="grow"><strong>Chỉ hỏi</strong><span class="opt-desc">Agent đọc code rồi trả lời. Bị khoá ghi: không sửa tệp nào. Dùng để hỏi, giải thích, lên kế hoạch.</span></span>
+                  @if (mode() === 'read') { <span aria-hidden="true">✓</span> }
+                </button>
+                <button role="option" class="opt tall" [class.on]="mode() !== 'read'" [attr.aria-selected]="mode() !== 'read'" (click)="setPerm('edit')">
+                  <svg class="ic perm-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                  <span class="grow"><strong>Sửa code <span class="dim">· cần repo Git</span></strong><span class="opt-desc">Agent sửa tệp và chạy lệnh trong một bản nháp riêng. Lệnh nhạy cảm sẽ hỏi bạn trước. Code thật chỉ đổi khi bạn bấm Nhận.</span></span>
+                  @if (mode() !== 'read') { <span aria-hidden="true">✓</span> }
+                </button>
+              </div>
+            }
+          </div>
+          @if (team() === 'pipeline') {
+            <button class="chip-btn" [attr.aria-expanded]="editSteps()" (click)="editSteps.set(!editSteps())">{{ editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
           }
-          <div class="ap-notes" aria-label="Ghi chú chung của task">
-            <div class="label">GHI CHÚ CHUNG · TG-BRIDGE</div>
-            @for (n of notes(); track $index) {
-              <article class="ap-note">
-                <div class="ap-note-head"><tg-agent-avatar [agent]="n.agent" [size]="14" /><strong>{{ n.topic }}</strong><span class="spacer"></span><span class="dim">{{ time(n.at) }}</span></div>
-                <p>{{ n.text }}</p>
-              </article>
-            } @empty {
-              <p class="dim">Chưa có ghi chú. Agent ghi qua tool <code>write_note</code> của tg-bridge; mọi agent cùng task đọc được.</p>
-            }
-          </div>
-        }
-      }
-    </div>
-
-    <!-- Pinned above the composer: an approval must never scroll out of sight. -->
-    @if (run()?.permissions?.length) {
-      <div class="ap-approvals">
-        @for (p of run()!.permissions; track p.requestId) { <tg-permission-card [runId]="run()!.id" [agent]="run()!.agent" [request]="p" /> }
-      </div>
-    }
-    <section class="ap-composer" aria-label="Giao việc">
-      @if (scopeShown(); as scope) {
-        <div class="ap-scope dim">Trong thư mục <code>{{ scope }}/</code>
-          @if (!run()) { <button class="link" (click)="threads.draftScope.set(null)">Bỏ</button> }
+          <span class="spacer"></span>
+          @if (run()?.status === 'running') {
+            <button class="send" aria-label="Dừng agent" title="Dừng" (click)="runs.stop(run()!.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>
+          } @else {
+            <button class="send" aria-label="Gửi" [disabled]="!canRun()" [title]="blocked() ?? 'Gửi (Enter)'" (click)="send()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          }
         </div>
-      }
-      <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
-      <textarea id="prompt" rows="3" [placeholder]="placeholder()"
-        [value]="prompt()" (input)="prompt.set($any($event.target).value)"
-        (keydown.enter)="onEnter($any($event))"></textarea>
-      <div class="ap-composer-row">
-        <select aria-label="Chế độ" [value]="mode()" (change)="mode.set($any($event.target).value)">
-          <option value="task">Sửa code</option>
-          <option value="parallel">Thử với nhiều agent</option>
-          <option value="pipeline">Theo các bước</option>
-          <option value="read">Chỉ hỏi</option>
-        </select>
-        @if (mode() === 'parallel') {
-          <div class="picks" role="group" aria-label="Agent chạy song song">
-            @for (a of choices(); track a.id) {
-              <label class="pick" [class.on]="picked().includes(a.id)" [style.--agent]="meta[a.id].color" [title]="a.name">
-                <input type="checkbox" [checked]="picked().includes(a.id)" (change)="toggle(a.id)" />
-                <tg-agent-avatar [agent]="a.id" [size]="14" />
-              </label>
-            }
-          </div>
-        } @else if (mode() === 'pipeline') {
-          <button class="btn ghost sm" [attr.aria-expanded]="editSteps()" (click)="editSteps.set(!editSteps())">{{ editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
-        } @else {
-          <select aria-label="Agent" (change)="chosen.set($any($event.target).value)">
-            @for (a of choices(); track a.id) { <option [value]="a.id" [selected]="a.id === agent()">{{ a.name }}</option> }
-            @if (!choices().length) { <option value="">Chưa có agent</option> }
-          </select>
-        }
-        <span class="spacer"></span>
-        @if (run(); as r) { <button class="btn ghost sm" (click)="newChat()">Trò chuyện mới</button> }
-        @if (run()?.status === 'running') {
-          <button class="btn ghost sm" (click)="runs.stop(run()!.id)">Dừng</button>
-        } @else {
-          <button class="btn primary sm" [disabled]="!canRun()" [title]="blocked() ?? ''" (click)="send()">Gửi<span class="kbd">↵</span></button>
-        }
-      </div>
-      @if (mode() === 'pipeline') {
+      </section>
+      @if (team() === 'pipeline') {
         <ol class="pipe-steps" aria-label="Các bước">
           @for (s of steps(); track $index; let i = $index) {
             <li>
               <div class="pipe-step">
+                <span class="pipe-num">{{ i + 1 }}</span>
                 <span class="pipe-name">{{ s.name }}</span>
+                <tg-agent-avatar [agent]="s.agent" [size]="18" />
                 <select [attr.aria-label]="'Agent cho bước ' + s.name" (change)="setStep(i, { agent: $any($event.target).value })">
                   @for (a of choices(); track a.id) { <option [value]="a.id" [selected]="a.id === s.agent">{{ a.name }}</option> }
                 </select>
@@ -229,16 +189,16 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
           }
         </ol>
         @if (editSteps()) {
-          <p class="dim ap-hint"><code>{{ '{{task}}' }}</code> yêu cầu · <code>{{ '{{previous}}' }}</code> tin nhắn cuối của bước trước · <code>{{ '{{diff}}' }}</code> diff hiện tại. <button class="link" (click)="resetSteps()">Khôi phục mặc định</button></p>
+          <p class="dim cmp-hint"><code>{{ '{{task}}' }}</code> yêu cầu · <code>{{ '{{previous}}' }}</code> tin nhắn cuối của bước trước · <code>{{ '{{diff}}' }}</code> diff hiện tại. <button class="link" (click)="resetSteps()">Khôi phục mặc định</button></p>
         }
       }
       @if (needsGit(); as label) {
         @if (gitPlan(); as plan) {
-          <div class="ap-git" role="group" aria-label="Chuẩn bị Git">
+          <div class="cmp-card" role="group" aria-label="Chuẩn bị Git">
             <p>Sẽ tạo commit đầu tiên gồm {{ plan.files }} tệp.</p>
             @if (plan.ignore.length) {
               <p class="dim">Thêm vào <code>.gitignore</code> để không commit nhầm bí mật và thư viện:</p>
-              <pre class="mono ap-git-ignore">{{ plan.ignore.join('\n') }}</pre>
+              <pre class="mono ap-git-ignore">{{ plan.ignore.join('\\n') }}</pre>
             }
             @if (!workspace.project()?.gitUser) {
               <input aria-label="Tên trong Git" placeholder="Tên của bạn" [value]="gitName()" (input)="gitName.set($any($event.target).value)" />
@@ -250,11 +210,11 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
             </div>
           </div>
         } @else {
-          <div><button class="btn ghost sm" [disabled]="gitBusy()" (click)="planGit()">{{ label }}</button></div>
+          <div class="cmp-hint"><button class="btn ghost sm" [disabled]="gitBusy()" (click)="planGit()">{{ label }}</button></div>
         }
       }
       @if (dirtyWarning(); as n) {
-        <div class="ap-quiet" role="alert">
+        <div class="cmp-card warn" role="alert">
           <span>Bạn có {{ n }} tệp chưa commit. Bản nháp bắt đầu từ commit mới nhất nên agent sẽ không thấy chúng.</span>
           <span class="permission-actions">
             <button class="btn ghost sm" (click)="dirtyWarning.set(null)">Hủy</button>
@@ -262,15 +222,235 @@ const WINDOW_SHORT: Record<string, string> = { five_hour: '5 giờ', seven_day: 
           </span>
         </div>
       }
-      @if (blocked(); as b) { <p class="dim ap-hint">{{ b }}</p> }
-      @else if (loginHint(); as h) { <p class="ap-hint warn-text">{{ h }}</p> }
-      @if (error()) { <p class="error-text">{{ error() }}</p> }
-    </section>
+      @if (blocked(); as b) { @if (prompt().trim() || run()?.status !== 'running') { <p class="dim cmp-hint">{{ b }}</p> } }
+      @else if (loginHint(); as h) { <p class="cmp-hint warn-text">{{ h }}</p> }
+      @if (error()) { <p class="error-text cmp-hint">{{ error() }}</p> }
+    </ng-template>
+
+    @if (menu()) { <div class="pop-backdrop" (click)="menu.set(null)"></div> }
+
+    @if (run(); as r) {
+      <div class="chat-tabs" role="tablist" aria-label="Nội dung cuộc trò chuyện">
+        @for (t of panelTabs; track t.id) {
+          <button role="tab" class="chat-tab" [class.active]="tab() === t.id" [attr.aria-selected]="tab() === t.id" (click)="tab.set(t.id)">{{ t.label }}</button>
+        }
+      </div>
+      <div class="chat-scroll">
+        <div class="chat-col">
+          @switch (tab()) {
+            @case ('thread') {
+              @if (pipelineOf(); as po) {
+                <ol class="stepper" aria-label="Các bước">
+                  @for (s of po.pipeline.steps; track $index; let i = $index) {
+                    <li [attr.data-state]="stepState(po.pipeline, i)" [class.current]="i === po.step">
+                      <button [disabled]="!po.pipeline.runIds[i]" (click)="runs.selectedId.set(po.pipeline.runIds[i]!)">
+                        <span class="stepper-bar"></span>
+                        <tg-agent-avatar [agent]="s.agent" [size]="16" />
+                        <span class="stepper-name ellipsis">{{ s.name }}</span>
+                      </button>
+                    </li>
+                  }
+                </ol>
+                @if (po.pipeline.error) { <p class="error-text">{{ po.pipeline.error }}</p> }
+              }
+              @if (otherApprovals().length) {
+                <div class="chat-notice">
+                  @for (o of otherApprovals(); track o.id) {
+                    <button class="pill-btn" (click)="runs.selectedId.set(o.id)"><tg-agent-avatar [agent]="o.agent" [size]="16" /> {{ meta[o.agent].name }} ở cuộc trò chuyện khác đang chờ duyệt</button>
+                  }
+                </div>
+              }
+              @for (tr of threadRuns(); track tr.id) {
+                <div class="msg-user">{{ tr.prompt }}</div>
+                <article class="turn">
+                  <header class="turn-who">
+                    <tg-agent-avatar [agent]="tr.agent" [size]="24" />
+                    <strong>{{ meta[tr.agent].name }}</strong>
+                    <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ tr.task ? 'Sửa code' : 'Chỉ hỏi' }} · {{ duration(tr) }}@if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
+                    <span class="spacer"></span>
+                    <span class="pill" [attr.data-status]="turnStatus(tr)">
+                      @switch (turnStatus(tr)) {
+                        @case ('running') { <span class="spin" aria-hidden="true"></span> }
+                        @case ('needs_you') { <span aria-hidden="true">●</span> }
+                        @case ('failed') { <span aria-hidden="true">✕</span> }
+                        @case ('stopped') { <span aria-hidden="true">■</span> }
+                        @default { <span aria-hidden="true">✓</span> }
+                      }
+                      {{ turnLabel[turnStatus(tr)] }}
+                    </span>
+                  </header>
+                  @if (tr.progress; as p) {
+                    <div class="turn-progress" [attr.title]="p.note ?? ''">
+                      <span class="ellipsis">{{ p.step }}</span>
+                      @if (p.pct !== null) {
+                        <span class="meter" role="meter" aria-label="Tiến độ agent báo" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="p.pct"><span [style.width.%]="p.pct"></span></span>
+                        <span class="mono dim">{{ p.pct }}%</span>
+                      }
+                    </div>
+                  }
+                  @for (seg of segments()[tr.id]; track $index) {
+                    @switch (seg.kind) {
+                      @case ('user') { <div class="msg-user">{{ seg.text }}</div> }
+                      @case ('text') { <tg-markdown class="msg-agent" [text]="seg.text" /> }
+                      @case ('work') {
+                        <details class="worklog" [open]="seg.live" [class.live]="seg.live">
+                          <summary>
+                            <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+                            @if (seg.live && tr.permissions.length) {
+                              <span class="wait-dot" aria-hidden="true">●</span><span class="ellipsis">Chờ bạn duyệt · {{ seg.steps.at(-1)?.text }}</span>
+                            } @else if (seg.live) {
+                              <span class="spin" aria-hidden="true"></span><span class="ellipsis">{{ seg.steps.at(-1)?.text }}</span>
+                            } @else {
+                              <span>Nhật ký làm việc · {{ seg.steps.length }} bước</span>
+                            }
+                            @if (seg.failed) { <span class="err-text">· {{ seg.failed }} lỗi</span> }
+                          </summary>
+                          <ol>
+                            @for (st of seg.steps; track $index) {
+                              <li [attr.data-state]="st.state">
+                                <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { ✓ } @case ('failed') { ✕ } @case ('note') { ! } @default { <span class="spin"></span> } }</span>
+                                <span class="mono ellipsis" [title]="st.text">{{ st.text }}</span>
+                              </li>
+                            }
+                          </ol>
+                        </details>
+                      }
+                    }
+                  }
+                  @if (tr.status === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
+                </article>
+              }
+              @if (quiet()) {
+                <div class="chat-notice" role="status">
+                  <span>Agent chưa phản hồi 30 giây. Có thể vẫn đang xử lý.</span>
+                  <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button>
+                </div>
+              }
+              @if (changed(); as c) {
+                <section class="changes-card" aria-label="Thay đổi của agent">
+                  <header>
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg>
+                    <strong>{{ c.files }} tệp đã đổi</strong><span class="ok-text mono">+{{ c.added }}</span><span class="err-text mono">−{{ c.removed }}</span>
+                    <span class="spacer"></span><span class="dim">trong bản nháp · code thật chưa đổi</span>
+                  </header>
+                  <ul>
+                    @for (f of c.list.slice(0, 5); track f.path) {
+                      <li class="mono"><span class="file-status" [attr.data-status]="f.status">{{ f.status }}</span><span class="ellipsis grow">{{ f.path }}</span></li>
+                    }
+                    @if (c.list.length > 5) { <li class="dim">và {{ c.list.length - 5 }} tệp khác</li> }
+                  </ul>
+                  <footer><button class="btn primary sm" (click)="review(r.id)">Xem thay đổi</button></footer>
+                </section>
+              }
+              @for (h of taskHandoffs(); track h.id) {
+                <section class="handoff" aria-label="Đề xuất chuyển việc">
+                  <div class="handoff-head"><tg-agent-avatar [agent]="h.from" [size]="18" /> {{ meta[h.from].name }} đề xuất chuyển cho <tg-agent-avatar [agent]="h.agent" [size]="18" /> <strong>{{ meta[h.agent].name }}</strong></div>
+                  <p>{{ h.task }}</p>
+                  @if (h.files.length) { <p class="mono dim">{{ h.files.join(', ') }}</p> }
+                  <div class="permission-actions">
+                    <button class="btn ghost sm" (click)="runs.dismissHandoff(h.id)">Bỏ qua</button>
+                    <button class="btn primary sm" [disabled]="handoffBusy() || !hasAgent(h.agent)" [title]="hasAgent(h.agent) ? '' : 'Agent này chưa cài'" (click)="acceptHandoff(h.id)">Giao cho {{ meta[h.agent].name }}</button>
+                  </div>
+                </section>
+              }
+            }
+            @case ('plan') {
+              @if (run()?.plan?.length) {
+                <ul class="ap-plan">
+                  @for (p of run()!.plan; track $index) {
+                    <li [attr.data-status]="p.status">
+                      <span class="plan-mark" aria-hidden="true"></span>
+                      <span>{{ p.content }}</span>
+                      <span class="sr-only">{{ planLabel[p.status] ?? p.status }}</span>
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="dim">Agent chưa gửi kế hoạch cho cuộc trò chuyện này.</p>
+              }
+              <div class="ap-notes" aria-label="Ghi chú chung">
+                <div class="label">GHI CHÚ CHUNG · TG-BRIDGE</div>
+                @for (n of notes(); track $index) {
+                  <article class="ap-note">
+                    <div class="ap-note-head"><tg-agent-avatar [agent]="n.agent" [size]="16" /><strong>{{ n.topic }}</strong><span class="spacer"></span><span class="dim">{{ time(n.at) }}</span></div>
+                    <p>{{ n.text }}</p>
+                  </article>
+                } @empty {
+                  <p class="dim">Chưa có ghi chú. Agent ghi qua tool <code>write_note</code> của tg-bridge; mọi agent cùng việc đọc được.</p>
+                }
+              </div>
+            }
+          }
+        </div>
+      </div>
+      <div class="chat-dock"><div class="dock-col">
+        <!-- Pinned above the composer: an approval must never scroll out of sight. -->
+        @if (r.permissions.length) {
+          <div class="ap-approvals">
+            @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
+          </div>
+        }
+        <ng-container *ngTemplateOutlet="composer" />
+      </div></div>
+    } @else {
+      <div class="chat-scroll home">
+        <div class="home-col">
+          @if (!workspace.folder()) {
+            <div class="hero">
+              <span class="brand-mark big" aria-hidden="true">TG</span>
+              <h1>Chào mừng đến TG Studio</h1>
+              <p class="dim">Điều khiển các agent code đã cài trên máy bạn, trong một cửa sổ.</p>
+              <button class="btn primary lg" (click)="workspace.pickFolder()">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                Mở thư mục dự án…
+              </button>
+            </div>
+          } @else {
+            <div class="hero">
+              <h1>Hôm nay làm gì với {{ projectName() }}?</h1>
+              <p class="dim">
+                @switch (workspace.project()?.git) {
+                  @case ('ready') { <span class="ok-text">●</span> Repo Git · nhánh {{ workspace.project()!.branch ?? 'HEAD tách rời' }} · agent làm trong bản nháp riêng }
+                  @case ('no_commits') { <span class="warn-text">●</span> Repo Git chưa có commit: Sửa code cần ít nhất một commit }
+                  @default { <span class="warn-text">●</span> Không phải repo Git: chỉ dùng được Chỉ hỏi }
+                }
+              </p>
+            </div>
+            <ng-container *ngTemplateOutlet="composer" />
+            <div class="suggest">
+              @for (s of suggestions; track s.label) {
+                <button class="pill-btn" (click)="prompt.set(s.prompt)">{{ s.label }}</button>
+              }
+            </div>
+          }
+          <section class="agent-list" aria-label="Agent trên máy">
+            <div class="label">AGENT TRÊN MÁY</div>
+            @for (a of agents.agents(); track a.id) {
+              <div class="agent-line">
+                <tg-agent-avatar [agent]="a.id" [size]="26" />
+                <strong>{{ a.name }}</strong>
+                @if (a.version) { <span class="dim mono ellipsis">{{ a.version }}</span> }
+                <span class="spacer"></span>
+                @if (!a.path) {
+                  <button class="btn ghost sm" [title]="meta[a.id].install" (click)="copy(meta[a.id].install)">Chép lệnh cài</button>
+                } @else if (a.auth === 'none') {
+                  <span class="pill" data-status="needs_you">Cần đăng nhập</span>
+                } @else {
+                  <span class="pill" data-status="waiting">✓ Sẵn sàng</span>
+                }
+              </div>
+            } @empty {
+              <p class="dim">{{ agents.checking() ? 'Đang dò agent…' : 'Chưa thấy agent nào.' }}</p>
+            }
+          </section>
+        </div>
+      </div>
+    }
   `,
 })
 export class AgentPanel {
   protected readonly runs = inject(RunsService);
-  private readonly agents = inject(AgentsService);
+  protected readonly agents = inject(AgentsService);
   private readonly pipelines = inject(PipelineService);
   private readonly budget = inject(BudgetService);
   protected readonly workspace = inject(WorkspaceService);
@@ -280,7 +460,13 @@ export class AgentPanel {
   protected readonly keys = KEYS;
   protected readonly tok = fmtTokens;
   protected readonly usd = fmtUsd;
-  protected readonly panelTabs = [{ id: 'thread', label: 'Trò chuyện' }, { id: 'plan', label: 'Kế hoạch' }] as const;
+  protected readonly panelTabs = [{ id: 'thread', label: 'Trò chuyện' }, { id: 'plan', label: 'Kế hoạch & ghi chú' }] as const;
+  protected readonly turnLabel: Record<TurnStatus, string> = { running: 'Đang làm', needs_you: 'Chờ duyệt', waiting: 'Xong', failed: 'Lỗi', stopped: 'Đã dừng' };
+  protected readonly suggestions = [
+    { label: 'Giải thích dự án', prompt: 'Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng.' },
+    { label: 'Tìm lỗi tiềm ẩn', prompt: 'Đọc code và liệt kê 5 lỗi tiềm ẩn đáng sửa nhất, kèm vị trí tệp.' },
+    { label: 'Viết test còn thiếu', prompt: 'Tìm phần code quan trọng chưa có test và viết test cho nó.' },
+  ];
   protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
   protected readonly planLabel: Record<string, string> = { completed: 'xong', in_progress: 'đang làm', pending: 'chưa làm' };
 
@@ -299,19 +485,6 @@ export class AgentPanel {
     if (!r) return [];
     const group = this.runs.groupRuns(r.group);
     return group.length ? group : [r];
-  });
-  protected readonly taskTokens = computed(() => this.taskRuns().reduce((n, r) => n + (r.usage ? r.usage.inputTokens + r.usage.cachedInputTokens + r.usage.outputTokens : 0), 0));
-  protected readonly taskCost = computed(() => {
-    const costs = this.taskRuns().map((r) => this.costOf(r)).filter((c): c is number => c !== null);
-    return costs.length ? costs.reduce((a, b) => a + b, 0) : null;
-  });
-  protected readonly limitsLine = computed(() => {
-    const parts = AGENT_IDS.flatMap((a) => {
-      const l = this.runs.limits()[a];
-      if (!l?.windows.length || !this.taskRuns().some((r) => r.agent === a)) return [];
-      return [`${AGENT_META[a].name} · ${l.windows.map((w) => `${WINDOW_SHORT[w.id] ?? w.id} ${Math.round(w.utilization * 100)}%`).join(' · ')}`];
-    });
-    return parts.length ? `Hạn mức gói: ${parts.join(' | ')}` : null;
   });
   /** Notes reload when the Plan tab opens and whenever the task's runs change. */
   private readonly loadNotes = effect(() => {
@@ -394,6 +567,113 @@ export class AgentPanel {
     return project.git === 'none' ? 'Khởi tạo Git…' : project.git === 'no_commits' ? 'Tạo commit đầu tiên…' : null;
   });
 
+  // Chat timeline
+  protected readonly segments = computed(() => {
+    const out: Record<string, Segment[]> = {};
+    for (const r of this.threadRuns()) out[r.id] = segmentsOf(r.lines, r.status === 'running');
+    return out;
+  });
+  protected readonly projectName = computed(() => this.workspace.project()?.name ?? this.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? '');
+
+  protected turnStatus(r: Run): TurnStatus {
+    if (r.permissions.length) return 'needs_you';
+    if (r.status === 'running') return 'running';
+    if (r.status === 'failed') return 'failed';
+    if (r.status === 'stopped' || r.status === 'interrupted') return 'stopped';
+    return 'waiting';
+  }
+
+  protected failureOf(r: Run): string {
+    const last = [...r.lines].reverse().find((l) => l.tone === 'error');
+    return last?.text ?? 'Lượt chạy thất bại. Xem chi tiết ở Cài đặt → Chẩn đoán.';
+  }
+
+  protected async copy(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* the command is in the tooltip */
+    }
+  }
+
+  // Composer menus: who works (agent, model, team) and what it may do (permission).
+  protected readonly menu = signal<'agent' | 'perm' | null>(null);
+  protected readonly team = computed<'single' | 'parallel' | 'pipeline'>(() => (this.mode() === 'parallel' ? 'parallel' : this.mode() === 'pipeline' ? 'pipeline' : 'single'));
+
+  protected toggleMenu(which: 'agent' | 'perm'): void {
+    const opening = this.menu() !== which;
+    this.menu.set(opening ? which : null);
+    const a = this.agent();
+    if (opening && which === 'agent' && a) void this.agents.loadOptions(a, this.workspace.folder());
+  }
+
+  /** Ctrl/⌘+Shift+M opens the agent and model picker. */
+  @HostListener('window:keydown', ['$event'])
+  protected onKey(e: KeyboardEvent): void {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
+      e.preventDefault();
+      this.toggleMenu('agent');
+    } else if (e.key === 'Escape' && this.menu()) {
+      this.menu.set(null);
+    }
+  }
+
+  protected usable(id: AgentId): boolean {
+    const a = this.agents.agents().find((x) => x.id === id);
+    return !!a?.path && (this.mode() !== 'read' || a.headless);
+  }
+
+  protected pickAgent(id: AgentId): void {
+    this.chosen.set(id);
+    if (this.team() !== 'single') this.mode.set('task');
+    void this.agents.loadOptions(id, this.workspace.folder());
+  }
+
+  protected setTeam(team: 'parallel' | 'pipeline'): void {
+    this.mode.set(team);
+  }
+
+  protected setPerm(perm: 'read' | 'edit'): void {
+    if (perm === 'read') this.mode.set('read');
+    else if (this.mode() === 'read') this.mode.set('task');
+    this.menu.set(null);
+  }
+
+  protected optionsState(a: AgentId): 'loading' | 'error' | 'none' | 'ok' {
+    const o = this.agents.options()[a];
+    if (o === 'loading' || o === undefined) return 'loading';
+    if (o === 'error') return 'error';
+    return o.model ? 'ok' : 'none';
+  }
+
+  protected retryOptions(a: AgentId): void {
+    void this.agents.loadOptions(a, this.workspace.folder());
+  }
+
+  protected modelOptions(a: AgentId): ConfigChoice[] {
+    const o = this.agents.options()[a];
+    return o && typeof o === 'object' ? (o.model?.options ?? []) : [];
+  }
+
+  protected effortOptions(a: AgentId): ConfigChoice[] {
+    const o = this.agents.options()[a];
+    return o && typeof o === 'object' ? (o.effort?.options ?? []) : [];
+  }
+
+  protected currentModel(a: AgentId): string {
+    const o = this.agents.options()[a];
+    return this.agents.prefs()[a]?.model ?? (o && typeof o === 'object' ? (o.model?.current ?? '') : '');
+  }
+
+  protected currentEffort(a: AgentId): string {
+    const o = this.agents.options()[a];
+    return this.agents.prefs()[a]?.effort ?? (o && typeof o === 'object' ? (o.effort?.current ?? '') : '');
+  }
+
+  protected effortLabel(o: ConfigChoice): string {
+    return EFFORT_VI[o.value] ?? o.name;
+  }
+
   protected async planGit(): Promise<void> {
     await this.gitAction(async () => this.gitPlan.set(await this.backend.gitPlan(this.workspace.folder())));
   }
@@ -430,7 +710,7 @@ export class AgentPanel {
     const files = this.workspace.diffs()[r.id] ?? [];
     if (!files.length) return null;
     const hunks = files.flatMap((f) => f.hunks);
-    return { files: files.length, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
+    return { files: files.length, list: files, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
   });
   protected readonly scopeShown = computed(() => {
     const r = this.run();

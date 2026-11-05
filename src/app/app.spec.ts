@@ -15,6 +15,6 @@ describe('App', () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('.brand')?.textContent).toContain('TG Studio');
+    expect(el.querySelector('.titlebar .brand-mark')?.textContent).toContain('TG');
   });
 });
