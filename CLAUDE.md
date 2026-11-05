@@ -78,4 +78,4 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 
 **Giao diện:** component trong `src/app/shell/` không có style riêng; toàn bộ CSS nằm trong `src/styles.scss`. Chuỗi hiển thị cho người dùng, kể cả lỗi trả về từ Rust, viết bằng tiếng Việt.
 
-Đang làm lại trải nghiệm chính theo `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Giai đoạn 4 (đóng gói) tạm dừng tới sau M5; phần còn lại cần tài khoản/chứng chỉ của chủ repo. Lộ trình nằm trong `docs/02-roadmap.md`, hướng dẫn người dùng ở `docs/user-guide.md`. Phát hành: `npm run version:sync` rồi đẩy tag `vX.Y.Z` (xem `docs/07-release.md` §6).
+Đang làm lại trải nghiệm chính theo `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Giai đoạn 4 (đóng gói) tạm dừng tới sau M5; phần còn lại cần tài khoản/chứng chỉ của chủ repo. Lộ trình nằm trong `docs/02-roadmap.md`, hướng dẫn người dùng ở `docs/user-guide.md`. Phát hành: `npm run version:sync` rồi đẩy tag `vX.Y.Z` (xem `docs/07-release.md` §6). Trang tải cho người ngoài repo (repo riêng tư): `site/` + workflow `Download site` đẩy lên Cloudflare Pages, cần secret `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (§8).
