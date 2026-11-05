@@ -145,7 +145,7 @@ export class MockBackend extends AgentBackend {
       { id: 'claude', name: 'Claude Code', binary: 'claude', path: '/usr/local/bin/claude', version: 'mock', headless: true, auth: 'ok' },
       { id: 'codex', name: 'Codex', binary: 'codex', path: '/opt/homebrew/bin/codex', version: 'mock', headless: true, auth: 'ok' },
       { id: 'gemini', name: 'Gemini CLI', binary: 'gemini', path: '~/.nvm/.../gemini', version: 'mock', headless: true, auth: 'ok' },
-      { id: 'kiro', name: 'Kiro CLI', binary: 'kiro-cli', path: null, version: null, headless: false, auth: 'unknown' },
+      { id: 'kiro', name: 'Kiro CLI', binary: 'kiro-cli', path: '~/.local/bin/kiro-cli', version: 'mock', headless: false, auth: 'ok' },
     ];
   }
 

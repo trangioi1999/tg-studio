@@ -10,6 +10,10 @@
 - Chat không còn hiện log thô (`hook_progress`, `init`, đường dẫn CLI, `✓ success`). Các bước của agent gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown.
 - Ô chat có hai nút: chọn agent + model + mức suy nghĩ, và chọn quyền (Chỉ hỏi / Sửa code) có chú thích. Giao cho nhiều agent và Theo các bước nằm trong menu agent.
 
+### Kiro
+- Nhận ra Kiro đã đăng nhập qua `kiro-cli whoami`.
+- Chọn Kiro khi đang ở Chỉ hỏi thì tự chuyển sang Sửa code, thay vì gửi việc rồi báo lỗi "chưa chạy được ở chế độ Chỉ đọc".
+
 ### Chọn model
 - Đọc danh sách model và mức suy nghĩ từ chính agent (`configOptions` của ACP), không tốn token. Sửa code áp dụng qua `session/set_config_option`; Chỉ hỏi truyền `--model`/`--effort` (Claude) hoặc `-m`/`model_reasoning_effort` (Codex).
 
