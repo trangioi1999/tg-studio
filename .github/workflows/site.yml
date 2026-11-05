@@ -1,8 +1,9 @@
 name: Download site
 
-# Builds the Windows and macOS (universal) installers and publishes the download page (site/) to Cloudflare Pages.
-# Only the built page, screenshots and installer leave GitHub; the source stays private.
-# Needs repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (docs/07-release.md §8).
+# Builds the Windows and macOS (universal) installers, assembles the download page and
+# publishes it to the site-dist branch. Cloudflare Pages, connected to this repository in
+# its dashboard, deploys that branch (docs/07-release.md §8). Only the built page,
+# screenshots and installers are on site-dist; the source stays on main.
 on:
   workflow_dispatch:
   push:
@@ -64,6 +65,8 @@ jobs:
     needs: [windows, macos]
     if: ${{ !cancelled() && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -102,16 +105,15 @@ jobs:
           printf '{"version":"%s","date":"%s","commit":"%s","windows":{"file":"downloads/%s","bytes":%s}%s}\n' \
             "$version" "$(date -u +%F)" "${GITHUB_SHA::7}" "$name" "$bytes" "$mac" > site/version.json
           ls -la site site/downloads
-      - name: Create the Pages project (first run only)
-        continue-on-error: true
-        uses: cloudflare/wrangler-action@v3
+      # Cloudflare Pages is connected to this repository in its dashboard and deploys the
+      # site-dist branch. The branch holds only the built site, under site/, and is
+      # replaced on every run so installers never pile up in its history.
+      - name: Publish to the site-dist branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages project create ${{ vars.CF_PAGES_PROJECT || 'tg-studio' }} --production-branch=main
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name=${{ vars.CF_PAGES_PROJECT || 'tg-studio' }} --branch=main --commit-dirty=true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: site-dist
+          publish_dir: ./site
+          destination_dir: site
+          force_orphan: true
+          commit_message: "chore(site): publish ${{ github.sha }}"
