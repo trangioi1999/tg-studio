@@ -72,7 +72,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                     <button role="option" class="opt" [class.on]="team() === 'single' && agent() === a.id" [attr.aria-selected]="team() === 'single' && agent() === a.id"
                       [disabled]="!usable(a.id)" (click)="pickAgent(a.id)">
                       <tg-agent-avatar [agent]="a.id" [size]="20" /><span class="ellipsis grow">{{ a.name }}</span>
-                      @if (!a.path) { <span class="dim">chưa cài</span> } @else if (!usable(a.id)) { <span class="dim">chỉ Sửa code</span> } @else { <span class="dim">›</span> }
+                      @if (!a.path) { <span class="dim">chưa cài</span> } @else if (editOnly(a.id)) { <span class="dim">chỉ Sửa code ›</span> } @else { <span class="dim">›</span> }
                     </button>
                   }
                   <hr />
@@ -522,7 +522,12 @@ export class AgentPanel {
   /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */
   protected readonly choices = computed(() =>
     this.mode() !== 'read' ? this.agents.agents().filter((a) => a.path) : this.agents.runnable());
-  protected readonly agent = computed<AgentId | ''>(() => this.mention()?.agent ?? (this.chosen() || this.choices()[0]?.id || ''));
+  /** The picked agent only while it can work with the chosen permission (Kiro and Gemini have no Chỉ hỏi). */
+  protected readonly agent = computed<AgentId | ''>(() => {
+    const chosen = this.chosen();
+    const fits = !!chosen && this.choices().some((a) => a.id === chosen);
+    return this.mention()?.agent ?? (fits ? chosen : this.choices()[0]?.id || '');
+  });
   protected readonly picked = computed(() => {
     const available = this.choices().map((a) => a.id);
     return (this.picks() ?? available).filter((id) => available.includes(id));
@@ -619,13 +624,18 @@ export class AgentPanel {
   }
 
   protected usable(id: AgentId): boolean {
+    return !!this.agents.agents().find((x) => x.id === id)?.path;
+  }
+
+  /** Agents without Chỉ hỏi (e.g. Kiro) cannot answer a question here; picking one moves to Sửa code. */
+  protected editOnly(id: AgentId): boolean {
     const a = this.agents.agents().find((x) => x.id === id);
-    return !!a?.path && (this.mode() !== 'read' || a.headless);
+    return !!a?.path && !a.headless;
   }
 
   protected pickAgent(id: AgentId): void {
     this.chosen.set(id);
-    if (this.team() !== 'single') this.mode.set('task');
+    if (this.team() !== 'single' || (this.mode() === 'read' && this.editOnly(id))) this.mode.set('task');
     void this.agents.loadOptions(id, this.workspace.folder());
   }
 

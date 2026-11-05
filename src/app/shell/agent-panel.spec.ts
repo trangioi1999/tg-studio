@@ -143,6 +143,17 @@ describe('AgentPanel composer', () => {
     expect(panel.gitPlan()).not.toBeNull();
   });
 
+  it('moves to Sửa code when an agent without Chỉ hỏi is picked, and never asks it a question', async () => {
+    const { panel } = await setup();
+    const p = panel as unknown as Composer & { mode(): string; agent(): string; pickAgent(id: string): void; setPerm(p: string): void };
+    p.mode.set('read');
+    p.pickAgent('kiro');
+    expect(p.mode()).toBe('task');
+    expect(p.agent()).toBe('kiro');
+    p.setPerm('read');
+    expect(p.agent()).not.toBe('kiro');
+  });
+
   it('continues a question in its conversation, resuming the CLI session', async () => {
     const { backend, panel } = await setup();
     const calls: { thread: string | null | undefined; resumeFrom: string | null | undefined }[] = [];
