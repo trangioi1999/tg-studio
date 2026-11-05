@@ -145,7 +145,7 @@ export class MockBackend extends AgentBackend {
       { id: 'claude', name: 'Claude Code', binary: 'claude', path: '/usr/local/bin/claude', version: 'mock', headless: true, auth: 'ok' },
       { id: 'codex', name: 'Codex', binary: 'codex', path: '/opt/homebrew/bin/codex', version: 'mock', headless: true, auth: 'ok' },
       { id: 'gemini', name: 'Gemini CLI', binary: 'gemini', path: '~/.nvm/.../gemini', version: 'mock', headless: true, auth: 'ok' },
-      { id: 'kiro', name: 'Kiro CLI', binary: 'kiro-cli', path: null, version: null, headless: false, auth: 'unknown' },
+      { id: 'kiro', name: 'Kiro CLI', binary: 'kiro-cli', path: '~/.local/bin/kiro-cli', version: 'mock', headless: false, auth: 'ok' },
     ];
   }
 
@@ -210,6 +210,15 @@ export class MockBackend extends AgentBackend {
 
   async windowAction(): Promise<void> {}
 
+  readonly approvals = new Map<string, string>();
+  async setApproval(runId: string, approval: string): Promise<void> {
+    this.approvals.set(runId, approval);
+  }
+
+  async listBranches(): Promise<string[]> {
+    return ['main', 'develop', 'release/v0.0.5'];
+  }
+
   async start(agent: AgentId, prompt: string, _cwd?: string, _thread: string | null = null, _resumeFrom: string | null = null, _scope: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
@@ -231,7 +240,7 @@ export class MockBackend extends AgentBackend {
     emit({ kind: 'started', line: `mock ${agent} · ${prompt.slice(0, 40)}` }, 50);
     emit({ line: '› đọc cấu trúc thư mục' }, 400);
     emit({ line: '› read src/app/app.ts' }, 900);
-    emit({ line: 'Dự án dùng **Angular 21** (đọc từ `package.json`). Phản hồi giả lập của mock mode:\n\n- Signal forms chính thức\n- Build nhanh hơn với esbuild\n- Không có breaking change đáng kể' }, 1500);
+    emit({ line: 'Dự án dùng **Angular 21** (đọc từ `package.json`). Phản hồi giả lập của mock mode:\n\n- Signal forms chính thức\n- Build nhanh hơn với esbuild\n- Không có breaking change đáng kể\n\n```json\n\"@angular/core\": \"21.2.20\"\n```' }, 1500);
     emit({ kind: 'usage', usage }, 1900);
     if (agent === 'claude') emit({ kind: 'limits', data: mockLimits() as unknown as AgentEvent['data'] }, 1950);
     emit({ kind: 'exit', code: 0 }, 2100);
@@ -239,7 +248,7 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null, singleTurn = false): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null, singleTurn = false, _recap: string | null = null, _thread: string | null = null, _scope: string | null = null, _prefs: unknown = null, _place: string | null = null, _base: string | null = null, approval: string | null = null): Promise<string> {
     const previous = reuse ? this.task(reuse) : null;
     if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
     const runId = crypto.randomUUID();
@@ -250,6 +259,14 @@ export class MockBackend extends AgentBackend {
       : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, staged: new Set<string>(), pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
+    if (approval === 'deny') {
+      // Chỉ hỏi through ACP: reads, answers, changes nothing.
+      send({ kind: 'tool', data: { toolCallId: 'r1', title: 'Đọc package.json', kind: 'read', status: 'completed' } }, 60);
+      send({ kind: 'message', data: { text: 'Dự án dùng **Angular 22** (mock). Mình chỉ đọc, không sửa tệp nào.' } }, 120);
+      this.tasks.get(runId)!.pending = false;
+      this.endTurn(runId, run, 200);
+      return runId;
+    }
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
     send({ kind: 'message', data: { text: 'trước khi sửa.' } }, 100);
     send({ kind: 'plan', data: { entries: [
@@ -257,6 +274,11 @@ export class MockBackend extends AgentBackend {
       { content: `Sửa theo yêu cầu: ${prompt.slice(0, 40)}`, status: 'pending' },
     ] } }, 140);
     send({ kind: 'tool', data: { toolCallId: 't1', title: 'npm test', kind: 'execute', status: 'pending' } }, 180);
+    if (approval === 'auto') {
+      // Tự động: no card; the run goes on as if allowed.
+      setTimeout(() => void this.respondPermission(runId, `perm-${runId}`, 'allow', false).catch(() => {}), 220);
+      return runId;
+    }
     send({
       kind: 'permission',
       data: {

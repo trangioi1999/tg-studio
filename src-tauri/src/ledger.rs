@@ -9,7 +9,7 @@ use crate::store::{PriceRow, Store, UsageRow};
 /// Settings the UI may read and write. Anything else is refused.
 const SETTING_KEYS: [&str; 3] = ["budgets", "bridge", "agents"];
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn usage_report(store: State<'_, Store>, since: u64) -> Result<Vec<UsageRow>, String> {
     store.usage_rows(since).map_err(|e| format!("Không đọc được dữ liệu usage: {e}"))
 }
@@ -24,30 +24,30 @@ pub struct BridgeNote {
 }
 
 /// tg-bridge notes of the task this run belongs to.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn bridge_notes(store: State<'_, Store>, run_id: String) -> Result<Vec<BridgeNote>, String> {
     let scope = store.run_scope(&run_id).map_err(|_| "Không tìm thấy lượt chạy.".to_string())?;
     let notes = store.notes(&scope, None).map_err(|e| format!("Không đọc được ghi chú: {e}"))?;
     Ok(notes.into_iter().map(|(topic, agent, at, text)| BridgeNote { topic, agent, at, text }).collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_prices(store: State<'_, Store>) -> Result<Vec<PriceRow>, String> {
     store.prices().map_err(|e| format!("Không đọc được bảng giá: {e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_price(store: State<'_, Store>, price: PriceRow) -> Result<(), String> {
     store.add_price(&price).map_err(|_| "Giá phải là số không âm.".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_setting(store: State<'_, Store>, key: String) -> Result<Option<String>, String> {
     if !SETTING_KEYS.contains(&key.as_str()) { return Err(format!("Không có cài đặt {key}.")); }
     store.setting(&key).map_err(|e| format!("Không đọc được cài đặt: {e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_setting(store: State<'_, Store>, key: String, value: String) -> Result<(), String> {
     if !SETTING_KEYS.contains(&key.as_str()) { return Err(format!("Không có cài đặt {key}.")); }
     serde_json::from_str::<serde_json::Value>(&value).map_err(|_| "Cài đặt phải là JSON hợp lệ.".to_string())?;
@@ -55,7 +55,7 @@ pub fn set_setting(store: State<'_, Store>, key: String, value: String) -> Resul
 }
 
 /// Writes an export into the Downloads folder (home if there is none) and returns its path.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_export(app: AppHandle, name: String, content: String) -> Result<String, String> {
     let dir = app.path().download_dir().or_else(|_| app.path().home_dir()).map_err(|e| format!("Không tìm thấy thư mục để lưu: {e}"))?;
     let path = free_path(&dir, &name)?;

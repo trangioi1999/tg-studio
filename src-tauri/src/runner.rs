@@ -112,7 +112,7 @@ pub async fn start_agent(
     scope: Option<String>,
     prefs: Option<crate::options::SessionPrefs>,
 ) -> Result<String, String> {
-    let unsupported = || format!("{} chưa chạy được ở chế độ Chỉ đọc trong bản này.", agent.display_name());
+    let unsupported = || format!("{} chưa hỗ trợ quyền Chỉ hỏi. Chọn quyền Sửa code để dùng agent này.", agent.display_name());
     if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
     if !std::path::Path::new(&cwd).is_dir() {
         return Err(format!("Thư mục không tồn tại: {cwd}"));
@@ -251,7 +251,7 @@ pub async fn start_agent(
     Ok(run_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stop_agent(runs: State<'_, Runs>, run_id: String) -> Result<(), String> {
     let sender = runs.0.lock().map_err(|e| e.to_string())?.remove(&run_id);
     match sender {

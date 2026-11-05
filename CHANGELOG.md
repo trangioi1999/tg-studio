@@ -4,11 +4,21 @@
 
 ## [Chưa phát hành]
 
+### Quyền và nơi làm việc
+- Mọi agent có đủ 3 quyền: **Chỉ hỏi**, **Sửa code · hỏi trước**, **Tự động** (agent tự chạy, không hiện thẻ duyệt; `git push`/`merge` vẫn bị chặn). Kiro và Gemini trả lời câu hỏi trong một bản nháp tạm và bị từ chối mọi thao tác ghi.
+- Sửa code mặc định làm thẳng trong **thư mục hiện tại**: panel Thay đổi chỉ hiện phần agent sửa (không lẫn phần bạn đang sửa dở), **Giữ** đưa vào commit, **Hoàn tác** trả từng đoạn về như cũ. Chọn **Bản nháp** để agent làm trong bản sao riêng, tạo từ nhánh bạn chọn.
+- Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện.
+- Menu model hiện nguyên văn lỗi khi không đọc được danh sách model; thêm `scripts/probe-acp.mjs` để thử bằng tay.
+
 ### Giao diện mới
 - Làm lại giao diện theo hướng T3 Code: thanh tiêu đề riêng (Windows/Linux có nút cửa sổ của app), màn chào và màn Trò chuyện mới với ô chat lớn ở giữa, phím `Ctrl+N`.
 - Logo thật của Claude Code, Codex, Gemini CLI và Kiro thay cho chữ viết tắt. Cột trái hiện logo agent và nhãn trạng thái có màu: Đang làm, Chờ duyệt, Xong, Lỗi.
 - Chat không còn hiện log thô (`hook_progress`, `init`, đường dẫn CLI, `✓ success`). Các bước của agent gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown.
 - Ô chat có hai nút: chọn agent + model + mức suy nghĩ, và chọn quyền (Chỉ hỏi / Sửa code) có chú thích. Giao cho nhiều agent và Theo các bước nằm trong menu agent.
+
+### Kiro
+- Nhận ra Kiro đã đăng nhập qua `kiro-cli whoami`.
+- Chọn Kiro khi đang ở Chỉ hỏi thì tự chuyển sang Sửa code, thay vì gửi việc rồi báo lỗi "chưa chạy được ở chế độ Chỉ đọc".
 
 ### Chọn model
 - Đọc danh sách model và mức suy nghĩ từ chính agent (`configOptions` của ACP), không tốn token. Sửa code áp dụng qua `session/set_config_option`; Chỉ hỏi truyền `--model`/`--effort` (Claude) hoặc `-m`/`model_reasoning_effort` (Codex).

@@ -1,4 +1,4 @@
-import { renderMarkdown } from './markdown';
+import { plainText, renderMarkdown } from './markdown';
 
 describe('renderMarkdown', () => {
   it('renders bold, lists and inline code', () => {
@@ -10,5 +10,9 @@ describe('renderMarkdown', () => {
 
   it('keeps fenced code as a code block', () => {
     expect(renderMarkdown('```ts\nconst a = 1;\n```')).toContain('<pre><code class="language-ts">const a = 1;');
+  });
+
+  it('copies as plain text without Markdown marks', () => {
+    expect(plainText('Dùng **Angular 21**:\n\n- một\n- `hai`')).toBe('Dùng Angular 21:\n• một\n• hai');
   });
 });

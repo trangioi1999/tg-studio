@@ -15,8 +15,25 @@ pub struct Worktree {
     pub base: String,
 }
 
+impl Worktree {
+    /// The agent works in the user's own folder: no worktree, no branch. `base` is then a
+    /// tree snapshot of the folder taken before the run, and `path` is the repository root.
+    pub fn is_direct(&self) -> bool { self.branch.is_empty() }
+}
+
 pub fn git(cwd: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
-    let mut child = crate::env::std_command("git")
+    git_env(cwd, args, stdin, None)
+}
+
+/// `git` with its own index file, so a direct run never touches the user's index.
+pub fn git_index(cwd: &Path, index: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
+    git_env(cwd, args, stdin, Some(index))
+}
+
+fn git_env(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>) -> Result<String, String> {
+    let mut command = crate::env::std_command("git");
+    if let Some(index) = index { command.env("GIT_INDEX_FILE", index); }
+    let mut child = command
         .current_dir(cwd)
         .env("PATH", crate::env::login_path())
         .args(["-c", "core.quotepath=false"])
@@ -72,6 +89,7 @@ fn valid_segment(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+#[cfg(test)]
 pub fn create(repo: &Path, agent: &str, title: &str, run_id: &str) -> Result<Worktree, String> {
     create_at(repo, agent, title, run_id, None)
 }
@@ -150,7 +168,47 @@ pub fn list(repo: &Path) -> Result<Vec<Worktree>, String> {
     Ok(result)
 }
 
+/// Index and accepted-tree files of a direct run, in the repository's git dir.
+pub fn direct_files(wt: &Worktree) -> Result<(PathBuf, PathBuf), String> {
+    if !valid_segment(&wt.run_id) { return Err("Mã lượt chạy không hợp lệ.".into()); }
+    let dir = git(&wt.path, &["rev-parse", "--git-path", "tg-direct"], None)?;
+    let dir = wt.path.join(dir.trim());
+    Ok((dir.join(format!("{}.index", wt.run_id)), dir.join(format!("{}.accepted", wt.run_id))))
+}
+
+/// A direct run: snapshot the folder as it is now (tracked, staged and untracked files,
+/// ignoring what `.gitignore` ignores) so the review shows only what the agent changes.
+/// Nothing in the folder or the user's index changes.
+pub fn direct(repo: &Path, run_id: &str) -> Result<Worktree, String> {
+    let repo = root(repo)?;
+    git(&repo, &["rev-parse", "--verify", "HEAD^{commit}"], None).map_err(|e| format!("Kho Git chưa có commit hợp lệ. {e}"))?;
+    let wt = Worktree { run_id: run_id.into(), path: repo.clone(), branch: String::new(), base: String::new() };
+    let (index, accepted) = direct_files(&wt)?;
+    fs::create_dir_all(index.parent().unwrap()).map_err(io_error)?;
+    // Start from the user's index so only changed files are hashed again.
+    let real = repo.join(git(&repo, &["rev-parse", "--git-path", "index"], None)?.trim());
+    if real.exists() { fs::copy(&real, &index).map_err(io_error)?; }
+    git_index(&repo, &index, &["add", "-A", "--", ".", ":(exclude).tg"], None)?;
+    let tree = git_index(&repo, &index, &["write-tree"], None)?.trim().to_owned();
+    fs::write(&accepted, &tree).map_err(io_error)?;
+    Ok(Worktree { base: tree, ..wt })
+}
+
+/// Local branches a draft can start from (the app's own `tg/...` branches left out).
+pub fn branches(repo: &Path) -> Result<Vec<String>, String> {
+    let out = git(repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads"], None)?;
+    Ok(out.lines().map(str::trim).filter(|b| !b.is_empty() && !b.starts_with("tg/")).map(str::to_owned).collect())
+}
+
 pub fn remove(repo: &Path, wt: &Worktree, delete_branch: bool) -> Result<(), String> {
+    if wt.is_direct() {
+        // The user's own folder: only the app's bookkeeping files go away, never the folder.
+        let (index, accepted) = direct_files(wt)?;
+        for file in [index, accepted] {
+            if let Err(e) = fs::remove_file(file) { if e.kind() != std::io::ErrorKind::NotFound { return Err(io_error(e)); } }
+        }
+        return Ok(());
+    }
     if !list(repo)?.iter().any(|entry| entry == wt) {
         return Err("Worktree không thuộc kho Git này hoặc thông tin đã thay đổi.".into());
     }

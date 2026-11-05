@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>TG Studio UI Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a review desk. Sticky summary bar, flow index on the left, screen cards on the right, lightbox on top. */
+:root {
+  --bg: #0b0b0d; --panel: #111115; --raised: #17171c; --line: #24242b; --line-2: #33333c;
+  --fg: #ececee; --fg-2: #c4c4cc; --muted: #8e8e99; --faint: #6a6a74;
+  --run: #a3c0ff; --ok: #7fddb4; --ok-bg: rgba(111,211,168,.14); --fix: #f6a999; --fix-bg: rgba(242,155,139,.15); --wait: #e8b672;
+  --display: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --body: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 var(--body); }
+button, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 64px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+
+header.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.top .wrap { padding-block: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark { width: 28px; height: 28px; border-radius: 8px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font: 700 11px var(--display); flex: none; }
+.brand h1 { margin: 0; font: 600 17px/1.2 var(--display); letter-spacing: -0.01em; }
+.brand small { display: block; color: var(--muted); font: 12px var(--mono); }
+.progress { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 12px; }
+.bar { flex: 1; height: 6px; border-radius: 6px; background: var(--raised); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+.bar .b-ok { background: var(--ok); } .bar .b-fix { background: var(--fix); }
+.counts { display: flex; gap: 10px; font: 12px var(--mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.counts b { color: var(--fg); font-weight: 500; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line-2); background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.btn:hover { background: var(--raised); }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; }
+.btn.primary:hover { background: #fff; }
+
+.layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 32px; padding-top: 28px; }
+nav.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 90px); align-self: start; display: flex; flex-direction: column; gap: 18px; }
+.index h2 { margin: 0 0 6px; font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.index a { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 7px; color: var(--fg-2); text-decoration: none; font-size: 13px; }
+.index a:hover { background: var(--raised); color: var(--fg); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; }
+.dot[data-s="ok"] { background: var(--ok); } .dot[data-s="fix"] { background: var(--fix); }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { height: 28px; padding: 0 10px; border-radius: 99px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--raised); color: var(--fg); border-color: var(--muted); }
+
+.intro { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 34px; }
+.intro section { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.intro h3 { margin: 0 0 8px; font: 600 14px var(--display); }
+.intro ul { margin: 0; padding-left: 18px; color: var(--fg-2); font-size: 13px; display: grid; gap: 4px; }
+.intro .note h3 { color: var(--wait); }
+
+.flow { margin-bottom: 40px; scroll-margin-top: 100px; }
+.flow > h2 { margin: 0 0 4px; font: 600 20px/1.3 var(--display); letter-spacing: -0.01em; text-wrap: balance; }
+.flow > p { margin: 0 0 16px; color: var(--muted); max-width: 70ch; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 18px; }
+.card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; scroll-margin-top: 100px; }
+.card[data-s="ok"] { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.card[data-s="fix"] { border-color: color-mix(in srgb, var(--fix) 55%, var(--line)); }
+.shot { display: block; width: 100%; padding: 0; border: 0; border-bottom: 1px solid var(--line); background: #000; cursor: zoom-in; aspect-ratio: 16 / 10; max-width: 100%; }
+.shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+.body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.head { display: flex; align-items: baseline; gap: 10px; }
+.num { font: 500 12px var(--mono); color: var(--faint); }
+.head h3 { margin: 0; font: 600 15px/1.35 var(--display); }
+.checks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--fg-2); }
+.checks li { display: flex; gap: 8px; }
+.checks li::before { content: "□"; color: var(--faint); flex: none; }
+.verdict { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.verdict button { flex: 1; height: 32px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; cursor: pointer; font-size: 13px; }
+.verdict button:hover { background: var(--raised); }
+.verdict button[aria-pressed="true"][data-v="ok"] { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.verdict button[aria-pressed="true"][data-v="fix"] { background: var(--fix-bg); border-color: var(--fix); color: var(--fix); font-weight: 600; }
+textarea.note { width: 100%; min-height: 0; height: 36px; resize: vertical; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font-size: 13px; }
+textarea.note::placeholder { color: var(--faint); }
+.card[data-s="fix"] textarea.note { height: 64px; }
+
+.lightbox { position: fixed; inset: 0; z-index: 20; background: rgba(5,5,7,.94); display: grid; grid-template-rows: auto minmax(0, 1fr); padding: calc(env(safe-area-inset-top, 0px) + 12px) max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px)); gap: 12px; }
+.lb-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lb-bar h3 { margin: 0; font: 600 15px var(--display); flex: 1; min-width: 0; }
+.lb-bar .num { margin-right: 4px; }
+.lb-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; min-height: 0; }
+.lb-img { min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #000; }
+.lb-img img { display: block; width: 100%; height: auto; }
+.lb-side { overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 6px; }
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); transform: translateX(-50%); z-index: 30; padding: 10px 16px; border-radius: 10px; background: var(--fg); color: var(--bg); font-weight: 600; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  nav.index { position: static; }
+  .lb-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">TG</span>
+      <div><h1>TG Studio · Review giao diện</h1><small>16 màn hình · nhánh claude/busy-knuth-q35j1h</small></div>
+    </div>
+    <div class="progress" aria-label="Tiến độ review">
+      <div class="bar" aria-hidden="true"><i class="b-ok" id="bar-ok"></i><i class="b-fix" id="bar-fix"></i></div>
+      <div class="counts"><span><b id="c-ok">0</b> đạt</span><span><b id="c-fix">0</b> cần sửa</span><span><b id="c-todo">16</b> chưa xem</span></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="reset" type="button">Xoá đánh dấu</button>
+      <button class="btn primary" id="export" type="button">Chép kết quả review</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+    <nav class="index" aria-label="Mục lục">
+      <div>
+        <h2>Lọc</h2>
+        <div class="filters" role="group" aria-label="Lọc theo trạng thái">
+          <button class="chip" data-f="all" aria-pressed="true" type="button">Tất cả</button>
+          <button class="chip" data-f="todo" aria-pressed="false" type="button">Chưa xem</button>
+          <button class="chip" data-f="fix" aria-pressed="false" type="button">Cần sửa</button>
+          <button class="chip" data-f="ok" aria-pressed="false" type="button">Đạt</button>
+        </div>
+      </div>
+      <div id="toc"></div>
+      <p style="margin:0;color:var(--faint);font-size:12px">Bấm ảnh để phóng to · <span class="kbd">←</span> <span class="kbd">→</span> chuyển màn · <span class="kbd">1</span> đạt · <span class="kbd">2</span> cần sửa · <span class="kbd">Esc</span> đóng</p>
+    </nav>
+
+    <main>
+      <div class="intro">
+        <section>
+          <h3>Có gì mới trong đợt này</h3>
+          <ul>
+            <li>Mọi agent có đủ 3 quyền: Chỉ hỏi, Sửa code · hỏi trước, Tự động.</li>
+            <li>Sửa code mặc định làm thẳng trong thư mục; Giữ / Hoàn tác từng đoạn. Bản nháp tạo từ nhánh tự chọn.</li>
+            <li>Dòng trạng thái ngay trên ô chat, nút Dừng (Esc), con trỏ nhấp nháy khi agent đang viết.</li>
+            <li>Chép / Chép Markdown dưới mỗi câu trả lời, nút Chép trên khối code. Thanh cuộn mảnh.</li>
+            <li>Hết đứng app sau mỗi lượt: lệnh Git chạy nền, lượt Chỉ hỏi không tải diff.</li>
+          </ul>
+        </section>
+        <section class="note">
+          <h3>Cần biết khi review</h3>
+          <ul>
+            <li>Ảnh chụp ở chế độ mock (dữ liệu mẫu, agent giả), cửa sổ 1440×900.</li>
+            <li>Nút thu nhỏ / phóng to / đóng chỉ chạy trong app desktop.</li>
+            <li>Tên model trong menu là dữ liệu mẫu; app thật đọc từ chính CLI.</li>
+            <li>Đánh dấu chỉ lưu trong trình duyệt của bạn. Xong thì bấm "Chép kết quả review" rồi dán cho Claude.</li>
+          </ul>
+        </section>
+      </div>
+      <div id="flows"></div>
+    </main>
+  </div>
+</div>
+
+<div class="lightbox" id="lb" hidden role="dialog" aria-modal="true" aria-labelledby="lb-title">
+  <div class="lb-bar">
+    <h3 id="lb-title"></h3>
+    <button class="btn" id="lb-prev" type="button" aria-label="Màn trước">←</button>
+    <button class="btn" id="lb-next" type="button" aria-label="Màn sau">→</button>
+    <button class="btn" id="lb-close" type="button">Đóng <span class="kbd">Esc</span></button>
+  </div>
+  <div class="lb-main">
+    <div class="lb-img"><img id="lb-img" alt=""></div>
+    <div class="lb-side" id="lb-side"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const FLOWS = [
+  { id: 'start', title: 'Bắt đầu', desc: 'Mở app lần đầu và vào một dự án.', screens: [
+    { id: '01-welcome', title: 'Màn chào khi chưa mở dự án', checks: ['Một nút chính duy nhất: Mở thư mục dự án', 'Logo thật của 4 agent, nhãn Sẵn sàng / Chép lệnh cài', 'Thanh tiêu đề riêng của app, có nút cửa sổ'] },
+    { id: '02-new-chat', title: 'Trò chuyện mới trong dự án', checks: ['Tiêu đề "Hôm nay làm gì với …?" và trạng thái repo Git + nhánh', 'Ô chat lớn ở giữa, 3 chip: agent, quyền, nơi làm việc', 'Gợi ý việc hay làm bấm được'] },
+  ]},
+  { id: 'composer', title: 'Ô chat', desc: 'Chọn ai làm, được làm gì và làm ở đâu.', screens: [
+    { id: '03-agent-model', title: 'Chọn agent, model và mức suy nghĩ', checks: ['Agent bên trái, model bên phải, có mô tả ngắn', 'Mức suy nghĩ: Mặc định / Thấp / Vừa / Cao', 'Cuối menu: Giao cho nhiều agent, Theo các bước'] },
+    { id: '04-parallel', title: 'Giao cho nhiều agent', checks: ['Tick nhiều agent, mỗi agent hiện model đang chọn', 'Chip đổi thành logo chồng nhau + "N agent · so sánh"'] },
+    { id: '05-permissions', title: '3 quyền cho mọi agent', checks: ['Chỉ hỏi / Sửa code · hỏi trước / Tự động, mỗi mục có một dòng giải thích', 'Tự động ghi rõ git push / merge vẫn bị chặn'] },
+    { id: '06-place', title: 'Làm ở đâu: thư mục hiện tại hoặc bản nháp từ nhánh', checks: ['Thư mục hiện tại là mặc định, có giải thích Giữ / Hoàn tác', 'Danh sách nhánh của repo, đánh dấu nhánh đang mở', 'Cảnh báo vàng khi chọn Tự động + Thư mục hiện tại'] },
+    { id: '12-auto-warning', title: 'Tự động + Thư mục hiện tại', checks: ['Dòng cảnh báo vàng ngay dưới ô chat', 'Chip quyền hiện biểu tượng tia sét màu vàng'] },
+  ]},
+  { id: 'working', title: 'Agent làm việc', desc: 'Từ lúc gửi yêu cầu tới lúc duyệt thay đổi.', screens: [
+    { id: '07-approval-status', title: 'Agent xin phép chạy lệnh', checks: ['Thẻ duyệt vàng ghim ngay trên ô chat', 'Dòng trạng thái vàng: "đang chờ bạn · chờ bạn duyệt: npm test" + Dừng (Esc)', 'Cột trái: nhãn vàng Chờ duyệt; icon Giám sát có số 1'] },
+    { id: '08-running-status', title: 'Agent đang làm', checks: ['Dòng trạng thái xanh: tên agent, 3 chấm nhấp nháy, đồng hồ, việc đang làm', 'Nhật ký làm việc mở và chạy trực tiếp', 'Nút gửi đổi thành nút dừng'] },
+    { id: '09-done-changes', title: 'Agent làm xong, có thay đổi', checks: ['Câu trả lời hiển thị Markdown; nhật ký thu gọn còn 1 dòng', 'Thẻ "N tệp đã đổi" ghi "đã ở trong code của bạn · hoàn tác được"', 'Editor bên phải có thanh Hoàn tác / Giữ cho từng đoạn', 'Dưới câu trả lời có Chép / Chép Markdown'] },
+  ]},
+  { id: 'ask', title: 'Hỏi đáp', desc: 'Câu hỏi Chỉ hỏi: đọc, trả lời, không sửa tệp.', screens: [
+    { id: '10-question-typing', title: 'Agent đang trả lời', checks: ['Con trỏ nhấp nháy ở cuối câu đang viết', 'Dòng trạng thái "đang trả lời" ngay trên ô chat'] },
+    { id: '11-question-copy', title: 'Chép câu trả lời và khối code', checks: ['Nút Chép hiện ở góc khối code khi rê chuột', 'Chép (chữ thường) và Chép Markdown dưới câu trả lời', 'Nhãn đầu lượt ghi "Chỉ hỏi"; thanh cuộn mảnh'] },
+  ]},
+  { id: 'screens', title: 'Các màn khác', desc: 'Mở từ thanh icon dưới cột trái.', screens: [
+    { id: '13-mission', title: 'Giám sát', checks: ['Số liệu đang chạy / chờ duyệt / chờ review', 'Hàng chờ của bạn và timeline'] },
+    { id: '14-usage', title: 'Chi phí', checks: ['Biểu đồ theo ngày, bảng các lượt chạy có logo agent', 'Ngân sách và bảng giá ở cột phải'] },
+    { id: '15-agents', title: 'Agent', checks: ['Danh sách agent, phiên bản, trạng thái đăng nhập', 'Nút Dò lại'] },
+    { id: '16-integrations', title: 'Kết nối', checks: ['MCP server và Skills'] },
+  ]},
+];
+const SCREENS = FLOWS.flatMap((f) => f.screens.map((s) => ({ ...s, flow: f.id })));
+const KEY = 'tg-ui-review-v1';
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* kept for this visit only */ } };
+const statusOf = (id) => state[id]?.v || 'todo';
+let filter = 'all';
+let open = -1;
+
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+function verdictHtml(s, prefix) {
+  const v = statusOf(s.id);
+  return `<div class="verdict" role="group" aria-label="Kết quả">
+      <button type="button" data-v="ok" data-id="${s.id}" aria-pressed="${v === 'ok'}">✓ Đạt</button>
+      <button type="button" data-v="fix" data-id="${s.id}" aria-pressed="${v === 'fix'}">✕ Cần sửa</button>
+    </div>
+    <label class="sr" for="${prefix}-${s.id}" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Ghi chú cho ${esc(s.title)}</label>
+    <textarea class="note" id="${prefix}-${s.id}" data-id="${s.id}" placeholder="Ghi chú: cần sửa gì?">${esc(state[s.id]?.note || '')}</textarea>`;
+}
+
+function render() {
+  const flows = document.getElementById('flows');
+  flows.innerHTML = FLOWS.map((f) => {
+    const cards = f.screens.filter((s) => filter === 'all' || statusOf(s.id) === filter);
+    if (!cards.length) return '';
+    return `<section class="flow" id="flow-${f.id}"><h2>${esc(f.title)}</h2><p>${esc(f.desc)}</p><div class="cards">${cards.map((s) => {
+      const n = SCREENS.findIndex((x) => x.id === s.id);
+      return `<article class="card" id="s-${s.id}" data-s="${statusOf(s.id)}">
+        <button class="shot" type="button" data-open="${n}" aria-label="Phóng to: ${esc(s.title)}"><img src="img/${s.id}.webp" alt="${esc(s.title)}" loading="lazy" width="1440" height="900"></button>
+        <div class="body">
+          <div class="head"><span class="num">${String(n + 1).padStart(2, '0')}</span><h3>${esc(s.title)}</h3></div>
+          <ul class="checks">${s.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
+          ${verdictHtml(s, 'n')}
+        </div></article>`;
+    }).join('')}</div></section>`;
+  }).join('') || '<p style="color:var(--muted)">Không có màn nào ở trạng thái này.</p>';
+  document.getElementById('toc').innerHTML = FLOWS.map((f) => `<div><h2>${esc(f.title)}</h2>${f.screens.map((s) =>
+    `<a href="#s-${s.id}"><span class="dot" data-s="${statusOf(s.id)}"></span>${esc(s.title)}</a>`).join('')}</div>`).join('');
+  const ok = SCREENS.filter((s) => statusOf(s.id) === 'ok').length;
+  const fix = SCREENS.filter((s) => statusOf(s.id) === 'fix').length;
+  document.getElementById('c-ok').textContent = ok;
+  document.getElementById('c-fix').textContent = fix;
+  document.getElementById('c-todo').textContent = SCREENS.length - ok - fix;
+  document.getElementById('bar-ok').style.width = `${(ok / SCREENS.length) * 100}%`;
+  document.getElementById('bar-fix').style.width = `${(fix / SCREENS.length) * 100}%`;
+  if (open >= 0) renderLightbox();
+}
+
+function setVerdict(id, v) {
+  state[id] = { ...(state[id] || {}), v: statusOf(id) === v ? undefined : v };
+  save();
+  render();
+}
+
+function renderLightbox() {
+  const s = SCREENS[open];
+  document.getElementById('lb-title').innerHTML = `<span class="num">${String(open + 1).padStart(2, '0')} / ${SCREENS.length}</span> ${esc(s.title)}`;
+  const img = document.getElementById('lb-img');
+  img.src = `img/${s.id}.webp`; img.alt = s.title;
+  document.getElementById('lb-side').innerHTML = `<ul class="checks">${s.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>${verdictHtml(s, 'lb')}`;
+}
+
+function show(i) {
+  open = (i + SCREENS.length) % SCREENS.length;
+  document.getElementById('lb').hidden = false;
+  renderLightbox();
+}
+function close() { open = -1; document.getElementById('lb').hidden = true; }
+
+function toast(text) {
+  const t = document.getElementById('toast');
+  t.textContent = text; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.hidden = true), 1800);
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.open !== undefined) show(Number(t.dataset.open));
+  else if (t.dataset.v) setVerdict(t.dataset.id, t.dataset.v);
+  else if (t.dataset.f) {
+    filter = t.dataset.f;
+    document.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c === t)));
+    render();
+  }
+});
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t.matches('textarea.note')) return;
+  state[t.dataset.id] = { ...(state[t.dataset.id] || {}), note: t.value };
+  save();
+  document.querySelectorAll(`textarea.note[data-id="${t.dataset.id}"]`).forEach((o) => { if (o !== t) o.value = t.value; });
+});
+document.getElementById('lb-prev').onclick = () => show(open - 1);
+document.getElementById('lb-next').onclick = () => show(open + 1);
+document.getElementById('lb-close').onclick = close;
+document.getElementById('lb').addEventListener('click', (e) => { if (e.target.id === 'lb') close(); });
+document.addEventListener('keydown', (e) => {
+  if (open < 0 || e.target.matches('textarea')) return;
+  if (e.key === 'Escape') close();
+  else if (e.key === 'ArrowRight') show(open + 1);
+  else if (e.key === 'ArrowLeft') show(open - 1);
+  else if (e.key === '1') setVerdict(SCREENS[open].id, 'ok');
+  else if (e.key === '2') setVerdict(SCREENS[open].id, 'fix');
+});
+document.getElementById('reset').onclick = () => { state = {}; save(); render(); toast('Đã xoá mọi đánh dấu'); };
+document.getElementById('export').onclick = async () => {
+  const label = { ok: 'Đạt', fix: 'Cần sửa', todo: 'Chưa xem' };
+  const lines = ['# Kết quả review UI TG Studio', ''];
+  for (const f of FLOWS) {
+    lines.push(`## ${f.title}`);
+    for (const s of f.screens) {
+      const n = String(SCREENS.findIndex((x) => x.id === s.id) + 1).padStart(2, '0');
+      lines.push(`- ${n} ${s.title}: **${label[statusOf(s.id)]}**${state[s.id]?.note ? ` — ${state[s.id].note.trim()}` : ''}`);
+    }
+    lines.push('');
+  }
+  const text = lines.join('\n');
+  try { await navigator.clipboard.writeText(text); toast('Đã chép, dán vào chat cho Claude'); }
+  catch {
+    const area = document.createElement('textarea'); area.value = text; document.body.append(area); area.select();
+    toast('Không chép tự động được: đã chọn sẵn, bấm Ctrl+C');
+  }
+};
+render();
+</script>
+
+</body>
+</html>

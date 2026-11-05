@@ -57,8 +57,8 @@ import { AgentAvatar } from './agent-avatar';
                 <span class="mono dim ellipsis">{{ h.header }}</span>
                 <span class="spacer"></span>
                 <span class="hunk-count"><span class="plus">+{{ h.added }}</span> <span class="minus">−{{ h.removed }}</span></span>
-                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">Bỏ<span class="kbd">{{ keys.backspace }}</span></button>
-                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">Nhận<span class="kbd">{{ keys.enter }}</span></button>
+                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">{{ direct() ? 'Hoàn tác' : 'Bỏ' }}<span class="kbd">{{ keys.backspace }}</span></button>
+                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">{{ direct() ? 'Giữ' : 'Nhận' }}<span class="kbd">{{ keys.enter }}</span></button>
               </div>
               <div class="hunk-body">
                 @for (line of h.lines; track $index) { <div class="diff-line" [attr.data-kind]="kindOf(line)">{{ line }}</div> }
@@ -76,6 +76,8 @@ export class DiffViewer {
   private readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
+  /** The agent worked in the user's folder: changes are already there, so keep or undo them. */
+  protected readonly direct = computed(() => this.runs.runs().find((r) => r.id === this.runId())?.place === 'direct');
   readonly running = input(false);
   readonly suggestion = input('');
 

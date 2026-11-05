@@ -105,6 +105,8 @@ pub fn run() {
             project::git_prepare,
             acp_tasks::start_task,
             options::agent_options,
+            acp_tasks::set_approval,
+            acp_tasks::list_branches,
             acp_tasks::send_message,
             acp_tasks::respond_permission,
             acp_tasks::get_diff,

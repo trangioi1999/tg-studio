@@ -14,6 +14,11 @@ export interface DetectedAgent {
   auth: 'ok' | 'none' | 'unknown';
 }
 
+/** How a code task answers permission requests. Mirrors `acp_runner::Approval`. */
+export type Approval = 'ask' | 'auto' | 'deny';
+/** Where a code task works: the user's folder, or a draft (worktree) from a branch. */
+export type Place = 'direct' | 'draft';
+
 /** Model and effort picked in the composer; `null` keeps the agent's own default. Mirrors `options::SessionPrefs`. */
 export interface SessionPrefs {
   model: string | null;

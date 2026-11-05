@@ -93,12 +93,12 @@ pub fn load(store: &Store) -> Vec<McpServer> {
     store.mcp_servers().unwrap_or_default().into_iter().filter_map(|raw| serde_json::from_str(&raw).ok()).collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_mcp_servers(store: State<'_, Store>) -> Vec<McpServer> {
     load(&store)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_mcp_server(store: State<'_, Store>, server: McpServer) -> Result<McpServer, String> {
     let mut server = server;
     if server.id.trim().is_empty() { server.id = uuid::Uuid::new_v4().to_string(); }
@@ -108,7 +108,7 @@ pub fn save_mcp_server(store: State<'_, Store>, server: McpServer) -> Result<Mcp
     Ok(server)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_mcp_server(store: State<'_, Store>, id: String) -> Result<(), String> {
     store.delete_mcp_server(&id).map_err(|e| format!("Không xóa được server: {e}"))
 }
