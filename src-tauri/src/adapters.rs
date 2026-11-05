@@ -73,36 +73,40 @@ impl AgentKind {
         }
     }
 
-    /// A headless run's arguments and what to write to its stdin. Rust refuses line breaks in
-    /// arguments to a batch file, which is what npm installs on Windows, so such a prompt goes
-    /// through stdin. Everywhere else it stays an argument, as each CLI documents first.
+    /// A headless run's arguments and what to write to its stdin. Claude keeps one process
+    /// for a whole conversation and reads every question from stdin (`headless_input`).
+    /// Rust refuses line breaks in arguments to a batch file, which is what npm installs on
+    /// Windows, so such a Codex prompt goes through stdin; otherwise it stays an argument.
     pub fn headless_invocation(self, prompt: &str, program: &Path) -> Option<(Vec<String>, Option<String>)> {
+        let args = self.headless_args(prompt)?;
+        if let Some(input) = self.headless_input(prompt) { return Some((args, Some(input))); }
         let batch = program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"));
-        if !batch || !prompt.contains(['\r', '\n']) { return self.headless_args(prompt).map(|args| (args, None)); }
-        let args: Vec<&str> = match self {
-            AgentKind::Claude => vec!["-p", "--permission-mode", "plan", "--output-format", "stream-json", "--verbose"],
-            AgentKind::Codex => vec!["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "-"],
-            AgentKind::Gemini | AgentKind::Kiro => return None,
-        };
-        Some((args.into_iter().map(String::from).collect(), Some(prompt.to_string())))
+        if !batch || !prompt.contains(['\r', '\n']) { return Some((args, None)); }
+        let mut args = args;
+        *args.last_mut()? = "-".into();
+        Some((args, Some(prompt.to_string())))
     }
 
-    /// Arguments for a one-shot read-only run that prints JSON lines. It runs in the user's
-    /// real folder, so writing must be blocked by the CLI: its own defaults come from the
-    /// user's settings, where approvals may be off. `None`: no blocking flag has been
-    /// verified for this agent, so it is reachable through ACP tasks only.
+    /// One question for a live headless session, as the line its stdin expects. `None`: the
+    /// agent takes its prompt as an argument and answers once.
+    pub fn headless_input(self, prompt: &str) -> Option<String> {
+        match self {
+            AgentKind::Claude => Some(format!("{}\n", serde_json::json!({"type": "user", "message": {"role": "user", "content": prompt}}))),
+            _ => None,
+        }
+    }
+
+    /// Arguments for a read-only run that prints JSON lines. It runs in the user's real
+    /// folder, so writing must be blocked by the CLI: its own defaults come from the user's
+    /// settings, where approvals may be off. `None`: no blocking flag has been verified for
+    /// this agent, so it is reachable through ACP tasks only.
     pub fn headless_args(self, prompt: &str) -> Option<Vec<String>> {
         let p = prompt.to_string();
         match self {
-            AgentKind::Claude => Some(vec![
-                "-p".into(),
-                p,
-                "--permission-mode".into(),
-                "plan".into(),
-                "--output-format".into(),
-                "stream-json".into(),
-                "--verbose".into(),
-            ]),
+            AgentKind::Claude => Some([
+                "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--include-partial-messages", "--permission-mode", "plan",
+            ].into_iter().map(String::from).collect()),
             AgentKind::Codex => Some(vec!["exec".into(), "--json".into(), "--sandbox".into(), "read-only".into(), "--skip-git-repo-check".into(), p]),
             AgentKind::Gemini | AgentKind::Kiro => None,
         }
@@ -138,24 +142,30 @@ mod tests {
         assert_eq!(AgentKind::Codex.resume_args(args, "s1"), ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", "s1", "câu hai"]);
     }
 
+    /// One Claude process takes every question of a conversation as JSON lines on stdin.
+    const CLAUDE_ASK: [&str; 10] = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "plan", ""];
+
     #[test]
-    fn line_breaks_reach_a_batch_shim_through_stdin() {
-        let shim = Path::new(r"C:\npm\claude.cmd");
-        let (args, stdin) = AgentKind::Claude.headless_invocation("một\nhai", shim).unwrap();
-        assert_eq!(args, ["-p", "--permission-mode", "plan", "--output-format", "stream-json", "--verbose"]);
-        assert_eq!(stdin.as_deref(), Some("một\nhai"));
-        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap().0, ["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "-"]);
-        assert_eq!(AgentKind::Kiro.headless_invocation("một\nhai", shim), None);
+    fn claude_questions_go_through_stdin_as_json_lines() {
+        for shim in [Path::new("/usr/bin/claude"), Path::new(r"C:\npm\claude.cmd")] {
+            let (args, stdin) = AgentKind::Claude.headless_invocation("một\nhai \"ba\"", shim).unwrap();
+            assert_eq!(args, CLAUDE_ASK[..9]);
+            let line = stdin.unwrap();
+            assert!(line.ends_with('\n') && line.matches('\n').count() == 1, "một câu là đúng một dòng: {line:?}");
+            let v: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+            assert_eq!(v, serde_json::json!({"type": "user", "message": {"role": "user", "content": "một\nhai \"ba\""}}));
+        }
+        assert_eq!(AgentKind::Claude.headless_input("câu hai"), Some(AgentKind::Claude.headless_invocation("câu hai", Path::new("/bin/claude")).unwrap().1.unwrap()));
+        assert_eq!(AgentKind::Codex.headless_input("x"), None, "Codex không nhận câu tiếp qua stdin");
     }
 
     #[test]
-    fn other_prompts_stay_arguments() {
-        let (args, stdin) = AgentKind::Claude.headless_invocation("một dòng", Path::new(r"C:\npm\claude.cmd")).unwrap();
-        assert!(args.contains(&"một dòng".to_string()));
+    fn codex_line_breaks_reach_a_batch_shim_through_stdin() {
+        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap(), (vec!["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "-"].into_iter().map(String::from).collect(), Some("một\r\nhai".to_string())));
+        let (args, stdin) = AgentKind::Codex.headless_invocation("một\nhai", Path::new("/usr/bin/codex")).unwrap();
+        assert_eq!(args.last().map(String::as_str), Some("một\nhai"));
         assert_eq!(stdin, None);
-        let (args, stdin) = AgentKind::Claude.headless_invocation("một\nhai", Path::new("/usr/bin/claude")).unwrap();
-        assert!(args.contains(&"một\nhai".to_string()));
-        assert_eq!(stdin, None);
+        assert_eq!(AgentKind::Kiro.headless_invocation("một\nhai", Path::new("kiro.cmd")), None);
     }
 
     #[test]
