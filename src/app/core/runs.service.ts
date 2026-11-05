@@ -13,6 +13,8 @@ export interface Run {
   prompt: string;
   cwd: string;
   startedAt: number;
+  /** When the current question was sent: a session's later questions restart the clock. */
+  turnAt?: number;
   endedAt: number | null;
   status: RunStatus;
   lines: ConsoleLine[];
@@ -460,7 +462,7 @@ export class RunsService {
           return { ...run, lines };
         }
         case 'user':
-          return { ...run, status: 'running', endedAt: null, exitCode: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
+          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
         case 'turn_end': {
           this.stopping.delete(run.id);
           this.forget(run.id);
@@ -525,6 +527,11 @@ export class RunsService {
       return existing ? list.map((r) => (r.id === id ? next : r)) : [next, ...list];
     });
   }
+}
+
+/** Where the shown duration of a run counts from: its current question. */
+export function turnStart(r: Run): number {
+  return r.turnAt ?? r.startedAt;
 }
 
 function errorText(e: unknown): string {
