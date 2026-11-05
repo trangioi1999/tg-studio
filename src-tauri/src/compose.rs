@@ -130,7 +130,7 @@ fn get(state: &Composites, id: &str) -> Result<(PathBuf, Worktree), String> {
     state.0.lock().map_err(|_| "Không đọc được bản ghép.")?.get(id).cloned().ok_or_else(|| "Bản ghép không còn. Hãy tạo lại.".into())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compose_runs(store: State<'_, Store>, state: State<'_, Composites>, picks: Vec<Pick>) -> Result<Composite, String> {
     let mut repo: Option<PathBuf> = None;
     let mut sources = HashMap::new();
@@ -155,19 +155,19 @@ pub async fn check_composite(state: State<'_, Composites>, id: String, command: 
     run_check(&wt.path, &command).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apply_composite(state: State<'_, Composites>, id: String) -> Result<usize, String> {
     let (repo, wt) = get(&state, &id)?;
     diff::accept_all(&repo, &wt)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn commit_composite(state: State<'_, Composites>, id: String, message: String) -> Result<String, String> {
     let (repo, _) = get(&state, &id)?;
     diff::commit(&repo, &message)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn discard_composite(state: State<'_, Composites>, id: String) -> Result<(), String> {
     let (repo, wt) = get(&state, &id)?;
     worktree::remove(&repo, &wt, true)?;

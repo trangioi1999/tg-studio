@@ -33,6 +33,8 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 <sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu.</sub>
 
+**Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt để xem 16 màn hình theo luồng, phóng to từng màn, đánh dấu Đạt / Cần sửa và chép kết quả.
+
 ## Cài môi trường (làm 1 lần trên macOS)
 
 ```bash

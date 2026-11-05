@@ -58,7 +58,9 @@ fn auth_command(kind: AgentKind) -> Option<&'static [&'static str]> {
     match kind {
         AgentKind::Claude => Some(&["auth", "status"]),
         AgentKind::Codex => Some(&["login", "status"]),
-        AgentKind::Gemini | AgentKind::Kiro => None,
+        // Kiro CLI docs: `whoami` shows the signed-in account (kiro.dev/docs/cli/reference/cli-commands).
+        AgentKind::Kiro => Some(&["whoami"]),
+        AgentKind::Gemini => None,
     }
 }
 
@@ -71,17 +73,25 @@ fn auth_from_exit(code: Option<i32>) -> &'static str {
     }
 }
 
+/// Like `auth_from_exit`, but a CLI that exits 0 while saying it is signed out counts as signed out.
+fn auth_from(code: Option<i32>, output: &str) -> &'static str {
+    let said = output.to_lowercase();
+    if code == Some(0) && (said.contains("not logged in") || said.contains("not signed in")) { return "none"; }
+    auth_from_exit(code)
+}
+
 async fn auth_of(kind: AgentKind, path: &Path) -> &'static str {
     let Some(args) = auth_command(kind) else { return "unknown" };
     let run = env::command(path)
         .args(args)
         .env("PATH", env::login_path())
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .kill_on_drop(true)
-        .status();
-    auth_from_exit(tokio::time::timeout(Duration::from_secs(8), run).await.ok().and_then(|r| r.ok()).and_then(|s| s.code()))
+        .output();
+    match tokio::time::timeout(Duration::from_secs(8), run).await.ok().and_then(|r| r.ok()) {
+        Some(out) => auth_from(out.status.code(), &format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))),
+        None => "unknown",
+    }
 }
 
 pub fn home_dir() -> Option<String> {
@@ -121,6 +131,14 @@ mod tests {
         assert_eq!(auth_command(AgentKind::Claude), Some(&["auth", "status"][..]));
         assert_eq!(auth_command(AgentKind::Codex), Some(&["login", "status"][..]));
         assert_eq!(auth_command(AgentKind::Gemini), None);
-        assert_eq!(auth_command(AgentKind::Kiro), None);
+        assert_eq!(auth_command(AgentKind::Kiro), Some(&["whoami"][..]));
+    }
+
+    #[test]
+    fn signed_out_text_wins_over_a_zero_exit() {
+        assert_eq!(auth_from(Some(0), "Logged in with Builder ID\nEmail: a@b.c"), "ok");
+        assert_eq!(auth_from(Some(0), "Not logged in"), "none");
+        assert_eq!(auth_from(Some(1), ""), "none");
+        assert_eq!(auth_from(None, ""), "unknown");
     }
 }

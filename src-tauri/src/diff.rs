@@ -115,34 +115,47 @@ pub fn parse_unified(text: &str) -> Vec<FileDiff> {
 }
 
 fn accepted_path(wt: &Worktree) -> Result<std::path::PathBuf, String> {
+    if wt.is_direct() { return Ok(crate::worktree::direct_files(wt)?.1); }
     let path = git(&wt.path, &["rev-parse", "--git-path", "tg-accepted"], None)?;
     Ok(wt.path.join(path.trim()))
 }
 
+/// Git in the run's own index: the worktree's, or a private one for a direct run so the
+/// user's index only changes when they keep a change.
+fn run_git(wt: &Worktree, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
+    if wt.is_direct() {
+        let (index, _) = crate::worktree::direct_files(wt)?;
+        crate::worktree::git_index(&wt.path, &index, args, stdin)
+    } else {
+        git(&wt.path, args, stdin)
+    }
+}
+
 fn save_accepted(wt: &Worktree) -> Result<(), String> {
-    let tree = git(&wt.path, &["write-tree"], None)?;
+    let tree = run_git(wt, &["write-tree"], None)?;
     std::fs::write(accepted_path(wt)?, tree)
         .map_err(|e| format!("Không lưu được phần thay đổi đã nhận: {e}"))
 }
 
 pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
-    if git(&wt.path, &["rev-parse", "HEAD"], None)?.trim() != wt.base {
+    if !wt.is_direct() && git(&wt.path, &["rev-parse", "HEAD"], None)?.trim() != wt.base {
         git(&wt.path, &["reset", "--soft", &wt.base], None)?;
     }
     // The agent owns its index too; only this saved tree records user approval.
     let accepted = match std::fs::read_to_string(accepted_path(wt)?) {
         Ok(tree) => tree,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && wt.is_direct() => wt.base.clone(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound =>
             git(&wt.path, &["rev-parse", &format!("{}^{{tree}}", wt.base)], None)?,
         Err(e) => return Err(format!("Không đọc được phần thay đổi đã nhận: {e}")),
     };
-    if git(&wt.path, &["write-tree"], None)?.trim() != accepted.trim() {
+    if run_git(wt, &["write-tree"], None).map(|t| t.trim() != accepted.trim()).unwrap_or(true) {
         // Do not use -u: pending agent edits must remain on disk.
-        git(&wt.path, &["read-tree", accepted.trim()], None)?;
+        run_git(wt, &["read-tree", accepted.trim()], None)?;
     }
     // Without --ignore-removal, add -N stages deletions before the user approves.
-    git(&wt.path, &["add", "-N", "--ignore-removal", "."], None)?;
-    let patch = git(&wt.path, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3"], None)?;
+    run_git(wt, &["add", "-N", "--ignore-removal", "--", ".", ":(exclude).tg"], None)?;
+    let patch = run_git(wt, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3"], None)?;
     Ok(parse_unified(&patch))
 }
 
@@ -158,6 +171,14 @@ pub(crate) fn selected_patch(wt: &Worktree, path: &str, id: &str) -> Result<Stri
 
 pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), String> {
     let patch = selected_patch(wt, path, hunk_id)?;
+    if wt.is_direct() {
+        // The change is already in the folder: keeping it stages it for the commit box.
+        run_git(wt, &["apply", "--check", "--cached", "--recount"], Some(patch.as_bytes()))?;
+        git(repo, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))
+            .map_err(|e| format!("Không đưa được đoạn này vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
+        run_git(wt, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))?;
+        return save_accepted(wt);
+    }
     // Check the exact mode used below, including consistency with the user's index.
     git(repo, &["apply", "--check", "--index", "--recount"], Some(patch.as_bytes()))?;
     git(&wt.path, &["apply", "--check", "--cached", "--recount"], Some(patch.as_bytes()))?;
@@ -177,7 +198,15 @@ pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Res
 pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
     let files = pending(wt)?;
     if files.is_empty() { return Err("Không còn thay đổi nào để áp dụng.".into()); }
-    let patch = git(&wt.path, &["diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"], None)?;
+    let patch = run_git(wt, &["diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"], None)?;
+    if wt.is_direct() {
+        git(repo, &["apply", "--check", "--cached"], Some(patch.as_bytes()))
+            .map_err(|e| format!("Không đưa được các thay đổi vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
+        git(repo, &["apply", "--cached"], Some(patch.as_bytes()))?;
+        run_git(wt, &["apply", "--cached"], Some(patch.as_bytes()))?;
+        save_accepted(wt)?;
+        return Ok(files.len());
+    }
     git(repo, &["apply", "--check", "--index"], Some(patch.as_bytes()))
         .map_err(|e| format!("Bản này không áp được vào repo (có thể bạn đã sửa cùng chỗ hoặc đã nhận bản khác): {e}"))?;
     git(&wt.path, &["apply", "--check", "--cached"], Some(patch.as_bytes()))?;
@@ -192,12 +221,13 @@ pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
     Ok(files.len())
 }
 
+/// Reject: the hunk goes back to how it was, in the worktree or (direct run) in the user's folder.
 pub fn reject_hunk(wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), String> {
     let patch = selected_patch(wt, path, hunk_id)?;
     git(&wt.path, &["apply", "-R", "--recount"], Some(patch.as_bytes()))?;
     if patch.lines().any(|line| line.starts_with("new file mode ")) {
         // Reverse application deletes the file but leaves its intent-to-add entry.
-        git(&wt.path, &["--literal-pathspecs", "rm", "--cached", "--", path], None)?;
+        run_git(wt, &["--literal-pathspecs", "rm", "--cached", "--", path], None)?;
     }
     Ok(())
 }
@@ -223,6 +253,68 @@ mod tests {
         let p = w.path.join("file.txt");
         let s = fs::read_to_string(&p).unwrap().replace("line 2\n", "changed 2\n").replace("line 28\n", "changed 28\n");
         fs::write(p, s).unwrap();
+    }
+
+    #[test] fn direct_run_reviews_only_the_agents_changes_in_the_real_folder() {
+        let r = Repo::new();
+        // The user's own work in progress: an unstaged edit, a staged file, an untracked file.
+        r.write("mine.txt", "mine\n");
+        git(&r.0, &["add", "mine.txt"], None).unwrap();
+        git(&r.0, &["commit", "-m", "mine"], None).unwrap();
+        r.write("mine.txt", "mine, edited\n");
+        r.write("staged.txt", "staged\n");
+        git(&r.0, &["add", "staged.txt"], None).unwrap();
+        r.write("notes.txt", "untracked\n");
+        let w = crate::worktree::direct(&r.0, "direct-run-1").unwrap();
+        assert!(w.is_direct());
+        assert_eq!(dunce::canonicalize(&w.path).unwrap(), dunce::canonicalize(&r.0).unwrap());
+        assert!(pending(&w).unwrap().is_empty(), "the user's own changes are not the agent's");
+        // The agent edits a tracked file, adds one and deletes one, right in the folder.
+        change(&w);
+        r.write("new.txt", "agent\n");
+        r.write("gone.txt", "x\n");
+        let staged_before = staged(&r.0).unwrap();
+        let files = pending(&w).unwrap();
+        assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["file.txt", "gone.txt", "new.txt"]);
+        assert_eq!(staged(&r.0).unwrap(), staged_before, "reviewing must not touch the user's index");
+        // Keep one hunk: it is staged for the commit and leaves the review.
+        let hunk = files[0].hunks[0].id.clone();
+        accept_hunk(&r.0, &w, "file.txt", &hunk).unwrap();
+        assert!(staged(&r.0).unwrap().contains(&"file.txt".to_string()));
+        let left = pending(&w).unwrap();
+        assert_eq!(left.iter().find(|f| f.path == "file.txt").unwrap().hunks.len(), 1);
+        // Undo the new file: it is gone from the folder and from the review.
+        let new = left.iter().find(|f| f.path == "new.txt").unwrap().hunks[0].id.clone();
+        reject_hunk(&w, "new.txt", &new).unwrap();
+        assert!(!r.0.join("new.txt").exists());
+        assert!(!pending(&w).unwrap().iter().any(|f| f.path == "new.txt"));
+        // The user's files were never touched.
+        assert_eq!(fs::read_to_string(r.0.join("mine.txt")).unwrap(), "mine, edited\n");
+        assert_eq!(fs::read_to_string(r.0.join("notes.txt")).unwrap(), "untracked\n");
+        // Discarding a direct run removes only the app's bookkeeping.
+        crate::worktree::remove(&r.0, &w, true).unwrap();
+        assert!(r.0.join("file.txt").exists() && r.0.join("mine.txt").exists());
+        assert!(!crate::worktree::direct_files(&w).unwrap().0.exists());
+    }
+
+    #[test] fn direct_accept_all_stages_everything_pending() {
+        let r = Repo::new();
+        let w = crate::worktree::direct(&r.0, "direct-run-2").unwrap();
+        change(&w);
+        r.write("new.txt", "agent\n");
+        assert_eq!(accept_all(&r.0, &w).unwrap(), 2);
+        assert!(pending(&w).unwrap().is_empty());
+        assert_eq!(staged(&r.0).unwrap(), ["file.txt", "new.txt"]);
+    }
+
+    #[test] fn branches_leave_out_the_apps_own() {
+        let r = Repo::new();
+        let _ = r.wt();
+        git(&r.0, &["branch", "feature/x"], None).unwrap();
+        let mut b = crate::worktree::branches(&r.0).unwrap();
+        b.sort();
+        assert!(b.contains(&"feature/x".to_string()));
+        assert!(b.iter().all(|x| !x.starts_with("tg/")), "{b:?}");
     }
 
     #[test] fn agent_staged_changes_stay_pending() {

@@ -1,5 +1,5 @@
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
-import { AgentId, FileDiff } from './protocol';
+import { AgentId, Approval, FileDiff, Place } from './protocol';
 import { Run, RunsService } from './runs.service';
 
 export interface PipelineStep {
@@ -60,9 +60,13 @@ export class PipelineService {
     });
   }
 
-  async start(task: string, repo: string, steps: PipelineStep[]): Promise<Pipeline> {
+  /** `place`/`base` decide where the first step works; later steps continue there. */
+  private readonly where = new Map<string, { place?: Place; base?: string | null; approval?: Approval }>();
+
+  async start(task: string, repo: string, steps: PipelineStep[], opts: { place?: Place; base?: string | null; approval?: Approval } = {}): Promise<Pipeline> {
     if (!steps.length) throw new Error('Pipeline cần ít nhất một bước.');
     const p: Pipeline = { id: crypto.randomUUID(), task, repo, steps, runIds: steps.map(() => null), current: 0, status: 'running', error: null };
+    this.where.set(p.id, opts);
     this.pipelines.update((list) => [p, ...list]);
     await this.launch(p.id, 0);
     return this.get(p.id)!;
@@ -115,7 +119,8 @@ export class PipelineService {
       const diff = previousId ? diffText(await this.runs.getDiff(previousId)) : '(chưa có thay đổi)';
       const prompt = render(step.template, { task: p.task, previous: previous?.lastMessage || '(bước trước không để lại tin nhắn)', diff });
       this.patch(id, { current: index });
-      const runId = await this.runs.startTask(step.agent, prompt, p.repo, { singleTurn: true, thread: id, reuse: previousId ?? undefined, title: `${step.name} · ${p.task}` });
+      const where = this.where.get(id) ?? {};
+      const runId = await this.runs.startTask(step.agent, prompt, p.repo, { singleTurn: true, thread: id, reuse: previousId ?? undefined, title: `${step.name} · ${p.task}`, place: where.place, base: where.base, approval: where.approval });
       this.patch(id, { runIds: this.get(id)!.runIds.map((r, i) => (i === index ? runId : r)) });
     } catch (e) {
       this.patch(id, { status: 'failed', error: `Không chạy được bước ${step.name}: ${e instanceof Error ? e.message : String(e)}` });

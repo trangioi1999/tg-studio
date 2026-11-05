@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -30,7 +30,11 @@ export abstract class AgentBackend {
    * `reuse`: continue in the worktree of this finished run. `singleTurn`: close the session
    * after one turn (a pipeline step). `recap`: sent first unless the session can be reopened.
    */
-  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null, prefs?: SessionPrefs | null): Promise<string>;
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null, prefs?: SessionPrefs | null, place?: Place | null, base?: string | null, approval?: Approval | null): Promise<string>;
+  /** Changes how an open code task answers permission requests. */
+  abstract setApproval(runId: string, approval: Approval): Promise<void>;
+  /** Local branches a draft can start from. */
+  abstract listBranches(repo: string): Promise<string[]>;
   /** Continues the run's open session; no new agent process starts. */
   abstract sendMessage(runId: string, prompt: string): Promise<void>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
@@ -127,8 +131,14 @@ export class TauriBackend extends AgentBackend {
     else if (action === 'maximize') await w.toggleMaximize();
     else await w.close();
   }
-  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null) {
-    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs });
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null, place: Place | null = null, base: string | null = null, approval: Approval | null = null) {
+    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs, place, base, approval });
+  }
+  setApproval(runId: string, approval: Approval) {
+    return invoke<void>('set_approval', { runId, approval });
+  }
+  listBranches(repo: string) {
+    return invoke<string[]>('list_branches', { repo });
   }
   sendMessage(runId: string, prompt: string) {
     return invoke<void>('send_message', { runId, prompt });

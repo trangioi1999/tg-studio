@@ -10,12 +10,13 @@ import { AgentPanel } from './agent-panel';
 
 class FakeBackend extends MockBackend {
   starts = 0;
-  lastStart: { agent: AgentId; prompt: string; reuse: string | null; recap: string | null } | null = null;
+  lastStart: { agent: AgentId; prompt: string; reuse: string | null; recap: string | null; thread?: string | null; place?: string | null; base?: string | null; approval?: string | null } | null = null;
   startResult: (() => Promise<string>) | null = null;
-  override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null) {
+  override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null,
+    thread: string | null = null, scope: string | null = null, prefs: unknown = null, place: string | null = null, base: string | null = null, approval: string | null = null) {
     this.starts += 1;
-    this.lastStart = { agent, prompt, reuse, recap };
-    return this.startResult ? this.startResult() : super.startTask(agent, prompt, repo, group, reuse, singleTurn);
+    this.lastStart = { agent, prompt, reuse, recap, thread, place, base, approval };
+    return this.startResult ? this.startResult() : super.startTask(agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs, place, base, approval);
   }
 }
 
@@ -109,6 +110,7 @@ describe('AgentPanel composer', () => {
   it('warns once about uncommitted files before a new draft, then goes on', async () => {
     const { backend, panel } = await setup();
     await TestBed.inject(WorkspaceService).setFolder('/x/dirty');
+    (panel as unknown as { setPlace(p: string): void }).setPlace('draft');
     panel.prompt.set('sửa');
     await panel.send();
     expect(backend.starts).toBe(0);
@@ -117,6 +119,15 @@ describe('AgentPanel composer', () => {
     await panel.sendAnyway();
     expect(backend.starts).toBe(1);
     expect(panel.dirtyWarning()).toBeNull();
+  });
+
+  it('does not warn about uncommitted files when the agent works in the folder itself', async () => {
+    const { backend, panel } = await setup();
+    await TestBed.inject(WorkspaceService).setFolder('/x/dirty');
+    panel.prompt.set('sửa');
+    await panel.send();
+    expect(panel.dirtyWarning()).toBeNull();
+    expect(backend.lastStart?.place).toBe('direct');
   });
 
   it('makes a plain folder ready for code tasks after showing the plan', async () => {
@@ -141,6 +152,52 @@ describe('AgentPanel composer', () => {
     await panel.prepareGit();
     expect(panel.error()).toContain('tên và email');
     expect(panel.gitPlan()).not.toBeNull();
+  });
+
+  it('lets every agent take every permission; a question to Kiro runs in a throwaway draft', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { mode(): string; agent(): string; pickAgent(id: string): void; setPerm(p: string): void; readViaAcp(): boolean };
+    p.setPerm('read');
+    p.pickAgent('kiro');
+    expect(p.mode()).toBe('read');
+    expect(p.agent()).toBe('kiro');
+    expect(p.readViaAcp()).toBe(true);
+    p.prompt.set('dự án dùng gì?');
+    await p.send();
+    expect(backend.lastStart).toMatchObject({ agent: 'kiro', approval: 'deny', reuse: null });
+    expect(TestBed.inject(RunsService).selected()?.perm).toBe('read');
+  });
+
+  it('starts code tasks in the current folder by default, or in a draft from the chosen branch', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { setPerm(p: string): void; setPlace(place: string, base?: string | null): void; sendAnyway(): Promise<void> };
+    p.setPerm('auto');
+    p.prompt.set('sửa tiêu đề');
+    await p.send();
+    expect(backend.lastStart).toMatchObject({ approval: 'auto', place: 'direct', base: null });
+    TestBed.inject(RunsService).selectedId.set(null);
+    p.setPlace('draft', 'develop');
+    p.prompt.set('sửa footer');
+    await p.send();
+    if (p.dirtyWarning()) await p.sendAnyway();
+    expect(backend.lastStart).toMatchObject({ approval: 'auto', place: 'draft', base: 'develop' });
+  });
+
+  it('keeps the conversation when the permission changes mid-way', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { setPerm(p: string): void };
+    const runs = TestBed.inject(RunsService);
+    p.setPerm('read');
+    p.prompt.set('giải thích dự án');
+    await p.send();
+    const question = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('done'), { timeout: 4000 });
+    p.setPerm('ask');
+    p.prompt.set('giờ sửa đi');
+    await p.send();
+    expect(backend.lastStart?.thread).toBe(question.thread);
+    expect(backend.lastStart?.recap).toContain('giải thích dự án');
+    expect(runs.selected()?.thread).toBe(question.thread);
   });
 
   it('continues a question in its conversation, resuming the CLI session', async () => {

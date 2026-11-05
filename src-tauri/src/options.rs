@@ -135,10 +135,25 @@ pub async fn agent_options(agent: AgentKind, cwd: Option<String>) -> Result<Agen
     let dir = cwd.map(std::path::PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
     let mut process = env::command(&program);
     process.args(&args).current_dir(&dir).env("PATH", env::login_path())
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     env::isolate(&mut process);
     let mut child = process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", program.display()))?;
     let pid = child.id();
+    // "Internal error" alone says nothing; the adapter's own log says why. Keep its tail.
+    let stderr = child.stderr.take().expect("piped stderr");
+    let log = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::<String>::new()));
+    let collector = {
+        let log = log.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut lines = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let mut tail = log.lock().unwrap();
+                if tail.len() == STDERR_TAIL { tail.pop_front(); }
+                tail.push_back(line);
+            }
+        })
+    };
     let timeout = setup_timeout(&program);
     let client = AcpClient::start_with_timeout(child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"), Arc::new(Silent), timeout);
     let probe = async {
@@ -152,7 +167,18 @@ pub async fn agent_options(agent: AgentKind, cwd: Option<String>) -> Result<Agen
     if let Some(pid) = pid { env::kill_tree(pid).await; }
     let _ = child.kill().await;
     let _ = child.wait().await;
-    result
+    collector.abort();
+    let tail: Vec<String> = log.lock().unwrap().iter().cloned().collect();
+    result.map_err(|e| with_log(e, &tail))
+}
+
+const STDERR_TAIL: usize = 12;
+
+/// The error, then the adapter's last log lines (lines that are only noise left out).
+fn with_log(error: String, tail: &[String]) -> String {
+    let lines: Vec<&str> = tail.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    if lines.is_empty() { return error; }
+    format!("{error}\n\nLog của adapter:\n{}", lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -196,6 +222,12 @@ mod tests {
         assert_eq!(o.effort.unwrap().options.iter().map(|c| c.value.as_str()).collect::<Vec<_>>(), ["medium", "high"]);
         assert_eq!(parse(&Value::Null), AgentOptions::default());
         assert_eq!(parse(&json!([{ "id": "model", "type": "boolean", "currentValue": true }])), AgentOptions::default());
+    }
+
+    #[test]
+    fn errors_carry_the_adapters_last_log_lines() {
+        assert_eq!(with_log("Lỗi".into(), &[]), "Lỗi");
+        assert_eq!(with_log("Lỗi".into(), &["  ".into(), "spawn claude ENOENT".into()]), "Lỗi\n\nLog của adapter:\nspawn claude ENOENT");
     }
 
     #[test]

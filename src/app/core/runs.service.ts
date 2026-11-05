@@ -3,7 +3,7 @@ import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -41,6 +41,10 @@ export interface Run {
   progress: { step: string; pct: number | null; note: string | null; at: number } | null;
   /** Model picked when it started, if not the agent's default. Live runs only. */
   model?: string | null;
+  /** Chỉ hỏi / Hỏi trước / Tự động, as last set. Live runs only. */
+  perm?: 'read' | 'ask' | 'auto';
+  /** Code tasks: the user's folder or a draft. Live runs only. */
+  place?: Place;
 }
 
 /** A tg-bridge `handoff_to` proposal waiting for the user. */
@@ -197,10 +201,12 @@ export class RunsService {
     if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
 
-  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null): Promise<void> {
-    const id = await this.backend.start(agent, prompt, cwd, thread, resumeFrom, scope, this.agents.prefsFor(agent));
+  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null, recap: string | null = null): Promise<void> {
+    // A question that joins a conversation another session started gets its summary first.
+    const sent = recap ? `${recap}\n\n${prompt}` : prompt;
+    const id = await this.backend.start(agent, sent, cwd, thread, resumeFrom, scope, this.agents.prefsFor(agent));
     const model = this.agents.modelLabel(agent);
-    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd, scope, model }));
+    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd, scope, model, perm: 'read' }));
     this.selectedId.set(id);
   }
 
@@ -208,11 +214,14 @@ export class RunsService {
    * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
    * `title` is what the UI shows when the prompt sent to the agent is long.
    */
-  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null } = {}): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null; place?: Place; base?: string | null; approval?: Approval } = {}): Promise<string> {
     const thread = opts.thread ?? crypto.randomUUID();
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent));
+    const approval = opts.approval ?? 'ask';
+    const place: Place = approval === 'deny' ? 'draft' : opts.reuse ? (this.runs().find((r) => r.id === opts.reuse)?.place ?? 'draft') : (opts.place ?? 'draft');
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent), opts.place ?? null, opts.base ?? null, approval);
     const model = this.agents.modelLabel(agent);
-    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null, model }));
+    const perm = approval === 'deny' ? 'read' : approval;
+    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null, model, perm, place }));
     this.selectedId.set(id);
     return id;
   }
@@ -220,6 +229,13 @@ export class RunsService {
   /** The next message of the run's open session. */
   sendMessage(runId: string, text: string): Promise<void> {
     return this.backend.sendMessage(runId, text);
+  }
+
+  /** Changes how an open session answers permission requests, from its next request on. */
+  async setApproval(runId: string, approval: Approval): Promise<void> {
+    await this.backend.setApproval(runId, approval);
+    const perm = approval === 'deny' ? 'read' : approval;
+    this.runs.update((all) => all.map((r) => (r.id === runId ? { ...r, perm } : r)));
   }
 
   /** Everything `git commit` would include in the run's repository. */
@@ -231,14 +247,15 @@ export class RunsService {
    * One prompt, one worktree per agent. Agents that fail to start are reported
    * without stopping the others; throws only when none started.
    */
-  async startParallel(agents: AgentId[], prompt: string, repo: string, scope: string | null = null): Promise<string[]> {
+  async startParallel(agents: AgentId[], prompt: string, repo: string, scope: string | null = null, opts: { base?: string | null; approval?: Approval } = {}): Promise<string[]> {
     const group = crypto.randomUUID();
-    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group, scope, this.agents.prefsFor(a))));
+    // Several agents cannot share one folder: each works in its own draft.
+    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group, scope, this.agents.prefsFor(a), 'draft', opts.base ?? null, opts.approval ?? 'ask')));
     const errors: string[] = [];
     let first: string | null = null;
     results.forEach((result, i) => {
       if (result.status === 'fulfilled') {
-        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo, scope, model: this.agents.modelLabel(agents[i]) }));
+        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo, scope, model: this.agents.modelLabel(agents[i]), perm: opts.approval === 'auto' ? 'auto' : 'ask', place: 'draft' }));
         first ??= result.value;
       } else {
         errors.push(`${AGENT_META[agents[i]].name}: ${errorText(result.reason)}`);
