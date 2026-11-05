@@ -16,7 +16,7 @@ import { PermissionCard } from './permission-card';
 import { Markdown } from './markdown';
 import { NgTemplateOutlet } from '@angular/common';
 import { segmentsOf, Segment } from '../core/timeline';
-import { ConfigChoice } from '../core/protocol';
+import { Approval, ConfigChoice, Place } from '../core/protocol';
 
 type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
 type TurnStatus = 'running' | 'needs_you' | 'waiting' | 'failed' | 'stopped';
@@ -72,7 +72,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                     <button role="option" class="opt" [class.on]="team() === 'single' && agent() === a.id" [attr.aria-selected]="team() === 'single' && agent() === a.id"
                       [disabled]="!usable(a.id)" (click)="pickAgent(a.id)">
                       <tg-agent-avatar [agent]="a.id" [size]="20" /><span class="ellipsis grow">{{ a.name }}</span>
-                      @if (!a.path) { <span class="dim">chưa cài</span> } @else if (editOnly(a.id)) { <span class="dim">chỉ Sửa code ›</span> } @else { <span class="dim">›</span> }
+                      @if (!a.path) { <span class="dim">chưa cài</span> } @else { <span class="dim">›</span> }
                     </button>
                   }
                   <hr />
@@ -105,7 +105,10 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                         <div class="pop-title">Model của {{ meta[a].name }}</div>
                         @switch (optionsState(a)) {
                           @case ('loading') { <p class="pop-note"><span class="spin"></span> Đang hỏi {{ meta[a].name }}…</p> }
-                          @case ('error') { <p class="pop-note">Không đọc được danh sách model. <button class="link" (click)="retryOptions(a)">Thử lại</button></p> }
+                          @case ('error') {
+                            <p class="pop-note">Không đọc được danh sách model. <button class="link" (click)="retryOptions(a)">Thử lại</button></p>
+                            @if (agents.optionsError()[a]; as why) { <pre class="pop-error mono">{{ why }}</pre> }
+                          }
                           @case ('none') { <p class="pop-note">{{ meta[a].name }} không cho chọn model ở đây; dùng cài đặt của CLI.</p> }
                           @default {
                             @for (o of modelOptions(a); track o.value) {
@@ -136,29 +139,62 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
             }
           </div>
           <div class="pop-anchor">
-            <button class="chip-btn" [class.open]="menu() === 'perm'" aria-haspopup="true" [attr.aria-expanded]="menu() === 'perm'" [disabled]="team() !== 'single'" [title]="team() !== 'single' ? 'Nhiều agent và Theo các bước luôn sửa trong bản nháp' : 'Agent được phép làm gì'" (click)="toggleMenu('perm')">
-              @if (mode() === 'read') {
-                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Chỉ hỏi
-              } @else {
-                <svg class="ic perm-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Sửa code
+            <button class="chip-btn" [class.open]="menu() === 'perm'" aria-haspopup="true" [attr.aria-expanded]="menu() === 'perm'" title="Agent được phép làm gì" (click)="toggleMenu('perm')">
+              @switch (perm()) {
+                @case ('read') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Chỉ hỏi }
+                @case ('auto') { <svg class="ic perm-auto" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Tự động }
+                @default { <svg class="ic perm-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Hỏi trước }
               }
               <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
             @if (menu() === 'perm') {
               <div class="pop perm-pop" role="listbox" aria-label="Quyền của agent" (keydown.escape)="menu.set(null)">
-                <button role="option" class="opt tall" [class.on]="mode() === 'read'" [attr.aria-selected]="mode() === 'read'" (click)="setPerm('read')">
+                <button role="option" class="opt tall" [class.on]="perm() === 'read'" [attr.aria-selected]="perm() === 'read'" [disabled]="team() !== 'single'" (click)="setPerm('read')">
                   <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
-                  <span class="grow"><strong>Chỉ hỏi</strong><span class="opt-desc">Agent đọc code rồi trả lời. Bị khoá ghi: không sửa tệp nào. Dùng để hỏi, giải thích, lên kế hoạch.</span></span>
-                  @if (mode() === 'read') { <span aria-hidden="true">✓</span> }
+                  <span class="grow"><strong>Chỉ hỏi</strong><span class="opt-desc">Agent đọc code rồi trả lời, không sửa tệp nào. Dùng để hỏi, giải thích, lên kế hoạch.@if (team() !== 'single') { Không dùng được khi giao cho nhiều agent hoặc theo các bước. }</span></span>
+                  @if (perm() === 'read') { <span aria-hidden="true">✓</span> }
                 </button>
-                <button role="option" class="opt tall" [class.on]="mode() !== 'read'" [attr.aria-selected]="mode() !== 'read'" (click)="setPerm('edit')">
+                <button role="option" class="opt tall" [class.on]="perm() === 'ask'" [attr.aria-selected]="perm() === 'ask'" (click)="setPerm('ask')">
                   <svg class="ic perm-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-                  <span class="grow"><strong>Sửa code <span class="dim">· cần repo Git</span></strong><span class="opt-desc">Agent sửa tệp và chạy lệnh trong một bản nháp riêng. Lệnh nhạy cảm sẽ hỏi bạn trước. Code thật chỉ đổi khi bạn bấm Nhận.</span></span>
-                  @if (mode() !== 'read') { <span aria-hidden="true">✓</span> }
+                  <span class="grow"><strong>Sửa code · hỏi trước <span class="dim">· cần repo Git</span></strong><span class="opt-desc">Agent sửa tệp và chạy lệnh. Lệnh nhạy cảm hiện thẻ duyệt để bạn cho phép hoặc từ chối.</span></span>
+                  @if (perm() === 'ask') { <span aria-hidden="true">✓</span> }
+                </button>
+                <button role="option" class="opt tall" [class.on]="perm() === 'auto'" [attr.aria-selected]="perm() === 'auto'" (click)="setPerm('auto')">
+                  <svg class="ic perm-auto" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
+                  <span class="grow"><strong>Tự động <span class="dim">· cần repo Git</span></strong><span class="opt-desc">Agent tự sửa tệp và chạy lệnh, không xin phép. Lệnh bị cấm (git push, merge) vẫn bị chặn. Mọi việc vẫn ghi trong Nhật ký làm việc.</span></span>
+                  @if (perm() === 'auto') { <span aria-hidden="true">✓</span> }
                 </button>
               </div>
             }
           </div>
+          @if (perm() !== 'read' && !run()?.task) {
+            <div class="pop-anchor">
+              <button class="chip-btn" [class.open]="menu() === 'place'" aria-haspopup="true" [attr.aria-expanded]="menu() === 'place'" [disabled]="team() === 'parallel'" [title]="team() === 'parallel' ? 'Nhiều agent luôn làm trong bản nháp riêng' : 'Agent làm ở đâu'" (click)="toggleMenu('place')">
+                @if (effectivePlace() === 'direct') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Thư mục hiện tại }
+                @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg>Bản nháp<span class="dim">· {{ base() ?? workspace.repo()?.branch ?? 'HEAD' }}</span> }
+                <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              @if (menu() === 'place') {
+                <div class="pop place-pop" role="listbox" aria-label="Agent làm ở đâu" (keydown.escape)="menu.set(null)">
+                  <button role="option" class="opt tall" [class.on]="place() === 'direct'" [attr.aria-selected]="place() === 'direct'" (click)="setPlace('direct')">
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                    <span class="grow"><strong>Thư mục hiện tại</strong><span class="opt-desc">Agent sửa thẳng code của bạn, thấy cả phần bạn đang sửa dở. Panel Thay đổi chỉ hiện phần agent sửa; Hoàn tác từng đoạn được.</span></span>
+                    @if (place() === 'direct') { <span aria-hidden="true">✓</span> }
+                  </button>
+                  <div class="pop-title">Bản nháp riêng từ nhánh</div>
+                  @for (b of branches(); track b) {
+                    <button role="option" class="opt" [class.on]="place() === 'draft' && (base() ?? workspace.repo()?.branch) === b" (click)="setPlace('draft', b)">
+                      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg><span class="grow mono ellipsis">{{ b }}</span>
+                      @if (b === workspace.repo()?.branch) { <span class="dim">đang mở</span> }
+                    </button>
+                  } @empty {
+                    <button role="option" class="opt" [class.on]="place() === 'draft'" (click)="setPlace('draft')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg><span class="grow">Từ commit đang mở (HEAD)</span></button>
+                  }
+                  <p class="pop-note">Bản nháp là bản sao riêng của repo: code thật chỉ đổi khi bạn bấm Nhận. Agent chỉ thấy code đã commit.</p>
+                </div>
+              }
+            </div>
+          }
           @if (team() === 'pipeline') {
             <button class="chip-btn" [attr.aria-expanded]="editSteps()" (click)="editSteps.set(!editSteps())">{{ editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
           }
@@ -222,6 +258,9 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
           </span>
         </div>
       }
+      @if (perm() === 'auto' && (run()?.task ? run()?.place === 'direct' : effectivePlace() === 'direct')) {
+        <p class="cmp-hint warn-text">Tự động + Thư mục hiện tại: agent sửa thẳng code của bạn mà không hỏi. Hoàn tác được từng đoạn ở panel Thay đổi.</p>
+      }
       @if (blocked(); as b) { @if (prompt().trim() || run()?.status !== 'running') { <p class="dim cmp-hint">{{ b }}</p> } }
       @else if (loginHint(); as h) { <p class="cmp-hint warn-text">{{ h }}</p> }
       @if (error()) { <p class="error-text cmp-hint">{{ error() }}</p> }
@@ -266,7 +305,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                   <header class="turn-who">
                     <tg-agent-avatar [agent]="tr.agent" [size]="24" />
                     <strong>{{ meta[tr.agent].name }}</strong>
-                    <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ tr.task ? 'Sửa code' : 'Chỉ hỏi' }} · {{ duration(tr) }}@if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
+                    <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ permLabel(tr) }} · {{ duration(tr) }}@if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
                     <span class="spacer"></span>
                     <span class="pill" [attr.data-status]="turnStatus(tr)">
                       @switch (turnStatus(tr)) {
@@ -331,7 +370,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                   <header>
                     <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg>
                     <strong>{{ c.files }} tệp đã đổi</strong><span class="ok-text mono">+{{ c.added }}</span><span class="err-text mono">−{{ c.removed }}</span>
-                    <span class="spacer"></span><span class="dim">trong bản nháp · code thật chưa đổi</span>
+                    <span class="spacer"></span><span class="dim">{{ r.place === 'direct' ? 'đã ở trong code của bạn · hoàn tác được' : 'trong bản nháp · code thật chưa đổi' }}</span>
                   </header>
                   <ul>
                     @for (f of c.list.slice(0, 5); track f.path) {
@@ -410,7 +449,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
               <h1>Hôm nay làm gì với {{ projectName() }}?</h1>
               <p class="dim">
                 @switch (workspace.project()?.git) {
-                  @case ('ready') { <span class="ok-text">●</span> Repo Git · nhánh {{ workspace.project()!.branch ?? 'HEAD tách rời' }} · agent làm trong bản nháp riêng }
+                  @case ('ready') { <span class="ok-text">●</span> Repo Git · nhánh {{ workspace.project()!.branch ?? 'HEAD tách rời' }} }
                   @case ('no_commits') { <span class="warn-text">●</span> Repo Git chưa có commit: Sửa code cần ít nhất một commit }
                   @default { <span class="warn-text">●</span> Không phải repo Git: chỉ dùng được Chỉ hỏi }
                 }
@@ -512,16 +551,34 @@ export class AgentPanel {
     if (!r) return;
     untracked(() => {
       this.chosen.set(r.agent);
-      // A conversation keeps its mode too: the next question stays a question.
-      if (!r.task) this.mode.set('read');
-      else if (this.mode() === 'read') this.mode.set('task');
+      // A conversation keeps its permission and place: the next message works the same way.
+      if (!r.task || r.perm === 'read') this.mode.set('read');
+      else {
+        if (this.mode() === 'read') this.mode.set('task');
+        this.approval.set(r.perm === 'auto' ? 'auto' : 'ask');
+        if (r.place) this.place.set(r.place);
+      }
     });
   });
   protected readonly error = signal<string | null>(null);
   protected readonly picks = signal<AgentId[] | null>(null);
-  /** Code tasks run over ACP, so agents without a headless mode (Kiro) can take them. */
-  protected readonly choices = computed(() =>
-    this.mode() !== 'read' ? this.agents.agents().filter((a) => a.path) : this.agents.runnable());
+  /** Every installed agent takes every permission; questions to agents without a read-only
+   * CLI flag run through ACP in a throwaway draft. */
+  protected readonly choices = computed(() => this.agents.agents().filter((a) => a.path));
+  /** Hỏi trước or Tự động, for code tasks. */
+  protected readonly approval = signal<'ask' | 'auto'>('ask');
+  protected readonly perm = computed<'read' | 'ask' | 'auto'>(() => (this.mode() === 'read' ? 'read' : this.approval()));
+  /** Where a new code task works: the user's folder (default) or a draft from `base`. */
+  protected readonly place = signal<Place>('direct');
+  protected readonly base = signal<string | null>(null);
+  protected readonly branches = signal<string[]>([]);
+  /** Several agents at once always use drafts; so do questions to agents without a read-only flag. */
+  protected readonly effectivePlace = computed<Place>(() => (this.team() === 'parallel' ? 'draft' : this.place()));
+  /** Questions go through ACP for agents whose CLI has no verified read-only flag. */
+  protected readonly readViaAcp = computed(() => {
+    const a = this.agents.agents().find((x) => x.id === this.agent());
+    return this.mode() === 'read' && !!a && !a.headless;
+  });
   /** The picked agent only while it can work with the chosen permission (Kiro and Gemini have no Chỉ hỏi). */
   protected readonly agent = computed<AgentId | ''>(() => {
     const chosen = this.chosen();
@@ -548,6 +605,7 @@ export class AgentPanel {
     if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
     if (this.mode() !== 'read' && !this.workspace.repo()) return 'Sửa code cần một repo Git: bấm Khởi tạo Git, hoặc dùng Chỉ hỏi.';
     if (this.mode() !== 'read' && this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit: bấm Tạo commit đầu tiên, hoặc dùng Chỉ hỏi.';
+    if (this.readViaAcp() && this.workspace.project()?.git !== 'ready') return `${AGENT_META[this.agent() as AgentId].name} trả lời câu hỏi trong một bản nháp tạm, nên cần repo Git có ít nhất một commit.`;
     if (this.mode() === 'parallel' && this.picked().length < 2) return 'Cần chọn ít nhất 2 agent.';
     if (this.mode() === 'pipeline' && this.steps().some((s) => !this.choices().some((a) => a.id === s.agent))) return 'Có bước dùng agent chưa cài. Chọn agent khác cho bước đó.';
     return null;
@@ -580,6 +638,12 @@ export class AgentPanel {
   });
   protected readonly projectName = computed(() => this.workspace.project()?.name ?? this.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? '');
 
+  protected permLabel(r: Run): string {
+    if (!r.task || r.perm === 'read') return 'Chỉ hỏi';
+    const where = r.place === 'direct' ? 'thư mục hiện tại' : 'bản nháp';
+    return `${r.perm === 'auto' ? 'Tự động' : 'Sửa code'} · ${where}`;
+  }
+
   protected turnStatus(r: Run): TurnStatus {
     if (r.permissions.length) return 'needs_you';
     if (r.status === 'running') return 'running';
@@ -602,12 +666,13 @@ export class AgentPanel {
   }
 
   // Composer menus: who works (agent, model, team) and what it may do (permission).
-  protected readonly menu = signal<'agent' | 'perm' | null>(null);
+  protected readonly menu = signal<'agent' | 'perm' | 'place' | null>(null);
   protected readonly team = computed<'single' | 'parallel' | 'pipeline'>(() => (this.mode() === 'parallel' ? 'parallel' : this.mode() === 'pipeline' ? 'pipeline' : 'single'));
 
-  protected toggleMenu(which: 'agent' | 'perm'): void {
+  protected toggleMenu(which: 'agent' | 'perm' | 'place'): void {
     const opening = this.menu() !== which;
     this.menu.set(opening ? which : null);
+    if (opening && which === 'place') void this.loadBranches();
     const a = this.agent();
     if (opening && which === 'agent' && a) void this.agents.loadOptions(a, this.workspace.folder());
   }
@@ -627,15 +692,9 @@ export class AgentPanel {
     return !!this.agents.agents().find((x) => x.id === id)?.path;
   }
 
-  /** Agents without Chỉ hỏi (e.g. Kiro) cannot answer a question here; picking one moves to Sửa code. */
-  protected editOnly(id: AgentId): boolean {
-    const a = this.agents.agents().find((x) => x.id === id);
-    return !!a?.path && !a.headless;
-  }
-
   protected pickAgent(id: AgentId): void {
     this.chosen.set(id);
-    if (this.team() !== 'single' || (this.mode() === 'read' && this.editOnly(id))) this.mode.set('task');
+    if (this.team() !== 'single') this.mode.set('task');
     void this.agents.loadOptions(id, this.workspace.folder());
   }
 
@@ -643,10 +702,29 @@ export class AgentPanel {
     this.mode.set(team);
   }
 
-  protected setPerm(perm: 'read' | 'edit'): void {
+  protected setPerm(perm: 'read' | 'ask' | 'auto'): void {
     if (perm === 'read') this.mode.set('read');
-    else if (this.mode() === 'read') this.mode.set('task');
+    else {
+      if (this.mode() === 'read') this.mode.set('task');
+      this.approval.set(perm);
+    }
     this.menu.set(null);
+  }
+
+  protected setPlace(place: Place, base: string | null = null): void {
+    this.place.set(place);
+    this.base.set(place === 'draft' ? base : null);
+    this.menu.set(null);
+  }
+
+  protected async loadBranches(): Promise<void> {
+    const repo = this.workspace.repo()?.root;
+    if (!repo) return;
+    try {
+      this.branches.set(await this.backend.listBranches(repo));
+    } catch {
+      this.branches.set([]);
+    }
   }
 
   protected optionsState(a: AgentId): 'loading' | 'error' | 'none' | 'ok' {
@@ -716,7 +794,7 @@ export class AgentPanel {
   /** What this conversation's agent has changed and is waiting on the user. */
   protected readonly changed = computed(() => {
     const r = this.run();
-    if (!r?.task || r.status === 'running') return null;
+    if (!r?.task || r.perm === 'read' || r.status === 'running') return null;
     const files = this.workspace.diffs()[r.id] ?? [];
     if (!files.length) return null;
     const hunks = files.flatMap((f) => f.hunks);
@@ -841,8 +919,14 @@ export class AgentPanel {
     this.error.set(null);
     this.sending.set(true);
     try {
+      const current = this.run();
+      const perm = this.perm();
+      const approval: Approval = perm === 'read' ? 'deny' : perm;
+      const place = this.effectivePlace();
+      const base = place === 'draft' ? this.base() : null;
       // Only a new draft starts from the latest commit; warn once per decision.
-      if (this.mode() !== 'read' && !this.run()?.task && !this.dirtyAccepted) {
+      const newDraft = this.mode() !== 'read' && place === 'draft' && !current?.task;
+      if (newDraft && !this.dirtyAccepted) {
         await this.workspace.reloadProject();
         const dirty = this.workspace.project()?.uncommitted ?? 0;
         if (dirty > 0) {
@@ -852,27 +936,35 @@ export class AgentPanel {
       }
       this.dirtyAccepted = false;
       if (this.mode() === 'pipeline') {
-        const started = await this.pipelines.start(text, cwd, this.steps());
+        const started = await this.pipelines.start(text, cwd, this.steps(), { place, base, approval });
         // No run exists yet to show this in the thread, and the prompt must not be lost.
         if (started.status === 'failed') {
           this.error.set(started.error);
           return;
         }
       } else if (this.mode() === 'parallel') {
-        const failed = await this.runs.startParallel(this.picked(), text, cwd, this.threads.draftScope());
+        const failed = await this.runs.startParallel(this.picked(), text, cwd, this.threads.draftScope(), { base, approval });
         if (failed.length) this.error.set(`Không chạy được: ${failed.join('; ')}`);
       } else if (agent) {
-        const current = this.run();
-        if (this.mode() === 'task' && current?.task) {
-          // Same agent with an open session: just the next message. Anything else is a new
-          // session in the same draft; the core reopens the old one if it was this agent's.
-          if (agent === current.agent && current.status === 'idle') await this.runs.sendMessage(current.id, text);
-          else await this.runs.startTask(agent, text, cwd, { reuse: current.id, recap: recapOf(current), thread: current.thread, scope: current.scope });
-        } else if (this.mode() === 'task') await this.runs.startTask(agent, text, cwd, { scope: this.threads.draftScope() });
-        else {
-          // The next question of a conversation continues it; the core resumes the CLI's session.
-          const asked = current && !current.task && current.status !== 'running' ? current : null;
-          await this.runs.start(agent, text, cwd, asked?.thread, asked?.id ?? null, asked ? asked.scope : this.threads.draftScope());
+        // Switching agent or permission keeps the conversation: same thread, with a recap.
+        const thread = current?.thread;
+        const recap = current ? recapOf(current) : undefined;
+        const scope = current ? current.scope : this.threads.draftScope();
+        const liveSession = current?.task && current.agent === agent && current.status === 'idle';
+        // A question's throwaway draft must never receive edits: leaving Chỉ hỏi starts afresh.
+        const leavingThrowaway = current?.perm === 'read' && perm !== 'read';
+        if (liveSession && !leavingThrowaway && (perm !== 'read' || current!.perm === 'read' || this.readViaAcp())) {
+          // The open session takes the message; only its approval mode changes.
+          if (current!.perm !== perm) await this.runs.setApproval(current!.id, approval);
+          await this.runs.sendMessage(current!.id, text);
+        } else if (perm === 'read' && !this.readViaAcp()) {
+          // Read-only CLI run on the real folder; the core resumes this agent's CLI session.
+          const resumable = current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;
+          await this.runs.start(agent, text, cwd, thread, resumable?.id ?? null, scope, resumable || !current ? null : (recap ?? null));
+        } else {
+          // A code task (or an ACP question). An earlier code task's draft or folder is reused.
+          const reuse = current?.task && current.perm !== 'read' && perm !== 'read' ? current.id : undefined;
+          await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval });
         }
       }
       this.prompt.set('');

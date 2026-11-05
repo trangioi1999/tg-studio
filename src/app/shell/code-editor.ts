@@ -49,6 +49,8 @@ export class CodeEditor implements OnDestroy {
   private readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
+  /** The agent worked in the user's folder: changes are already there, so keep or undo them. */
+  protected readonly direct = computed(() => this.runs.runs().find((r) => r.id === this.runId())?.place === 'direct');
   readonly running = input(false);
   readonly path = input.required<string>();
 
@@ -305,7 +307,7 @@ export class CodeEditor implements OnDestroy {
       });
       return b;
     };
-    bar.append(avatar, label, count, spacer, button('Bỏ', KEYS.backspace, 'ghost', 'reject'), button('Nhận', KEYS.enter, 'primary', 'accept'));
+    bar.append(avatar, label, count, spacer, button(this.direct() ? 'Hoàn tác' : 'Bỏ', KEYS.backspace, 'ghost', 'reject'), button(this.direct() ? 'Giữ' : 'Nhận', KEYS.enter, 'primary', 'accept'));
     return bar;
   }
 

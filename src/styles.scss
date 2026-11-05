@@ -678,6 +678,9 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .av-stack { display: inline-flex; }
 .av-stack .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--input); }
 .perm-edit { color: var(--run); }
+.perm-auto { color: var(--wait); }
+.pop-error { margin: 0 9px 6px; padding: 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; border-radius: 8px; background: #1a100f; color: var(--fail); font-size: 11px; }
+.place-pop { width: 380px; max-height: 420px; overflow: auto; }
 .send { width: 34px; height: 34px; flex: none; border: 0; border-radius: 11px; background: var(--text); color: var(--bg); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .send svg { width: 14px; height: 14px; }
 .send .ic { width: 16px; height: 16px; stroke-width: 2.2; }
