@@ -98,7 +98,7 @@ Cả hai kiểu chỉ publish `site/`: source không có trên `site-dist`, và 
 
 Trang tự nhận ra máy Windows hay Mac và đưa bản tương ứng lên trước. Bộ cài được nén thành `.zip` (trình duyệt và bộ lọc mail hay chặn bộ cài chưa ký số); link cố định `downloads/TG-Studio-latest-windows-x64-setup.zip` và `downloads/TG-Studio-latest-macos-universal.zip` luôn trỏ bản mới nhất, trang đọc phiên bản và dung lượng từ `version.json`.
 
-Bản macOS chưa ký số và chưa notarize: lần đầu mở, chuột phải → Open, hoặc System Settings → Privacy & Security → Open Anyway. Tải qua trình duyệt thì macOS hay báo "app bị hỏng": chạy `xattr -cr "/Applications/TG Studio.app"` một lần. Nếu job macOS lỗi, workflow vẫn đăng bản Windows và trang ghi "macOS: chưa có bản".
+Bản macOS chưa ký số và chưa notarize: lần đầu mở, chuột phải → Open, hoặc System Settings → Privacy & Security → Open Anyway. Tải qua trình duyệt thì macOS hay báo "app bị hỏng": chạy `xattr -cr "/Applications/TG Studio.app"` một lần. Nếu job macOS lỗi (GitHub hay hết máy macOS: "The job was not acquired by Runner"), workflow vẫn đăng bản Windows mới và giữ bản macOS đã đăng lần trước; chỉ khi chưa từng có bản macOS thì trang mới ghi "macOS: chưa có bản". Chạy lại workflow để có bản macOS mới.
 
 **Chỉ cho người trong nhóm tải:** Cloudflare Zero Trust → Access → Applications → Add → Self-hosted, domain của trang (`<tên-project>.<subdomain>.workers.dev` hoặc `.pages.dev`), policy **Allow** theo danh sách email (gói Free tới 50 người). Người tải nhập email, nhận mã đăng nhập một lần.
 
