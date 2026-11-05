@@ -7,13 +7,17 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 ## Giao diện
 
-**Agent đang sửa code:** editor tự mở tệp agent đang làm, con trỏ mang tên agent, Explorer đánh dấu "đang sửa".
+**Chat với agent:** cột trái có logo agent và nhãn trạng thái màu (Đang làm, Chờ duyệt, Xong, Lỗi). Các bước agent làm gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown, thẻ thay đổi dẫn sang panel diff bên phải.
 
-![Agent đang sửa code trong editor](docs/images/ide-agent-editing.png)
+![Chat, nhật ký làm việc và thay đổi chờ duyệt](docs/images/chat-review.png)
 
-**Review ngay trong editor:** mỗi thay đổi có thanh Accept / Reject; panel phải hiện usage của task, tiến độ và đề xuất chuyển việc qua tg-bridge.
+**Duyệt lệnh:** thẻ duyệt ghim ngay trên ô chat; cột trái chuyển sang nhãn vàng Chờ duyệt.
 
-![Review từng thay đổi ngay trong editor](docs/images/ide-review.png)
+![Thẻ duyệt lệnh](docs/images/approval.png)
+
+**Chọn agent và model:** danh sách model và mức suy nghĩ đọc từ chính CLI. Cuối menu là Giao cho nhiều agent và Theo các bước.
+
+![Menu chọn agent, model và mức suy nghĩ](docs/images/agent-menu.png)
 
 **Chạy song song và so sánh:** cùng một yêu cầu cho nhiều agent, chọn một bản hoặc ghép từng thay đổi rồi chạy test trên bản ghép.
 

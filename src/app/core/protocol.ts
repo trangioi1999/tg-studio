@@ -14,6 +14,31 @@ export interface DetectedAgent {
   auth: 'ok' | 'none' | 'unknown';
 }
 
+/** Model and effort picked in the composer; `null` keeps the agent's own default. Mirrors `options::SessionPrefs`. */
+export interface SessionPrefs {
+  model: string | null;
+  effort: string | null;
+}
+
+export interface ConfigChoice {
+  value: string;
+  name: string;
+  description: string | null;
+}
+
+/** One select of an agent's session settings (ACP `configOptions`). */
+export interface ConfigSelect {
+  id: string;
+  current: string;
+  options: ConfigChoice[];
+}
+
+/** What an agent lets the user pick, read from the agent itself. Mirrors `options::AgentOptions`. */
+export interface AgentOptions {
+  model: ConfigSelect | null;
+  effort: ConfigSelect | null;
+}
+
 export interface Usage {
   /** Uncached input tokens. */
   inputTokens: number;

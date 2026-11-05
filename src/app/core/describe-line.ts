@@ -21,7 +21,8 @@ const obj = (v: unknown): Json | null => (v && typeof v === 'object' ? (v as Jso
 export function describeLine(agent: AgentId, raw: string): ConsoleLine | null {
   const line = raw.trim();
   if (!line) return null;
-  if (!line.startsWith('{')) return { text: line, tone: 'text' };
+  // Plain lines: a leading "›" marks a tool call (mock mode, simple CLIs); anything else is said.
+  if (!line.startsWith('{')) return { text: line, tone: line.startsWith('›') ? 'tool' : 'text' };
   let v: Json;
   try {
     v = JSON.parse(line) as Json;

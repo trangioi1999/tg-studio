@@ -1,6 +1,18 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
-import { DetectedAgent } from './protocol';
+import { AgentId, AgentOptions, DetectedAgent, SessionPrefs } from './protocol';
+
+const PREFS_KEY = 'tg.prefs';
+
+function loadPrefs(): Partial<Record<AgentId, SessionPrefs>> {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    const v = raw ? JSON.parse(raw) : null;
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+}
 
 /** What the last detection found, to show at once on the next start. */
 function parseCache(raw: string | null): DetectedAgent[] {
@@ -25,6 +37,47 @@ export class AgentsService {
   /** Detection is running, behind what is already shown. */
   readonly checking = signal(false);
   readonly runnable = computed(() => this.agents().filter((a) => a.path && a.headless));
+  /** Model and effort choices, read from each agent once per app session. */
+  readonly options = signal<Partial<Record<AgentId, AgentOptions | 'loading' | 'error'>>>({});
+  /** What the user picked per agent, remembered across sessions. */
+  readonly prefs = signal<Partial<Record<AgentId, SessionPrefs>>>(loadPrefs());
+
+  prefsFor(agent: AgentId): SessionPrefs | null {
+    const p = this.prefs()[agent];
+    return p && (p.model || p.effort) ? p : null;
+  }
+
+  setPref(agent: AgentId, change: Partial<SessionPrefs>): void {
+    this.prefs.update((all) => ({ ...all, [agent]: { model: null, effort: null, ...all[agent], ...change } }));
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(this.prefs()));
+    } catch {
+      /* remembered for this session only */
+    }
+  }
+
+  /** Asks the agent once; a failure can be retried by calling again. */
+  async loadOptions(agent: AgentId, cwd: string | null): Promise<void> {
+    const now = this.options()[agent];
+    if (now === 'loading' || (now && now !== 'error')) return;
+    this.options.update((o) => ({ ...o, [agent]: 'loading' }));
+    try {
+      const found = await this.backend.agentOptions(agent, cwd || null);
+      this.options.update((o) => ({ ...o, [agent]: found }));
+    } catch (e) {
+      console.warn('Không đọc được model của agent', e);
+      this.options.update((o) => ({ ...o, [agent]: 'error' }));
+    }
+  }
+
+  /** Short label of the picked model, e.g. "Opus 4.6"; null when on the default. */
+  modelLabel(agent: AgentId): string | null {
+    const value = this.prefs()[agent]?.model;
+    if (!value || value === 'default') return null;
+    const opts = this.options()[agent];
+    const found = opts && typeof opts === 'object' ? opts.model?.options.find((o) => o.value === value) : null;
+    return found?.name ?? value;
+  }
 
   async refresh(): Promise<void> {
     if (this.checking()) return;
