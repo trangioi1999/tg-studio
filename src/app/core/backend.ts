@@ -30,6 +30,8 @@ export abstract class AgentBackend {
    * `reuse`: continue in the worktree of this finished run. `singleTurn`: close the session
    * after one turn (a pipeline step). `recap`: sent first unless the session can be reopened.
    */
+  /** Opens the agent's session ahead of the first message of a new conversation in `repo`. */
+  abstract warmTask(agent: AgentId, repo: string, scope: string | null): Promise<void>;
   abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null, prefs?: SessionPrefs | null, place?: Place | null, base?: string | null, approval?: Approval | null): Promise<string>;
   /** Changes how an open code task answers permission requests. */
   abstract setApproval(runId: string, approval: Approval): Promise<void>;
@@ -130,6 +132,9 @@ export class TauriBackend extends AgentBackend {
     if (action === 'minimize') await w.minimize();
     else if (action === 'maximize') await w.toggleMaximize();
     else await w.close();
+  }
+  warmTask(agent: AgentId, repo: string, scope: string | null) {
+    return invoke<void>('warm_task', { agent, repo, scope });
   }
   startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null, place: Place | null = null, base: string | null = null, approval: Approval | null = null) {
     return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs, place, base, approval });

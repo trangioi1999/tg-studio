@@ -76,7 +76,7 @@ impl ToolEnv for TaskEnv {
 }
 
 /// tg-bridge is on unless the user turned it off in Integrations.
-fn bridge_enabled(store: &Store) -> bool {
+pub(crate) fn bridge_enabled(store: &Store) -> bool {
     store.setting("bridge").ok().flatten()
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
         .and_then(|v| v["enabled"].as_bool()).unwrap_or(true)
@@ -88,46 +88,89 @@ fn bridge_enabled(store: &Store) -> bool {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Place { Direct, Draft(Option<String>) }
 
-async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, command: (PathBuf, Vec<String>), group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child), String> {
+/// The ACP adapter process, with piped stdio, started in `dir`.
+pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Result<Child, String> {
+    let mut process = env::command(&command.0);
+    process.args(&command.1).current_dir(dir)
+        .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
+        .stderr(Stdio::piped()).kill_on_drop(true);
+    env::isolate(&mut process);
+    process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", command.0.display()))
+}
+
+/// The tg-bridge MCP server entry of one session.
+pub(crate) fn bridge_server(agent: AgentKind, exe: String, addr: String, token: String) -> McpServer {
+    McpServer {
+        id: bridge::SERVER_NAME.into(), name: bridge::SERVER_NAME.into(), transport: "stdio".into(),
+        command: Some(exe), args: vec![bridge::FLAG.into()],
+        env: vec![mcp::NameValue { name: "TG_BRIDGE_ADDR".into(), value: addr }, mcp::NameValue { name: "TG_BRIDGE_TOKEN".into(), value: token }],
+        url: None, headers: vec![], agents: vec![agent],
+    }
+}
+
+/// How a task gets its adapter: start one, or take a session opened ahead of time.
+/// `Warm` keeps the command: an adapter that died while waiting is replaced by a fresh one.
+enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::warm::Warm>, (PathBuf, Vec<String>)) }
+
+async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::warm::Claimed>), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let agent_name = serde_json::to_value(agent).unwrap();
     let shared = reuse.is_some();
-    let wt = match (reuse, place) {
-        (Some(wt), _) => wt,
-        (None, Place::Direct) => worktree::direct(repo, &id)?,
+    let made = (|| match (reuse, place) {
+        (Some(wt), _) => Ok(wt),
+        (None, Place::Direct) => worktree::direct(repo, &id),
         (None, Place::Draft(base)) => {
             if let Some(b) = &base {
                 if !worktree::branches(repo)?.iter().any(|x| x == b) { return Err(format!("Không tìm thấy nhánh {b}.")); }
             }
-            worktree::create_at(repo, agent_name.as_str().unwrap(), prompt, &id, base.as_deref())?
+            worktree::create_at(repo, agent_name.as_str().unwrap(), prompt, &id, base.as_deref())
+        }
+    })();
+    let wt = match made {
+        Ok(wt) => wt,
+        Err(e) => {
+            if let Adapter::Warm(warm, _) = adapter { warm.close_later(); }
+            return Err(e);
         }
     };
     let cleanup = |wt: &Worktree| if shared { Ok(()) } else { worktree::remove(repo, wt, true) };
-    let mut process = env::command(&command.0);
-    process.args(&command.1).current_dir(&wt.path)
-        .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
-        .stderr(Stdio::piped()).kill_on_drop(true);
-    env::isolate(&mut process);
-    let spawned = process.spawn();
-    let mut child = match spawned {
-        Ok(child) => child,
-        Err(e) => {
-            let cleanup = cleanup(&wt);
-            return Err(format!("Không chạy được adapter {}: {e}{}", command.0.display(), cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
+    let adapter = match adapter {
+        Adapter::Warm(warm, command) => {
+            let (mut child, claimed) = warm.into_parts();
+            if !claimed.late.is_closed() && matches!(child.try_wait(), Ok(None)) {
+                Ok((child, claimed))
+            } else {
+                // It died while the run was being prepared: this run opens its own.
+                terminate_adapter(&mut child, claimed.pid).await;
+                claimed.release();
+                Err(command)
+            }
         }
+        Adapter::Spawn(command) => Err(command),
+    };
+    let (mut child, warm) = match adapter {
+        Ok((child, claimed)) => (child, Some(claimed)),
+        Err(command) => match spawn_adapter(&command, &wt.path) {
+            Ok(child) => (child, None),
+            Err(e) => {
+                let cleanup = cleanup(&wt);
+                return Err(format!("{e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
+            }
+        },
     };
     let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: runner::now_ms() }, &repo.to_string_lossy(), &wt, group);
     if let Err(e) = saved {
-        let pid = child.id();
+        let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
         terminate_adapter(&mut child, pid).await;
+        if let Some(warm) = warm { warm.release(); }
         let cleanup = cleanup(&wt);
         return Err(format!("Không lưu được lượt chạy: {e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
     }
-    Ok((id, wt, child))
+    Ok((id, wt, child, warm))
 }
 
 // npx is a wrapper: its adapter descendants must stop along with the run.
-async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
+pub(crate) async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
     if let Some(pid) = pid { env::kill_tree(pid).await; }
     let _ = child.kill().await;
     let _ = child.wait().await;
@@ -151,6 +194,8 @@ struct SessionPlan<'a> {
     recap: Option<String>,
     servers: &'a [McpServer],
     resume: Option<String>,
+    /// A session already opened ahead of time (`warm.rs`): no initialize or session/new.
+    opened: Option<String>,
     /// `None`: the session ends after one turn (a pipeline step).
     next: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
     idle_limit: Duration,
@@ -197,7 +242,9 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
     tokio::pin!(dead);
     let mut stop = next_stop();
     session.set_busy(true);
+    let opened = plan.opened.take();
     let setup = async {
+        if let Some(id) = opened { return Ok::<_, String>((id, false)); }
         let init = client.initialize().await?;
         let (mcp, skipped) = mcp::for_acp(plan.servers, session.agent(), &init);
         if !skipped.is_empty() {
@@ -260,7 +307,7 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
 #[cfg(test)]
 async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     let mut stop = Some(stop);
-    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
     drive_session(client, session, plan, || stop.take().expect("một lượt chỉ có một tín hiệu dừng"), |_| {}, |_| {}, dead).await
 }
 
@@ -307,8 +354,19 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         None => None,
     };
     let throwaway = approval == Approval::Deny && reuse.is_none();
-    let (id, wt, mut child) = prepare(&app.state::<Store>(), agent, &prompt, &repo, command, group.as_deref(), reuse, place).await?;
-    let pid = child.id();
+    // A new conversation in the user's folder may find its session already open.
+    let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
+        (Place::Direct, None, None, Ok(cwd)) => {
+            let key = crate::warm::key_for(&app.state::<Store>(), agent, &cwd);
+            match app.state::<crate::warm::WarmPool>().take(&key).await {
+                Some(warm) => Adapter::Warm(Box::new(warm), command),
+                None => Adapter::Spawn(command),
+            }
+        }
+        _ => Adapter::Spawn(command),
+    };
+    let (id, wt, mut child, warm) = prepare(&app.state::<Store>(), agent, &prompt, &repo, adapter, group.as_deref(), reuse, place).await?;
+    let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
     if let Some(thread) = &thread {
         if let Err(e) = app.state::<Store>().set_run_thread(&id, thread, scope.as_deref()) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
     }
@@ -316,6 +374,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         Ok(dir) => dir,
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
+            if let Some(warm) = warm { warm.release(); }
             let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
             return Err(e);
         }
@@ -326,14 +385,24 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         Ok(session) => { session.set_approval(approval); Arc::new(session) }
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
+            if let Some(warm) = warm { warm.release(); }
             let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
             return Err(e);
         }
     };
-    let stdout = child.stdout.take().expect("piped stdout");
-    let stdin = child.stdin.take().expect("piped stdin");
-    let stderr = child.stderr.take().expect("piped stderr");
-    let client = AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout);
+    let sink_dyn: Arc<dyn EventSink> = sink.clone();
+    let (client, stderr, opened) = match warm {
+        Some(warm) => {
+            if let Err(e) = warm.late.attach(session.clone()) { eprintln!("Không gắn được phiên mở sẵn: {e}"); }
+            warm.relay_to(sink_dyn.clone(), &id, agent);
+            (warm.client, Err(warm.stderr_task), Some((warm.session_id, warm.token, warm.notes)))
+        }
+        None => {
+            let stdout = child.stdout.take().expect("piped stdout");
+            let stdin = child.stdin.take().expect("piped stdin");
+            (AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout), Ok(child.stderr.take().expect("piped stderr")), None)
+        }
+    };
     app.state::<TaskRuns>().0.lock().unwrap().insert(id.clone(), session.clone());
     let next = if single_turn.unwrap_or(false) { None } else {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -343,37 +412,43 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     let mut started = AgentEvent::new(&id, agent, "started");
     started.line = Some(format!("{} · {}", agent.display_name(), wt.path.display()));
     sink.emit(started);
-    if timeout == Duration::from_secs(300) {
+    if opened.is_none() && timeout == Duration::from_secs(300) {
         session.note("Đang chuẩn bị adapter. Lần đầu có thể mất vài phút để tải.".into());
     }
     let stderr_sink = sink.clone();
     let stderr_id = id.clone();
-    let stderr_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let mut event = AgentEvent::new(&stderr_id, agent, "stderr");
-            event.line = Some(line);
-            stderr_sink.emit(event);
-        }
-    });
+    let stderr_task = match stderr {
+        Err(relay) => relay,
+        Ok(stderr) => tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let mut event = AgentEvent::new(&stderr_id, agent, "stderr");
+                event.line = Some(line);
+                stderr_sink.emit(event);
+            }
+        }),
+    };
     let task_id = id.clone();
     let (cleanup_repo, cleanup_wt) = (repo.clone(), wt.clone());
     let scope = group.clone().unwrap_or_else(|| wt.run_id.clone());
     let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone() };
     tauri::async_runtime::spawn(async move {
-        let mut servers: Vec<McpServer> = mcp::load(&app.state::<Store>()).into_iter().filter(|s| s.name != bridge::SERVER_NAME).collect();
+        let mut servers: Vec<McpServer> = crate::warm::user_servers(&app.state::<Store>());
         let hub = app.state::<Arc<BridgeHub>>().inner().clone();
         let mut token = None;
-        if bridge_enabled(&app.state::<Store>()) {
+        let mut opened_id = None;
+        if let Some((session_id, reserved, notes)) = opened {
+            for note in notes { session.note(note); }
+            if let Some(t) = reserved {
+                if let Err(e) = hub.bind(&t, Arc::new(env)) { session.note(format!("tg-bridge không bật được: {e}")); }
+                token = Some(t);
+            }
+            opened_id = Some(session_id);
+        } else if bridge_enabled(&app.state::<Store>()) {
             match (hub.address().await, bridge::executable()) {
                 (Ok(addr), Some(exe)) => {
                     let t = hub.register(Arc::new(env));
-                    servers.push(McpServer {
-                        id: bridge::SERVER_NAME.into(), name: bridge::SERVER_NAME.into(), transport: "stdio".into(),
-                        command: Some(exe), args: vec![bridge::FLAG.into()],
-                        env: vec![mcp::NameValue { name: "TG_BRIDGE_ADDR".into(), value: addr }, mcp::NameValue { name: "TG_BRIDGE_TOKEN".into(), value: t.clone() }],
-                        url: None, headers: vec![], agents: vec![agent],
-                    });
+                    servers.push(bridge_server(agent, exe, addr, t.clone()));
                     token = Some(t);
                 }
                 (Err(e), _) => session.note(format!("tg-bridge không bật được: {e}")),
@@ -382,7 +457,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         }
         let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
         session.set_cost_base(base);
-        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, next, idle_limit: IDLE_LIMIT, prefs: prefs.unwrap_or_default() };
+        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, opened: opened_id, next, idle_limit: IDLE_LIMIT, prefs: prefs.unwrap_or_default() };
         let next_stop = || {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut runs) = app.state::<Runs>().0.lock() { runs.insert(task_id.clone(), tx); }
@@ -573,7 +648,7 @@ mod tests {
     async fn session_with(client: &AcpClient, session: &TaskSession, resume: Option<String>, recap: Option<String>, messages: Vec<&'static str>, stop_each_turn: bool) -> (&'static str, Vec<&'static str>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let cwd = std::env::temp_dir();
-        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, next: Some(rx), idle_limit: Duration::from_millis(100), prefs: SessionPrefs::default() };
+        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, opened: None, next: Some(rx), idle_limit: Duration::from_millis(100), prefs: SessionPrefs::default() };
         let stops = Mutex::new(Vec::new());
         let turns = Mutex::new(Vec::new());
         let remaining = Mutex::new(messages.into_iter());
@@ -617,6 +692,24 @@ mod tests {
         assert_eq!(count(&log, "session/new"), 1, "gửi thêm câu không được mở phiên mới");
         assert_eq!(prompts(&log), vec!["đầu", "hai", "ba"]);
         assert!(!session.is_busy());
+    }
+
+    #[tokio::test]
+    async fn a_warm_session_goes_straight_to_the_prompt() {
+        use crate::acp::fake::Step;
+        let (client, session, log, _) = fixture(vec![Step::Message("xin chào"), Step::End("end_turn")], false);
+        client.initialize().await.unwrap();
+        let id = client.new_session(&std::env::temp_dir(), json!([])).await.unwrap();
+        let cwd = std::env::temp_dir();
+        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap: Some("TÓM TẮT".into()), servers: &[], resume: None, opened: Some(id.clone()), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+        let (_keep, rx) = oneshot::channel();
+        let mut stop = Some(rx);
+        let opened = Mutex::new(None);
+        let (status, _) = tokio::time::timeout(Duration::from_secs(5), drive_session(&client, &session, plan, || stop.take().unwrap(), |sid| *opened.lock().unwrap() = Some(sid.to_string()), |_| {}, std::future::pending())).await.unwrap();
+        assert_eq!(status, "done");
+        assert_eq!((count(&log, "initialize"), count(&log, "session/new")), (1, 1), "phiên đã mở sẵn không được mở lại");
+        assert_eq!(opened.into_inner().unwrap(), Some(id));
+        assert_eq!(prompts(&log), vec!["TÓM TẮT\n\nđầu"]);
     }
 
     #[tokio::test]
@@ -854,7 +947,7 @@ mod tests {
         let repo = Repo::new();
         let store = Store::open_in_memory().unwrap();
         let missing = repo.0.join("missing-adapter");
-        let result = prepare(&store, AgentKind::Codex, "task", &repo.0, (missing, vec![]), None, None, Place::Draft(None)).await;
+        let result = prepare(&store, AgentKind::Codex, "task", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Draft(None)).await;
         assert!(result.err().unwrap().contains("Không chạy được"));
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(worktree::list(&repo.0).unwrap().is_empty());
@@ -892,7 +985,7 @@ mod tests {
     async fn run_live_agent(agent: AgentKind, store: &Store, repo: &Path, prompt: &str, group: Option<&str>, servers: &[McpServer]) -> LiveRun {
         let command = agent.acp_command(env::which).expect("adapter ACP hoặc npx");
         let timeout = setup_timeout(&command.0);
-        let (id, wt, mut child) = prepare(store, agent, prompt, repo, command, group, None, Place::Draft(None)).await.unwrap();
+        let (id, wt, mut child, _) = prepare(store, agent, prompt, repo, Adapter::Spawn(command), group, None, Place::Draft(None)).await.unwrap();
         let pid = child.id();
         let sink = Arc::new(Recorder::default());
         let session = Arc::new(TaskSession::new(&id, agent, &wt.path, sink.clone(), Arc::new(Rules)).unwrap());
@@ -947,6 +1040,53 @@ mod tests {
     }
 
     /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
+    /// A session opened before its run exists answers its first prompt as quickly as an open CLI.
+    /// `TG_LIVE_ACP=1 cargo test live_claude_warm -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_warm_session_answers_after_attach() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let command = AgentKind::Claude.acp_command(env::which).expect("adapter ACP hoặc npx");
+        let dir = std::env::temp_dir();
+        let started = std::time::Instant::now();
+        let mut child = spawn_adapter(&command, &dir).unwrap();
+        let stderr = child.stderr.take().unwrap();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(_)) = lines.next_line().await {}
+        });
+        let late = crate::acp::late::LateHandler::new();
+        let client = AcpClient::start_with_timeout(child.stdout.take().unwrap(), child.stdin.take().unwrap(), late.clone(), setup_timeout(&command.0));
+        client.initialize().await.unwrap();
+        let id = client.new_session(&dir, json!([])).await.unwrap();
+        eprintln!("mở phiên: {:?}", started.elapsed());
+        // The user is still typing. The adapter answers session/new at once and starts the
+        // agent in the background; its notifications arrive while nobody owns the session.
+        let typing = std::env::var("TG_WARM_WAIT_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(8000);
+        tokio::time::sleep(Duration::from_millis(typing)).await;
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new("warm", AgentKind::Claude, &dir, sink.clone(), Arc::new(Rules)).unwrap());
+        late.attach(session.clone()).unwrap();
+        let plan = SessionPlan { cwd: &dir, prompt: "Trả lời đúng một từ: xin chào".into(), recap: None, servers: &[], resume: None, opened: Some(id), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+        let (_keep, rx) = oneshot::channel();
+        let mut stop = Some(rx);
+        let asked = std::time::Instant::now();
+        let watcher = { let sink = sink.clone(); tokio::spawn(async move {
+            while !sink.0.lock().unwrap().iter().any(|e| e.kind == "message") { tokio::time::sleep(Duration::from_millis(20)).await; }
+            eprintln!("token đầu sau khi gửi: {:?}", asked.elapsed());
+        }) };
+        let (status, error) = drive_session(&client, &session, plan, || stop.take().unwrap(), |_| {}, |_| {}, std::future::pending()).await;
+        eprintln!("xong sau khi gửi: {:?}", asked.elapsed());
+        watcher.abort();
+        client.close();
+        let pid = child.id();
+        terminate_adapter(&mut child, pid).await;
+        assert_eq!(status, "done", "{error:?}");
+        let events = sink.0.lock().unwrap();
+        assert!(events.iter().any(|e| e.kind == "message"), "không có câu trả lời");
+        assert!(events.iter().any(|e| e.usage.is_some()), "không có usage của lượt");
+    }
+
     /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
     /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
     #[tokio::test(flavor = "multi_thread")]
@@ -1155,16 +1295,16 @@ mod tests {
         let repo = Repo::new();
         let store = Store::open_in_memory().unwrap();
         let missing = repo.0.join("missing-adapter");
-        assert!(prepare(&store, AgentKind::Codex, "fix", &repo.0, (missing, vec![]), None, None, Place::Direct).await.is_err());
+        assert!(prepare(&store, AgentKind::Codex, "fix", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Direct).await.is_err());
         assert!(repo.0.join("file.txt").exists(), "a failed start must not touch the user's folder");
-        let (id, wt, mut child) = prepare(&store, AgentKind::Codex, "fix", &repo.0, (PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![]), None, None, Place::Direct).await.unwrap();
+        let (id, wt, mut child, _) = prepare(&store, AgentKind::Codex, "fix", &repo.0, Adapter::Spawn((PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![])), None, None, Place::Direct).await.unwrap();
         assert!(wt.is_direct());
         let (stored_repo, stored) = store.run_worktree(&id).unwrap();
         assert_eq!(stored, wt);
         assert_eq!(dunce::canonicalize(stored.path).unwrap(), dunce::canonicalize(stored_repo).unwrap());
         let _ = child.wait().await;
         // A draft from a branch that does not exist is refused before anything is created.
-        let error = prepare(&store, AgentKind::Codex, "fix", &repo.0, (PathBuf::from("true"), vec![]), None, None, Place::Draft(Some("--force".into()))).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "fix", &repo.0, Adapter::Spawn((PathBuf::from("true"), vec![])), None, None, Place::Draft(Some("--force".into()))).await.err().unwrap();
         assert!(error.contains("Không tìm thấy nhánh"), "{error}");
     }
 
@@ -1176,10 +1316,10 @@ mod tests {
         store.insert_run_with_worktree(&NewRun { id: &wt.run_id, agent: AgentKind::Claude, prompt: "plan", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), &wt, None).unwrap();
         store.finish_run(&wt.run_id, "done", Some(0), 2).unwrap();
         let missing = repo.0.join("missing-adapter");
-        assert!(prepare(&store, AgentKind::Codex, "build", &repo.0, (missing, vec![]), None, Some(wt.clone()), Place::Draft(None)).await.is_err());
+        assert!(prepare(&store, AgentKind::Codex, "build", &repo.0, Adapter::Spawn((missing, vec![])), None, Some(wt.clone()), Place::Draft(None)).await.is_err());
         assert!(wt.path.exists(), "a failed later step must not delete the shared worktree");
         assert_eq!(store.list_runs(10).unwrap().len(), 1);
-        let (id, shared_wt, mut child) = prepare(&store, AgentKind::Codex, "build", &repo.0, (PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![]), None, Some(wt.clone()), Place::Draft(None)).await.unwrap();
+        let (id, shared_wt, mut child, _) = prepare(&store, AgentKind::Codex, "build", &repo.0, Adapter::Spawn((PathBuf::from(if cfg!(windows) { "cmd" } else { "true" }), vec![])), None, Some(wt.clone()), Place::Draft(None)).await.unwrap();
         assert_ne!(id, wt.run_id);
         assert_eq!(shared_wt, wt);
         assert_eq!(store.run_worktree(&id).unwrap().1.run_id, wt.run_id);
@@ -1262,10 +1402,10 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         let store = Store::open_in_memory().unwrap();
         let missing = path.join("missing");
-        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing.clone(), vec![]), None, None, Place::Draft(None)).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "task", &path, Adapter::Spawn((missing.clone(), vec![])), None, None, Place::Draft(None)).await.err().unwrap();
         assert!(error.contains("Git"));
         worktree::git(&path, &["init"], None).unwrap();
-        let error = prepare(&store, AgentKind::Codex, "task", &path, (missing, vec![]), None, None, Place::Draft(None)).await.err().unwrap();
+        let error = prepare(&store, AgentKind::Codex, "task", &path, Adapter::Spawn((missing, vec![])), None, None, Place::Draft(None)).await.err().unwrap();
         assert!(error.contains("commit"));
         assert!(store.list_runs(10).unwrap().is_empty());
         assert!(!path.join(".tg").exists());
