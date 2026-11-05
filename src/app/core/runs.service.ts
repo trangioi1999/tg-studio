@@ -226,6 +226,11 @@ export class RunsService {
     return id;
   }
 
+  /** Opens a session ahead of the first message; a failure only costs the head start. */
+  warm(agent: AgentId, repo: string, scope: string | null): void {
+    this.backend.warmTask(agent, repo, scope).catch(() => {});
+  }
+
   /** The next message of the run's open session. */
   sendMessage(runId: string, text: string): Promise<void> {
     return this.backend.sendMessage(runId, text);
