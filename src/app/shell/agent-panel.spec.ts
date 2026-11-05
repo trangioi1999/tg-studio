@@ -12,6 +12,11 @@ class FakeBackend extends MockBackend {
   starts = 0;
   lastStart: { agent: AgentId; prompt: string; reuse: string | null; recap: string | null; thread?: string | null; place?: string | null; base?: string | null; approval?: string | null } | null = null;
   startResult: (() => Promise<string>) | null = null;
+  warms: [AgentId, string, string | null][] = [];
+  override warmTask(agent: AgentId, repo: string, scope: string | null) {
+    this.warms.push([agent, repo, scope]);
+    return Promise.resolve();
+  }
   override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null,
     thread: string | null = null, scope: string | null = null, prefs: unknown = null, place: string | null = null, base: string | null = null, approval: string | null = null) {
     this.starts += 1;
@@ -95,6 +100,38 @@ describe('AgentPanel composer', () => {
     expect(backend.starts).toBe(1);
     expect(backend.lastStart).toMatchObject({ agent: 'codex', prompt: 'làm tiếp', reuse: run.id });
     expect(backend.lastStart?.recap).toContain('câu đầu');
+  });
+
+  it('opens the session while the first message is typed, once per agent and folder', async () => {
+    const { backend, panel } = await setup();
+    const folder = TestBed.inject(WorkspaceService).folder();
+    panel.prompt.set('s');
+    TestBed.tick();
+    panel.prompt.set('sửa lỗi');
+    TestBed.tick();
+    expect(backend.warms).toEqual([['claude', folder, null]]);
+    panel.prompt.set('@codex sửa lỗi');
+    TestBed.tick();
+    expect(backend.warms.at(-1)).toEqual(['codex', folder, null]);
+  });
+
+  it('does not open a session ahead for a draft, a question or an open conversation', async () => {
+    const { backend, panel } = await setup();
+    (panel as unknown as { setPlace(p: string): void }).setPlace('draft');
+    panel.prompt.set('sửa');
+    TestBed.tick();
+    (panel as unknown as { setPlace(p: string): void }).setPlace('direct');
+    panel.mode.set('read');
+    TestBed.tick();
+    expect(backend.warms).toEqual([]);
+  });
+
+  it('does not open a session ahead when the conversation has one', async () => {
+    const { backend, panel } = await withOpenSession();
+    backend.warms = [];
+    panel.prompt.set('câu hai');
+    TestBed.tick();
+    expect(backend.warms).toEqual([]);
   });
 
   it('does not send on Enter while an input method is composing, or on Shift+Enter', async () => {

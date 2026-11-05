@@ -582,6 +582,26 @@ export class AgentPanel {
       }
     });
   });
+  /**
+   * While the first message of a code conversation is being typed, the core opens the
+   * agent's session (~5 s) so the answer starts as fast as in an open CLI. A string, so
+   * the effect runs again only when agent, folder or scope change.
+   */
+  private readonly warmTarget = computed(() => {
+    if (!this.prompt().trim() || this.mode() !== 'task' || this.effectivePlace() !== 'direct' || this.blocked()) return null;
+    const agent = this.agent();
+    const repo = this.workspace.folder();
+    const current = this.run();
+    // An open session takes the message, and a later task reuses its folder and session.
+    if (!agent || !repo || (current?.task && current.perm !== 'read')) return null;
+    return JSON.stringify([agent, repo, current ? current.scope : this.threads.draftScope()]);
+  });
+  private readonly warmUp = effect(() => {
+    const target = this.warmTarget();
+    if (!target) return;
+    const [agent, repo, scope] = JSON.parse(target) as [AgentId, string, string | null];
+    untracked(() => this.runs.warm(agent, repo, scope ?? null));
+  });
   protected readonly error = signal<string | null>(null);
   protected readonly picks = signal<AgentId[] | null>(null);
   /** Every installed agent takes every permission; questions to agents without a read-only
