@@ -1,9 +1,9 @@
 name: Download site
 
 # Builds the Windows and macOS (universal) installers, assembles the download page and
-# publishes it to the site-dist branch. Cloudflare Pages, connected to this repository in
-# its dashboard, deploys that branch (docs/07-release.md §8). Only the built page,
-# screenshots and installers are on site-dist; the source stays on main.
+# publishes it to the site-dist branch. Cloudflare (a Worker or a Pages project connected
+# to this repository in its dashboard) deploys that branch (docs/07-release.md §8). Only
+# the built page, screenshots, installers and wrangler.jsonc are on site-dist.
 on:
   workflow_dispatch:
   push:
@@ -79,6 +79,8 @@ jobs:
           name: macos-installer
           path: dl-mac
       - name: Assemble the site
+        env:
+          CF_WORKER_NAME: ${{ vars.CF_WORKER_NAME }}
         run: |
           set -euo pipefail
           version="$(node -p "require('./package.json').version")"
@@ -89,22 +91,29 @@ jobs:
           # Shipped as a zip, like the builds shared by hand: browsers and mail filters
           # treat a bare unsigned .exe as suspicious.
           name="TG-Studio-${version}-windows-x64-setup.zip"
-          cp "$exe" "dl/TG Studio ${version} Setup.exe"
-          (cd dl && zip -q -9 "../site/downloads/$name" "TG Studio ${version} Setup.exe")
+          mkdir -p pack
+          cp "$exe" "pack/TG Studio ${version} Setup.exe"
+          (cd pack && zip -q -9 "../site/downloads/$name" "TG Studio ${version} Setup.exe")
           cp "site/downloads/$name" site/downloads/TG-Studio-latest-windows-x64-setup.zip
           bytes="$(stat -c%s "site/downloads/$name")"
           mac=""
           if ls dl-mac/*.dmg >/dev/null 2>&1; then
             dmg="$(ls dl-mac/*.dmg | head -n 1)"
             mname="TG-Studio-${version}-macos-universal.zip"
-            cp "$dmg" "dl-mac/TG Studio ${version}.dmg"
-            (cd dl-mac && zip -q -9 "../site/downloads/$mname" "TG Studio ${version}.dmg")
+            cp "$dmg" "pack/TG Studio ${version}.dmg"
+            (cd pack && zip -q -9 "../site/downloads/$mname" "TG Studio ${version}.dmg")
             cp "site/downloads/$mname" site/downloads/TG-Studio-latest-macos-universal.zip
             mac="$(printf ',"macos":{"file":"downloads/%s","bytes":%s}' "$mname" "$(stat -c%s "site/downloads/$mname")")"
           fi
           printf '{"version":"%s","date":"%s","commit":"%s","windows":{"file":"downloads/%s","bytes":%s}%s}\n' \
             "$version" "$(date -u +%F)" "${GITHUB_SHA::7}" "$name" "$bytes" "$mac" > site/version.json
-          ls -la site site/downloads
+          # site-dist holds site/ plus a wrangler.jsonc, so Cloudflare can deploy it either as
+          # Pages (output directory "site") or as a Worker serving only site/ as static assets.
+          mkdir publish
+          mv site publish/site
+          printf '{\n  "name": "%s",\n  "compatibility_date": "2025-01-01",\n  "assets": { "directory": "./site" }\n}\n' \
+            "${CF_WORKER_NAME:-tg-studio}" > publish/wrangler.jsonc
+          ls -la publish publish/site/downloads
       # Cloudflare Pages is connected to this repository in its dashboard and deploys the
       # site-dist branch. The branch holds only the built site, under site/, and is
       # replaced on every run so installers never pile up in its history.
@@ -113,7 +122,6 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: site-dist
-          publish_dir: ./site
-          destination_dir: site
+          publish_dir: ./publish
           force_orphan: true
           commit_message: "chore(site): publish ${{ github.sha }}"
