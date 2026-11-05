@@ -9,6 +9,9 @@ import { SourceViewer } from './source-viewer';
 import { Terminal } from './terminal';
 
 /** Center of the IDE: tabs for files and reviews, with the agents' logs underneath. */
+/** While an agent edits, file and diff reloads wait this long to batch several edits. */
+const REFRESH_BATCH_MS = 1500;
+
 @Component({
   selector: 'tg-workbench',
   imports: [CodeEditor, Compare, DiffViewer, SourceViewer, Terminal],
@@ -83,14 +86,23 @@ export class Workbench {
   constructor() {
     // Keep the selected task's files and diffs fresh: on selection, on status change,
     // and whenever one of its tool calls finishes writing.
+    // A question changes nothing, so it has nothing to load. While the agent edits, reloads are
+    // batched (git on a large repository is not free); a finished turn reloads at once.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     effect(() => {
       const r = this.selectedTask();
-      if (!r) return;
-      r.status;
+      if (!r || r.perm === 'read') return;
+      const running = r.status === 'running';
       r.task;
       const a = this.runs.activity()[r.id];
       if (a && !(a.editing && a.done)) return;
-      untracked(() => void this.workspace.refresh(r.id));
+      untracked(() => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          void this.workspace.refresh(r.id);
+        }, running ? REFRESH_BATCH_MS : 0);
+      });
     });
     // Follow the agent: open the file it touches, if the user has not opted out.
     effect(() => {
