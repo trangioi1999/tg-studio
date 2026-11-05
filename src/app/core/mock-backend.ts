@@ -248,6 +248,9 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
+  /** The mock starts instantly: nothing to open ahead of time. */
+  async warmTask(_agent: AgentId, _repo: string, _scope: string | null): Promise<void> {}
+
   async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null, singleTurn = false, _recap: string | null = null, _thread: string | null = null, _scope: string | null = null, _prefs: unknown = null, _place: string | null = null, _base: string | null = null, approval: string | null = null): Promise<string> {
     const previous = reuse ? this.task(reuse) : null;
     if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
