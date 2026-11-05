@@ -3,3 +3,5 @@
   Cache-Control: public, max-age=300
 /version.json
   Cache-Control: no-store
+/media/*
+  Cache-Control: public, max-age=3600
