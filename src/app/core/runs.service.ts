@@ -1,5 +1,6 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
+import { AgentsService } from './agents.service';
 import { ConsoleLine, describeLine } from './describe-line';
 import { estimateCost } from './pricing';
 import { AGENT_IDS, AGENT_META, AccountLimits, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
@@ -38,6 +39,8 @@ export interface Run {
   plan: PlanEntry[];
   /** Latest tg-bridge `report_progress`. Live runs only. */
   progress: { step: string; pct: number | null; note: string | null; at: number } | null;
+  /** Model picked when it started, if not the agent's default. Live runs only. */
+  model?: string | null;
 }
 
 /** A tg-bridge `handoff_to` proposal waiting for the user. */
@@ -91,6 +94,7 @@ const MAX_LINES = 2000;
 @Injectable({ providedIn: 'root' })
 export class RunsService {
   private readonly backend = inject(AgentBackend);
+  private readonly agents = inject(AgentsService);
   private stopping = new Set<string>();
 
   readonly runs = signal<Run[]>([]);
@@ -194,8 +198,9 @@ export class RunsService {
   }
 
   async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null): Promise<void> {
-    const id = await this.backend.start(agent, prompt, cwd, thread, resumeFrom, scope);
-    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd, scope }));
+    const id = await this.backend.start(agent, prompt, cwd, thread, resumeFrom, scope, this.agents.prefsFor(agent));
+    const model = this.agents.modelLabel(agent);
+    this.upsert(id, agent, (r) => ({ ...r, prompt, cwd, thread, project: cwd, scope, model }));
     this.selectedId.set(id);
   }
 
@@ -205,8 +210,9 @@ export class RunsService {
    */
   async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null } = {}): Promise<string> {
     const thread = opts.thread ?? crypto.randomUUID();
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null);
-    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null }));
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent));
+    const model = this.agents.modelLabel(agent);
+    this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null, model }));
     this.selectedId.set(id);
     return id;
   }
@@ -227,12 +233,12 @@ export class RunsService {
    */
   async startParallel(agents: AgentId[], prompt: string, repo: string, scope: string | null = null): Promise<string[]> {
     const group = crypto.randomUUID();
-    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group, scope)));
+    const results = await Promise.allSettled(agents.map((a) => this.backend.startTask(a, prompt, repo, group, null, false, null, group, scope, this.agents.prefsFor(a))));
     const errors: string[] = [];
     let first: string | null = null;
     results.forEach((result, i) => {
       if (result.status === 'fulfilled') {
-        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo, scope }));
+        this.upsert(result.value, agents[i], (r) => ({ ...r, prompt, cwd: repo, task: true, group, thread: group, project: repo, scope, model: this.agents.modelLabel(agents[i]) }));
         first ??= result.value;
       } else {
         errors.push(`${AGENT_META[agents[i]].name}: ${errorText(result.reason)}`);

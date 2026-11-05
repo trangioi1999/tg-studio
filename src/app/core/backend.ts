@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -21,12 +21,16 @@ export abstract class AgentBackend {
   abstract gitPlan(root: string): Promise<GitPlan>;
   /** Makes the folder a repository with a first commit, never including secrets. */
   abstract gitPrepare(root: string, name: string | null, email: string | null): Promise<Project>;
-  abstract start(agent: AgentId, prompt: string, cwd: string, thread?: string | null, resumeFrom?: string | null, scope?: string | null): Promise<string>;
+  abstract start(agent: AgentId, prompt: string, cwd: string, thread?: string | null, resumeFrom?: string | null, scope?: string | null, prefs?: SessionPrefs | null): Promise<string>;
+  /** Opens a session without prompting to read the agent's model and effort choices. */
+  abstract agentOptions(agent: AgentId, cwd: string | null): Promise<AgentOptions>;
+  /** Window buttons of the app's own title bar. */
+  abstract windowAction(action: 'minimize' | 'maximize' | 'close'): Promise<void>;
   /**
    * `reuse`: continue in the worktree of this finished run. `singleTurn`: close the session
    * after one turn (a pipeline step). `recap`: sent first unless the session can be reopened.
    */
-  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null): Promise<string>;
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null, prefs?: SessionPrefs | null): Promise<string>;
   /** Continues the run's open session; no new agent process starts. */
   abstract sendMessage(runId: string, prompt: string): Promise<void>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
@@ -110,11 +114,21 @@ export class TauriBackend extends AgentBackend {
   gitPrepare(root: string, name: string | null, email: string | null) {
     return invoke<Project>('git_prepare', { root, name, email });
   }
-  start(agent: AgentId, prompt: string, cwd: string, thread: string | null = null, resumeFrom: string | null = null, scope: string | null = null) {
-    return invoke<string>('start_agent', { agent, prompt, cwd, thread, resumeFrom, scope });
+  start(agent: AgentId, prompt: string, cwd: string, thread: string | null = null, resumeFrom: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null) {
+    return invoke<string>('start_agent', { agent, prompt, cwd, thread, resumeFrom, scope, prefs });
   }
-  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null) {
-    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope });
+  agentOptions(agent: AgentId, cwd: string | null) {
+    return invoke<AgentOptions>('agent_options', { agent, cwd });
+  }
+  async windowAction(action: 'minimize' | 'maximize' | 'close') {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const w = getCurrentWindow();
+    if (action === 'minimize') await w.minimize();
+    else if (action === 'maximize') await w.toggleMaximize();
+    else await w.close();
+  }
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null) {
+    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs });
   }
   sendMessage(runId: string, prompt: string) {
     return invoke<void>('send_message', { runId, prompt });

@@ -4,6 +4,15 @@
 
 ## [Chưa phát hành]
 
+### Giao diện mới
+- Làm lại giao diện theo hướng T3 Code: thanh tiêu đề riêng (Windows/Linux có nút cửa sổ của app), màn chào và màn Trò chuyện mới với ô chat lớn ở giữa, phím `Ctrl+N`.
+- Logo thật của Claude Code, Codex, Gemini CLI và Kiro thay cho chữ viết tắt. Cột trái hiện logo agent và nhãn trạng thái có màu: Đang làm, Chờ duyệt, Xong, Lỗi.
+- Chat không còn hiện log thô (`hook_progress`, `init`, đường dẫn CLI, `✓ success`). Các bước của agent gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown.
+- Ô chat có hai nút: chọn agent + model + mức suy nghĩ, và chọn quyền (Chỉ hỏi / Sửa code) có chú thích. Giao cho nhiều agent và Theo các bước nằm trong menu agent.
+
+### Chọn model
+- Đọc danh sách model và mức suy nghĩ từ chính agent (`configOptions` của ACP), không tốn token. Sửa code áp dụng qua `session/set_config_option`; Chỉ hỏi truyền `--model`/`--effort` (Claude) hoặc `-m`/`model_reasoning_effort` (Codex).
+
 ### Cuộc trò chuyện
 - Chia theo thư mục con: dấu + trên thư mục trong cây tệp mở cuộc trò chuyện làm việc từ thư mục đó, và cột trái nhóm theo thư mục.
 - Hiện cả cuộc trò chuyện khi có nhiều agent nối tiếp. Chỉ hỏi cũng hỏi tiếp được, nối đúng phiên của CLI.

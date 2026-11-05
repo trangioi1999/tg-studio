@@ -39,12 +39,19 @@ Gõ yêu cầu rồi Enter; Shift+Enter để xuống dòng. **Gõ tiếp là ch
 
 Gõ `@codex ...` hoặc đổi agent để giao tiếp: agent mới làm trên cùng bản nháp và nhận tóm tắt.
 
-| Chế độ | Khi nào dùng |
+Dưới ô chat có hai nút:
+
+- **Chip agent** (logo + tên, `Ctrl+Shift+M`): bên trái chọn agent, bên phải chọn **model** và **mức suy nghĩ**. Danh sách model đọc từ chính CLI nên luôn đúng với tài khoản của bạn; app nhớ lựa chọn cho từng agent. Cuối menu có **Giao cho nhiều agent…** và **Theo các bước…**.
+- **Chip quyền**: agent được làm gì với code.
+
+| Lựa chọn | Khi nào dùng |
 |---|---|
-| **Sửa code** | Agent làm trong một bản nháp riêng. Code thật chỉ đổi khi bạn Nhận |
-| **Chỉ hỏi** | Hỏi đáp, giải thích code. Agent không ghi được tệp nào |
-| **Thử với nhiều agent** | Cùng một yêu cầu cho nhiều agent, mỗi agent một bản nháp, rồi so sánh |
+| **Sửa code** (quyền) | Agent làm trong một bản nháp riêng. Code thật chỉ đổi khi bạn Nhận |
+| **Chỉ hỏi** (quyền) | Hỏi đáp, giải thích code. Agent không ghi được tệp nào |
+| **Giao cho nhiều agent** | Cùng một yêu cầu cho nhiều agent, mỗi agent một bản nháp, rồi so sánh |
 | **Theo các bước** | Các bước nối tiếp trong cùng một bản nháp, mặc định Plan → Build → Review; chọn agent cho từng bước, sửa mẫu prompt bằng **Sửa mẫu** |
+
+Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) gom vào một dòng **Nhật ký làm việc**: mở ra khi agent đang làm, tự thu gọn khi xong. Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
 
 Sửa code cần thư mục là repo Git có ít nhất một commit; nếu chưa có, app có nút **Khởi tạo Git** hoặc **Tạo commit đầu tiên**, xem trước rồi mới làm. Tệp chưa commit không có trong bản nháp, app sẽ cảnh báo trước.
 

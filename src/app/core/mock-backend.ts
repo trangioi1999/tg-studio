@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan } from './protocol';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -186,6 +186,30 @@ export class MockBackend extends AgentBackend {
     return `// ${path}\n// Nội dung mẫu của mock mode.\n`;
   }
 
+  async agentOptions(agent: AgentId): Promise<AgentOptions> {
+    await new Promise((r) => setTimeout(r, 300));
+    const effort = { id: 'effort', current: 'default', options: ['default', 'low', 'medium', 'high'].map((v) => ({ value: v, name: v === 'default' ? 'Default' : v[0].toUpperCase() + v.slice(1), description: null })) };
+    if (agent === 'claude') return {
+      model: { id: 'model', current: 'default', options: [
+        { value: 'default', name: 'Default (recommended)', description: 'Sonnet 4.6 · cân bằng' },
+        { value: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Mạnh nhất cho việc phức tạp' },
+        { value: 'claude-sonnet-4-6', name: 'Sonnet 4.6', description: 'Hiệu quả cho việc thường ngày' },
+        { value: 'claude-haiku-4-5', name: 'Haiku 4.5', description: 'Nhanh nhất' },
+      ] },
+      effort,
+    };
+    if (agent === 'codex') return {
+      model: { id: 'model', current: 'gpt-5-codex', options: [
+        { value: 'gpt-5-codex', name: 'gpt-5-codex', description: 'Tối ưu cho code' },
+        { value: 'gpt-5', name: 'gpt-5', description: 'Đa năng' },
+      ] },
+      effort,
+    };
+    return { model: null, effort: null };
+  }
+
+  async windowAction(): Promise<void> {}
+
   async start(agent: AgentId, prompt: string, _cwd?: string, _thread: string | null = null, _resumeFrom: string | null = null, _scope: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
@@ -207,7 +231,7 @@ export class MockBackend extends AgentBackend {
     emit({ kind: 'started', line: `mock ${agent} · ${prompt.slice(0, 40)}` }, 50);
     emit({ line: '› đọc cấu trúc thư mục' }, 400);
     emit({ line: '› read src/app/app.ts' }, 900);
-    emit({ line: 'Đây là phản hồi giả lập để dựng giao diện khi chạy trong trình duyệt.' }, 1500);
+    emit({ line: 'Dự án dùng **Angular 21** (đọc từ `package.json`). Phản hồi giả lập của mock mode:\n\n- Signal forms chính thức\n- Build nhanh hơn với esbuild\n- Không có breaking change đáng kể' }, 1500);
     emit({ kind: 'usage', usage }, 1900);
     if (agent === 'claude') emit({ kind: 'limits', data: mockLimits() as unknown as AgentEvent['data'] }, 1950);
     emit({ kind: 'exit', code: 0 }, 2100);
@@ -269,7 +293,7 @@ export class MockBackend extends AgentBackend {
     if (run.agent === 'claude') {
       send({ kind: 'bridge', line: '◆ tg-bridge · đề xuất chuyển cho codex: Viết test cho tiêu đề mới', data: { tool: 'handoff_to', id: `handoff-${runId}`, agent: 'codex', task: 'Viết test cho tiêu đề mới', files: ['src/app/app.spec.ts'] } }, 470);
     }
-    send({ kind: 'message', data: { text: 'fix: sửa lỗi theo yêu cầu' } }, 500);
+    send({ kind: 'message', data: { text: 'fix: sửa lỗi theo yêu cầu\n\nĐã sửa tiêu đề trong `src/app/app.ts` và chạy lại **toàn bộ test**:\n\n- Đổi chuỗi tiêu đề\n- Cập nhật test liên quan' } }, 500);
     send({ kind: 'plan', data: { entries: [
       { content: 'Chạy test hiện tại', status: allowed ? 'completed' : 'pending' },
       { content: 'Sửa theo yêu cầu', status: 'completed' },

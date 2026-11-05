@@ -42,19 +42,24 @@ pub fn spawn(steps: Vec<Step>) -> (Reader, Writer, Log) {
 
 /// An agent that reports it can reopen earlier sessions.
 pub fn spawn_loadable(steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(1, json!({ "loadSession": true }), Value::Null, steps)
+    spawn_with(1, json!({ "loadSession": true }), Value::Null, Value::Null, steps)
 }
 
 /// An agent whose new sessions report these permission modes.
 pub fn spawn_with_modes(modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(1, json!({}), modes, steps)
+    spawn_with(1, json!({}), modes, Value::Null, steps)
+}
+
+/// An agent whose sessions offer these `configOptions`; `session/set_config_option` updates them.
+pub fn spawn_with_config(config: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
+    spawn_with(1, json!({}), Value::Null, config, steps)
 }
 
 pub fn spawn_with_version(version: u64, steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(version, json!({}), Value::Null, steps)
+    spawn_with(version, json!({}), Value::Null, Value::Null, steps)
 }
 
-fn spawn_with(version: u64, capabilities: Value, modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
+fn spawn_with(version: u64, capabilities: Value, modes: Value, mut config: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
     let (client_side, agent_side) = tokio::io::duplex(1 << 16);
     let (client_reader, client_writer) = tokio::io::split(client_side);
     let (agent_reader, mut agent_writer) = tokio::io::split(agent_side);
@@ -87,8 +92,15 @@ fn spawn_with(version: u64, capabilities: Value, modes: Value, steps: Vec<Step>)
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
                 }
                 Some("session/new") => {
-                    let result = json!({ "sessionId": SESSION_ID, "modes": modes });
+                    let result = json!({ "sessionId": SESSION_ID, "modes": modes, "configOptions": config });
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await;
+                }
+                Some("session/set_config_option") => {
+                    let (key, value) = (message["params"]["configId"].clone(), message["params"]["value"].clone());
+                    if let Some(all) = config.as_array_mut() {
+                        for option in all.iter_mut().filter(|o| o["id"] == key) { option["currentValue"] = value.clone(); }
+                    }
+                    send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": { "configOptions": config } })).await;
                 }
                 Some("session/set_mode") => {
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
