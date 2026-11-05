@@ -42,14 +42,20 @@ Gõ `@codex ...` hoặc đổi agent để giao tiếp: agent mới làm trên c
 Dưới ô chat có hai nút:
 
 - **Chip agent** (logo + tên, `Ctrl+Shift+M`): bên trái chọn agent, bên phải chọn **model** và **mức suy nghĩ**. Danh sách model đọc từ chính CLI nên luôn đúng với tài khoản của bạn; app nhớ lựa chọn cho từng agent. Cuối menu có **Giao cho nhiều agent…** và **Theo các bước…**.
-- **Chip quyền**: agent được làm gì với code.
+- **Chip quyền** (mọi agent đều có đủ 3 mức):
+  - **Chỉ hỏi**: agent đọc code rồi trả lời, không sửa tệp nào.
+  - **Sửa code · hỏi trước**: lệnh nhạy cảm hiện thẻ duyệt.
+  - **Tự động**: agent tự sửa và chạy lệnh, không xin phép (`git push`, `merge` vẫn bị chặn).
+- **Chip nơi làm việc** (khi sửa code):
+  - **Thư mục hiện tại** (mặc định): agent sửa thẳng code của bạn. Panel Thay đổi chỉ hiện phần agent sửa; **Giữ** đưa đoạn đó vào commit, **Hoàn tác** trả về như cũ.
+  - **Bản nháp từ nhánh…**: agent làm trong bản sao riêng tạo từ nhánh bạn chọn; code thật chỉ đổi khi bạn **Nhận**.
 
 | Lựa chọn | Khi nào dùng |
 |---|---|
-| **Sửa code** (quyền) | Agent làm trong một bản nháp riêng. Code thật chỉ đổi khi bạn Nhận |
-| **Chỉ hỏi** (quyền) | Hỏi đáp, giải thích code. Agent không ghi được tệp nào |
 | **Giao cho nhiều agent** | Cùng một yêu cầu cho nhiều agent, mỗi agent một bản nháp, rồi so sánh |
-| **Theo các bước** | Các bước nối tiếp trong cùng một bản nháp, mặc định Plan → Build → Review; chọn agent cho từng bước, sửa mẫu prompt bằng **Sửa mẫu** |
+| **Theo các bước** | Các bước nối tiếp, mặc định Plan → Build → Review; chọn agent cho từng bước, sửa mẫu prompt bằng **Sửa mẫu** |
+
+Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện; agent mới nhận tóm tắt những gì đã nói.
 
 Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) gom vào một dòng **Nhật ký làm việc**: mở ra khi agent đang làm, tự thu gọn khi xong. Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
 

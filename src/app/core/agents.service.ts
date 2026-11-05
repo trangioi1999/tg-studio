@@ -41,6 +41,8 @@ export class AgentsService {
   readonly options = signal<Partial<Record<AgentId, AgentOptions | 'loading' | 'error'>>>({});
   /** What the user picked per agent, remembered across sessions. */
   readonly prefs = signal<Partial<Record<AgentId, SessionPrefs>>>(loadPrefs());
+  /** Why reading an agent's choices failed, word for word, so the user can report it. */
+  readonly optionsError = signal<Partial<Record<AgentId, string>>>({});
 
   prefsFor(agent: AgentId): SessionPrefs | null {
     const p = this.prefs()[agent];
@@ -66,6 +68,7 @@ export class AgentsService {
       this.options.update((o) => ({ ...o, [agent]: found }));
     } catch (e) {
       console.warn('Không đọc được model của agent', e);
+      this.optionsError.update((m) => ({ ...m, [agent]: e instanceof Error ? e.message : String(e) }));
       this.options.update((o) => ({ ...o, [agent]: 'error' }));
     }
   }

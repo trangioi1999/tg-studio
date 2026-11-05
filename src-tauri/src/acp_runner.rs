@@ -34,15 +34,25 @@ pub struct TaskSession {
     /// While a reopened session replays itself, nothing of it belongs to this run.
     muted: AtomicBool,
     busy: AtomicBool,
+    approval: Mutex<Approval>,
 }
+
+/// How permission requests are answered. `Ask` shows a card; `Auto` allows without asking
+/// (forbidden commands stay forbidden); `Deny` refuses everything and every file write,
+/// for questions asked of agents without a read-only CLI flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Approval { #[default] Ask, Auto, Deny }
 fn cancelled() -> Value { json!({"outcome":{"outcome":"cancelled"}}) }
 fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","optionId":option}}) }
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false)})
+        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
+    pub fn set_approval(&self, approval:Approval) { *self.approval.lock().unwrap() = approval; }
+    fn approval(&self) -> Approval { *self.approval.lock().unwrap() }
     pub fn agent(&self) -> AgentKind { self.agent }
     /// An approval card for something an agent asked through tg-bridge. True only if allowed.
     pub fn ask(&self, action:String, reason:String) -> crate::bridge::BoxFuture<bool> {
@@ -144,10 +154,20 @@ impl TaskSession {
         let tool = params["toolCall"].clone();
         let options = params["options"].as_array().cloned().unwrap_or_default();
         let verdict = policy::evaluate(&policy::tool_info(&tool), &self.rules.rules().unwrap_or_default());
+        let verdict = match (verdict, self.approval()) {
+            (Verdict::Ask, Approval::Auto) => Verdict::Allow,
+            (_, Approval::Deny) => Verdict::Deny,
+            (v, _) => v,
+        };
         let automatic = match verdict { Verdict::Allow => Some("allow_once"), Verdict::Deny => Some("reject_once"), Verdict::Ask => None };
         if verdict == Verdict::Deny {
             let mut note = AgentEvent::new(&self.run_id,self.agent,"stderr");
-            note.line = Some(format!("Đã tự động từ chối lệnh bị cấm: {}", policy::tool_info(&tool).command.unwrap_or_default()));
+            let what = policy::tool_info(&tool);
+            note.line = Some(if self.approval() == Approval::Deny {
+                format!("Chỉ hỏi: đã từ chối {}", what.command.unwrap_or_else(|| tool["title"].as_str().unwrap_or("thao tác").to_string()))
+            } else {
+                format!("Đã tự động từ chối lệnh bị cấm: {}", what.command.unwrap_or_default())
+            });
             self.queue(note);
         }
         if let Some(kind) = automatic {
@@ -213,6 +233,9 @@ impl ClientHandler for TaskSession {
         if method == "session/request_permission" {return self.permission(params);}
         let sandbox = self.sandbox.clone(); let terminals = self.terminals.clone();
         let operation_gate = self.operation_gate.clone();
+        if self.approval() == Approval::Deny && method == "fs/write_text_file" {
+            return Box::pin(async {Err(crate::acp::transport::RpcError {code:-32000,message:"Chế độ Chỉ hỏi: không được ghi tệp.".into(),data:None})});
+        }
         Box::pin(async move {
             match method.as_str() {
                 "fs/read_text_file" | "fs/write_text_file" | "terminal/create" => {
@@ -290,6 +313,25 @@ mod tests {
         fn rules(&self)->Result<Vec<String>,String> {Ok(self.0.lock().unwrap().clone())}
         fn add(&self, rule:&str)->Result<(),String> {self.0.lock().unwrap().push(rule.into());Ok(())}
     }
+    #[tokio::test]
+    async fn auto_allows_without_a_card_and_deny_refuses_writes() {
+        let root = std::env::temp_dir().join(format!("tg-approval-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Kiro, &root, sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.set_approval(Approval::Auto);
+        assert_eq!(session.on_request("session/request_permission".into(), permission("npm test")).await.unwrap(), selected("yes"));
+        assert!(!sink.0.lock().unwrap().iter().any(|e| e.kind == "permission"), "Tự động không hiện thẻ duyệt");
+        // Forbidden commands stay forbidden even in Tự động.
+        assert_ne!(session.on_request("session/request_permission".into(), permission("git push origin main")).await.unwrap(), selected("yes"));
+        session.set_approval(Approval::Deny);
+        assert_eq!(session.on_request("session/request_permission".into(), permission("npm test")).await.unwrap(), selected("no"));
+        let path = root.join("a.txt");
+        assert!(session.on_request("fs/write_text_file".into(), json!({"path": path, "content": "x"})).await.is_err());
+        assert!(!path.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn permission(command:&str)->Value {
         json!({"toolCall":{"kind":"execute","rawInput":{"command":command}},"options":[
             {"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]})

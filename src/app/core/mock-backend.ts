@@ -210,6 +210,15 @@ export class MockBackend extends AgentBackend {
 
   async windowAction(): Promise<void> {}
 
+  readonly approvals = new Map<string, string>();
+  async setApproval(runId: string, approval: string): Promise<void> {
+    this.approvals.set(runId, approval);
+  }
+
+  async listBranches(): Promise<string[]> {
+    return ['main', 'develop', 'release/v0.0.5'];
+  }
+
   async start(agent: AgentId, prompt: string, _cwd?: string, _thread: string | null = null, _resumeFrom: string | null = null, _scope: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
@@ -239,7 +248,7 @@ export class MockBackend extends AgentBackend {
   }
 
   /** A scripted code task: approval card, then two changed files to review. */
-  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null, singleTurn = false): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, _group: string | null = null, reuse: string | null = null, singleTurn = false, _recap: string | null = null, _thread: string | null = null, _scope: string | null = null, _prefs: unknown = null, _place: string | null = null, _base: string | null = null, approval: string | null = null): Promise<string> {
     const previous = reuse ? this.task(reuse) : null;
     if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
     const runId = crypto.randomUUID();
@@ -250,6 +259,14 @@ export class MockBackend extends AgentBackend {
       : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, staged: new Set<string>(), pending: true });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
+    if (approval === 'deny') {
+      // Chỉ hỏi through ACP: reads, answers, changes nothing.
+      send({ kind: 'tool', data: { toolCallId: 'r1', title: 'Đọc package.json', kind: 'read', status: 'completed' } }, 60);
+      send({ kind: 'message', data: { text: 'Dự án dùng **Angular 22** (mock). Mình chỉ đọc, không sửa tệp nào.' } }, 120);
+      this.tasks.get(runId)!.pending = false;
+      this.endTurn(runId, run, 200);
+      return runId;
+    }
     send({ kind: 'message', data: { text: 'Mình sẽ chạy test ' } }, 60);
     send({ kind: 'message', data: { text: 'trước khi sửa.' } }, 100);
     send({ kind: 'plan', data: { entries: [
@@ -257,6 +274,11 @@ export class MockBackend extends AgentBackend {
       { content: `Sửa theo yêu cầu: ${prompt.slice(0, 40)}`, status: 'pending' },
     ] } }, 140);
     send({ kind: 'tool', data: { toolCallId: 't1', title: 'npm test', kind: 'execute', status: 'pending' } }, 180);
+    if (approval === 'auto') {
+      // Tự động: no card; the run goes on as if allowed.
+      setTimeout(() => void this.respondPermission(runId, `perm-${runId}`, 'allow', false).catch(() => {}), 220);
+      return runId;
+    }
     send({
       kind: 'permission',
       data: {

@@ -4,6 +4,12 @@
 
 ## [Chưa phát hành]
 
+### Quyền và nơi làm việc
+- Mọi agent có đủ 3 quyền: **Chỉ hỏi**, **Sửa code · hỏi trước**, **Tự động** (agent tự chạy, không hiện thẻ duyệt; `git push`/`merge` vẫn bị chặn). Kiro và Gemini trả lời câu hỏi trong một bản nháp tạm và bị từ chối mọi thao tác ghi.
+- Sửa code mặc định làm thẳng trong **thư mục hiện tại**: panel Thay đổi chỉ hiện phần agent sửa (không lẫn phần bạn đang sửa dở), **Giữ** đưa vào commit, **Hoàn tác** trả từng đoạn về như cũ. Chọn **Bản nháp** để agent làm trong bản sao riêng, tạo từ nhánh bạn chọn.
+- Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện.
+- Menu model hiện nguyên văn lỗi khi không đọc được danh sách model; thêm `scripts/probe-acp.mjs` để thử bằng tay.
+
 ### Giao diện mới
 - Làm lại giao diện theo hướng T3 Code: thanh tiêu đề riêng (Windows/Linux có nút cửa sổ của app), màn chào và màn Trò chuyện mới với ô chat lớn ở giữa, phím `Ctrl+N`.
 - Logo thật của Claude Code, Codex, Gemini CLI và Kiro thay cho chữ viết tắt. Cột trái hiện logo agent và nhãn trạng thái có màu: Đang làm, Chờ duyệt, Xong, Lỗi.
