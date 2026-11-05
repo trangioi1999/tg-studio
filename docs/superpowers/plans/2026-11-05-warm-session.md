@@ -17,6 +17,8 @@
 | Tổng tới khi xong | ~8,0 s |
 | `claude -p hello` (một lần, cold) | ~10 s |
 
+Đo lại sau khi cài (cùng ngày, `scratchpad` probe + `live_claude_warm_session_answers_after_attach`): adapter trả `session/new` sau ~1 s và khởi động agent ngầm, nên phần chờ dồn vào prompt đầu. Gửi ngay sau khi mở: token đầu 6,4 s. Gửi sau 8 s (người dùng đang gõ): token đầu **2,9 s**, xong 4,9 s. Warm có lợi khi người dùng gõ ≥ 5 s, tức là bắt đầu warm từ phím đầu tiên là đúng.
+
 CLI tương tác chỉ thấy 2 s vì nó khởi động trước khi người dùng gõ. Phần trả lời của hai bên như nhau; chênh lệch nằm hoàn toàn ở khởi động. Trước đó adapter chạy qua `npx -y` mỗi lần, cài global đã bỏ được phần đó.
 
 ## Phạm vi

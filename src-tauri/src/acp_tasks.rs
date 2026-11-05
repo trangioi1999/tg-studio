@@ -109,29 +109,48 @@ pub(crate) fn bridge_server(agent: AgentKind, exe: String, addr: String, token: 
 }
 
 /// How a task gets its adapter: start one, or take a session opened ahead of time.
-enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::warm::Warm>) }
+/// `Warm` keeps the command: an adapter that died while waiting is replaced by a fresh one.
+enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::warm::Warm>, (PathBuf, Vec<String>)) }
 
 async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::warm::Claimed>), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let agent_name = serde_json::to_value(agent).unwrap();
     let shared = reuse.is_some();
-    let wt = match (reuse, place) {
-        (Some(wt), _) => wt,
-        (None, Place::Direct) => worktree::direct(repo, &id)?,
+    let made = (|| match (reuse, place) {
+        (Some(wt), _) => Ok(wt),
+        (None, Place::Direct) => worktree::direct(repo, &id),
         (None, Place::Draft(base)) => {
             if let Some(b) = &base {
                 if !worktree::branches(repo)?.iter().any(|x| x == b) { return Err(format!("Không tìm thấy nhánh {b}.")); }
             }
-            worktree::create_at(repo, agent_name.as_str().unwrap(), prompt, &id, base.as_deref())?
+            worktree::create_at(repo, agent_name.as_str().unwrap(), prompt, &id, base.as_deref())
+        }
+    })();
+    let wt = match made {
+        Ok(wt) => wt,
+        Err(e) => {
+            if let Adapter::Warm(warm, _) = adapter { warm.close_later(); }
+            return Err(e);
         }
     };
     let cleanup = |wt: &Worktree| if shared { Ok(()) } else { worktree::remove(repo, wt, true) };
-    let (mut child, warm) = match adapter {
-        Adapter::Warm(warm) => {
-            let (child, claimed) = warm.into_parts();
-            (child, Some(claimed))
+    let adapter = match adapter {
+        Adapter::Warm(warm, command) => {
+            let (mut child, claimed) = warm.into_parts();
+            if !claimed.late.is_closed() && matches!(child.try_wait(), Ok(None)) {
+                Ok((child, claimed))
+            } else {
+                // It died while the run was being prepared: this run opens its own.
+                terminate_adapter(&mut child, claimed.pid).await;
+                claimed.release();
+                Err(command)
+            }
         }
-        Adapter::Spawn(command) => match spawn_adapter(&command, &wt.path) {
+        Adapter::Spawn(command) => Err(command),
+    };
+    let (mut child, warm) = match adapter {
+        Ok((child, claimed)) => (child, Some(claimed)),
+        Err(command) => match spawn_adapter(&command, &wt.path) {
             Ok(child) => (child, None),
             Err(e) => {
                 let cleanup = cleanup(&wt);
@@ -141,8 +160,9 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
     };
     let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: runner::now_ms() }, &repo.to_string_lossy(), &wt, group);
     if let Err(e) = saved {
-        let pid = child.id();
+        let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
         terminate_adapter(&mut child, pid).await;
+        if let Some(warm) = warm { warm.release(); }
         let cleanup = cleanup(&wt);
         return Err(format!("Không lưu được lượt chạy: {e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
     }
@@ -338,16 +358,15 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
         (Place::Direct, None, None, Ok(cwd)) => {
             let key = crate::warm::key_for(&app.state::<Store>(), agent, &cwd);
-            let hub = app.state::<Arc<BridgeHub>>().inner().clone();
-            match app.state::<crate::warm::WarmPool>().take(&key, &hub).await {
-                Some(warm) => Adapter::Warm(Box::new(warm)),
+            match app.state::<crate::warm::WarmPool>().take(&key).await {
+                Some(warm) => Adapter::Warm(Box::new(warm), command),
                 None => Adapter::Spawn(command),
             }
         }
         _ => Adapter::Spawn(command),
     };
     let (id, wt, mut child, warm) = prepare(&app.state::<Store>(), agent, &prompt, &repo, adapter, group.as_deref(), reuse, place).await?;
-    let pid = child.id();
+    let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
     if let Some(thread) = &thread {
         if let Err(e) = app.state::<Store>().set_run_thread(&id, thread, scope.as_deref()) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
     }
@@ -355,6 +374,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         Ok(dir) => dir,
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
+            if let Some(warm) = warm { warm.release(); }
             let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
             return Err(e);
         }
@@ -365,6 +385,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         Ok(session) => { session.set_approval(approval); Arc::new(session) }
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
+            if let Some(warm) = warm { warm.release(); }
             let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
             return Err(e);
         }
@@ -412,7 +433,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     let scope = group.clone().unwrap_or_else(|| wt.run_id.clone());
     let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone() };
     tauri::async_runtime::spawn(async move {
-        let mut servers: Vec<McpServer> = crate::warm::user_servers(&app.state::<Store>(), agent);
+        let mut servers: Vec<McpServer> = crate::warm::user_servers(&app.state::<Store>());
         let hub = app.state::<Arc<BridgeHub>>().inner().clone();
         let mut token = None;
         let mut opened_id = None;
@@ -1019,6 +1040,53 @@ mod tests {
     }
 
     /// Phase 1 acceptance against the real Claude adapter (needs network and a logged-in `claude`):
+    /// A session opened before its run exists answers its first prompt as quickly as an open CLI.
+    /// `TG_LIVE_ACP=1 cargo test live_claude_warm -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_claude_warm_session_answers_after_attach() {
+        if std::env::var("TG_LIVE_ACP").is_err() { return; }
+        let command = AgentKind::Claude.acp_command(env::which).expect("adapter ACP hoặc npx");
+        let dir = std::env::temp_dir();
+        let started = std::time::Instant::now();
+        let mut child = spawn_adapter(&command, &dir).unwrap();
+        let stderr = child.stderr.take().unwrap();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(_)) = lines.next_line().await {}
+        });
+        let late = crate::acp::late::LateHandler::new();
+        let client = AcpClient::start_with_timeout(child.stdout.take().unwrap(), child.stdin.take().unwrap(), late.clone(), setup_timeout(&command.0));
+        client.initialize().await.unwrap();
+        let id = client.new_session(&dir, json!([])).await.unwrap();
+        eprintln!("mở phiên: {:?}", started.elapsed());
+        // The user is still typing. The adapter answers session/new at once and starts the
+        // agent in the background; its notifications arrive while nobody owns the session.
+        let typing = std::env::var("TG_WARM_WAIT_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(8000);
+        tokio::time::sleep(Duration::from_millis(typing)).await;
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new("warm", AgentKind::Claude, &dir, sink.clone(), Arc::new(Rules)).unwrap());
+        late.attach(session.clone()).unwrap();
+        let plan = SessionPlan { cwd: &dir, prompt: "Trả lời đúng một từ: xin chào".into(), recap: None, servers: &[], resume: None, opened: Some(id), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+        let (_keep, rx) = oneshot::channel();
+        let mut stop = Some(rx);
+        let asked = std::time::Instant::now();
+        let watcher = { let sink = sink.clone(); tokio::spawn(async move {
+            while !sink.0.lock().unwrap().iter().any(|e| e.kind == "message") { tokio::time::sleep(Duration::from_millis(20)).await; }
+            eprintln!("token đầu sau khi gửi: {:?}", asked.elapsed());
+        }) };
+        let (status, error) = drive_session(&client, &session, plan, || stop.take().unwrap(), |_| {}, |_| {}, std::future::pending()).await;
+        eprintln!("xong sau khi gửi: {:?}", asked.elapsed());
+        watcher.abort();
+        client.close();
+        let pid = child.id();
+        terminate_adapter(&mut child, pid).await;
+        assert_eq!(status, "done", "{error:?}");
+        let events = sink.0.lock().unwrap();
+        assert!(events.iter().any(|e| e.kind == "message"), "không có câu trả lời");
+        assert!(events.iter().any(|e| e.usage.is_some()), "không có usage của lượt");
+    }
+
     /// `TG_LIVE_ACP=1 cargo test live_claude -- --ignored --nocapture`.
     /// Set `TG_ACP_FIXTURE=<path>` to save the JSON-RPC traffic.
     #[tokio::test(flavor = "multi_thread")]
