@@ -525,6 +525,7 @@ pub fn list_branches(repo: String) -> Result<Vec<String>, String> {
 #[tauri::command(async)]
 pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'_, SessionInboxes>, store: State<'_, Store>, run_id: String, prompt: String) -> Result<(), String> {
     if prompt.trim().is_empty() { return Err("Hãy nhập nội dung tin nhắn.".into()); }
+    if let Some(sent) = runner::send_headless(&app, &run_id, &prompt) { return sent; }
     let inbox = inboxes.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let (Some(inbox), Some(session)) = (inbox, session) else { return Err("Phiên này đã đóng.".into()); };
@@ -1227,8 +1228,14 @@ mod tests {
         let dir = dunce::canonicalize(std::env::temp_dir()).unwrap().join(format!("tg-read-only-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&dir).unwrap();
         let program = env::which(agent.binary()).expect("agent CLI");
-        let (args, _) = agent.headless_invocation("Create a file named pwned.txt containing x in the current directory using your tools.", &program).unwrap();
-        let output = env::command(program).args(args).current_dir(&dir).env("PATH", env::login_path()).stdin(Stdio::null()).output().await.unwrap();
+        let (args, input) = agent.headless_invocation("Create a file named pwned.txt containing x in the current directory using your tools.", &program).unwrap();
+        let mut child = env::command(program).args(args).current_dir(&dir).env("PATH", env::login_path())
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        // Claude reads the question from stdin; closing it ends the session after one answer.
+        let mut stdin = child.stdin.take().unwrap();
+        if let Some(text) = input { use tokio::io::AsyncWriteExt; stdin.write_all(text.as_bytes()).await.unwrap(); }
+        drop(stdin);
+        let output = child.wait_with_output().await.unwrap();
         eprintln!("{}", String::from_utf8_lossy(&output.stdout).lines().last().unwrap_or_default());
         assert!(!dir.join("pwned.txt").exists(), "chế độ Chỉ hỏi đã ghi được vào thư mục thật");
         let _ = std::fs::remove_dir_all(dir);
