@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> Khi thoát plan mode: chép file này vào `docs/superpowers/plans/2026-11-05-stream-reveal.md` rồi làm trên nhánh `feat/stream-reveal` (worktree riêng).
+> Làm cùng `2026-11-05-ask-session.md` trên nhánh `claude/ask-session`. Task 1 thuộc plan đó (cờ CLI và fixture đi chung với phiên Chỉ hỏi sống). Task 2–4 giao Codex, mỗi nhóm một worktree; Claude review và commit.
 
 **Goal:** Câu trả lời của agent hiện dần ra (chữ chạy, con trỏ nhấp nháy) ở mọi chế độ (Chỉ hỏi, Sửa code, Pipeline) và với mọi agent.
 
@@ -41,23 +41,9 @@
 
 ---
 
-### Task 1: Claude gửi chữ theo thời gian thực ở Chỉ hỏi
+### Task 1: Claude gửi chữ theo thời gian thực ở Chỉ hỏi (Claude, trong plan ask-session)
 
-**Files:**
-- Create: `src-tauri/tests/fixtures/claude/2.1.318/readonly-partial.jsonl`
-- Modify: `src-tauri/src/adapters.rs` (`headless_args`, `headless_invocation`, các test assert tham số)
-- Test: `src-tauri/src/usage.rs` (khối test)
-
-**Interfaces:**
-- Produces: dòng stdout dạng `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"…"}}}`, mà Task 2 sẽ đọc. Fixture là nguồn sự thật về định dạng này.
-
-- [ ] **Step 1: Ghi fixture thật.** Trong một thư mục tạm có `a.txt` chứa `hello`, chạy `claude -p "Đọc a.txt rồi trả lời đúng nội dung của nó" --permission-mode plan --output-format stream-json --verbose --include-partial-messages > out.jsonl`. Lọc thông tin cá nhân theo Global Constraints, rồi lưu vào đường dẫn fixture ở trên. Ghi chú trong commit: đây là Claude Code 2.1.318.
-- [ ] **Step 2: Viết test thất bại** trong `adapters.rs`: test hiện có cho `headless_args`, `headless_invocation` (bản batch) và `resume_args` của Claude phải chứa `"--include-partial-messages"` ngay sau `"--verbose"`.
-- [ ] **Step 3: Chạy** `(cd src-tauri && cargo test adapters)`. Expected: FAIL ở các assert vừa sửa.
-- [ ] **Step 4: Thêm cờ** `--include-partial-messages` vào cả hai danh sách tham số của Claude. `resume_args` tự có cờ vì nó nối thêm vào `args`.
-- [ ] **Step 5: Thêm test usage** `claude_partial_fixture_usage` trong `usage.rs`: chạy `parse_line(AgentKind::Claude, …)` trên mọi dòng của fixture mới. Phải ra **đúng một** `Usage`, với số liệu bằng giá trị đọc từ dòng `result` của fixture. Như vậy các `stream_event` có `usage` (`message_start`, `message_delta`) không bị đếm. Nếu test lộ parser sai: dừng lại báo, không sửa test cho khớp.
-- [ ] **Step 6: Chạy** `(cd src-tauri && cargo test)`. Expected: PASS.
-- [ ] **Step 7: Commit** `feat(claude): stream partial messages in read-only runs`.
+Đã làm ở `2026-11-05-ask-session.md` Task 1: lệnh Chỉ hỏi của Claude có `--include-partial-messages`. Fixture thật (Claude Code 2.1.318, hai câu trong một tiến trình, đã lọc đường dẫn/session id/danh sách tool) ở `src-tauri/tests/fixtures/claude/2.1.318/ask-session.jsonl`. Định dạng delta: `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"…"}},…}`.
 
 ### Task 2: `describeLine` nối delta và bỏ bản trùng
 
@@ -73,11 +59,11 @@
   - `export function addLine(lines: ConsoleLine[], line: ConsoleLine | null): ConsoleLine[]`, chuyển từ `runs.service.ts`. `RunsService` import lại hai thứ này.
 
 - [ ] **Step 1: Viết test thất bại** trong `describe-line.spec.ts`:
-  - Thêm fixture `claude/2.1.318-partial`, chép nguyên các dòng từ Task 1, theo đúng cách inline của fixture hiện có.
-  - `streams Claude text deltas into one message`: gộp mọi dòng qua `lines.reduce((all, l) => addLine(all, describeLine('claude', l)), [])`. Kết quả có đúng **một** dòng `tone: 'text'` chứa câu trả lời trong fixture, không có dòng nào là `[stream_event]`, và vẫn có dòng tool `› Read …` (hoặc tool thực có trong fixture) cùng `✓ success`.
+  - Thêm fixture `claude/2.1.318-ask-session`, chép nguyên các dòng của `src-tauri/tests/fixtures/claude/2.1.318/ask-session.jsonl`, theo đúng cách fixture hiện có được nạp trong spec.
+  - `streams Claude text deltas into one message`: gộp mọi dòng qua `lines.reduce((all, l) => addLine(all, describeLine('claude', l)), [])`. Kết quả có đúng **một** dòng `tone: 'text'` cho mỗi câu trả lời trong fixture (câu 1 là `hello`, câu 2 là câu tiếng Việt), không có dòng nào là `[stream_event]`, và vẫn có dòng tool `› Read …` (hoặc tool thực có trong fixture) cùng `✓ success`.
   - `seals a message once its final copy arrives`: chuỗi `[delta 'Xin ', delta 'chào', assistant text 'Xin chào', delta 'Câu hai']` cho ra hai dòng text `'Xin chào'` và `'Câu hai'`.
   - `keeps a final message that had no deltas`: `assistant` text không có delta đứng trước cho ra dòng `{ text, tone: 'text' }`, không có `key`.
-  - Fixture `claude/2.1.317` giữ nguyên expected hiện có.
+  - Fixture `claude/2.1.317` giữ nguyên expected hiện có, nhưng test của nó gộp dòng qua `addLine` như test mới (`FINAL_KEY` là dấu tạm cho `addLine`, không bao giờ còn lại trong `run.lines`). Quyết định 2026-11-05 sau khi Codex phát hiện mâu thuẫn.
 - [ ] **Step 2: Chạy** `npm test -- --watch=false --include src/app/core/describe-line.spec.ts`. Expected: FAIL.
 - [ ] **Step 3: Cài đặt:**
   - Nhánh `claude` của `describeLine` xử lý `type === 'stream_event'`. Nếu `event.type === 'content_block_delta'` và `delta.type === 'text_delta'` thì trả `{ text: delta.text, tone: 'text', key: MESSAGE_KEY }`. Mọi `stream_event` khác trả `null`.
@@ -97,6 +83,7 @@
   - `export function nextReveal(shown: number, text: string, dtMs: number): number`: số code unit cần hiện sau `dtMs` mili giây.
   - `export const REVEAL_PER_MS = 0.12`: khoảng 120 ký tự mỗi giây khi không có chữ tồn đọng.
   - `export const REVEAL_CATCHUP_MS = 250`: chữ tồn đọng được đuổi kịp trong khoảng chừng này.
+  - `export const REVEAL_MAX_MS = 1500`: không tin nhắn nào hiện lâu hơn khoảng này (đuổi theo tỉ lệ giảm dần theo cấp số nhân nên không tự xong; quyết định 2026-11-05 sau khi test 50.000 ký tự của Codex dừng ở 49.941).
 
 - [ ] **Step 1: Viết test thất bại:**
   - `advances at least one char per frame`: `nextReveal(0, 'abc', 1) >= 1`.
@@ -106,7 +93,7 @@
   - `finishes a huge message fast`: với 50.000 ký tự và `dt = 16`, hiện hết trong ≤ 100 vòng.
   - `never splits a surrogate pair`: với `'a😀b'`, không có kết quả nào trên đường đi bằng `2`, tức là ngay sau high surrogate.
 - [ ] **Step 2: Chạy** `npm test -- --watch=false --include src/app/core/reveal.spec.ts`. Expected: FAIL (`Cannot find module './reveal'`).
-- [ ] **Step 3: Cài đặt** `step = max(2, ceil(dtMs * REVEAL_PER_MS), ceil(backlog * dtMs / REVEAL_CATCHUP_MS))`. Kết quả kẹp trong `[0, text.length]`. Nếu code unit tại `next - 1` là high surrogate (`0xD800–0xDBFF`) thì cộng thêm 1.
+- [ ] **Step 3: Cài đặt** `step = max(2, ceil(dtMs * REVEAL_PER_MS), ceil(backlog * dtMs / REVEAL_CATCHUP_MS), ceil(text.length * dtMs / REVEAL_MAX_MS))`. Kết quả kẹp trong `[0, text.length]`. Nếu code unit tại `next - 1` là high surrogate (`0xD800–0xDBFF`) thì cộng thêm 1.
 - [ ] **Step 4: Chạy lại.** Expected: PASS.
 - [ ] **Step 5: Commit** `feat(chat): reveal pacing for streamed text`.
 

@@ -330,7 +330,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                   @for (seg of segments()[tr.id]; track $index; let last = $last) {
                     @switch (seg.kind) {
                       @case ('user') { <div class="msg-user">{{ seg.text }}</div> }
-                      @case ('text') { <tg-markdown class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
+                      @case ('text') { <tg-markdown [animate]="last && tr.status === 'running'" class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
                       @case ('work') {
                         <details class="worklog" [open]="seg.live" [class.live]="seg.live">
                           <summary>
@@ -1047,6 +1047,15 @@ export class AgentPanel {
           // The open session takes the message; only its approval mode changes.
           if (current!.perm !== perm) await this.runs.setApproval(current!.id, approval);
           await this.runs.sendMessage(current!.id, text);
+        } else if (perm === 'read' && !this.readViaAcp() && current && !current.task && current.agent === agent && current.status === 'idle') {
+          // Claude's Chỉ hỏi process is still open: the question goes straight to it. It may
+          // have just closed (idle limit, crash) before its exit reached the UI: resume instead.
+          try {
+            await this.runs.sendMessage(current.id, text);
+          } catch (e) {
+            if (!(e instanceof Error ? e.message : String(e)).includes('đã đóng')) throw e;
+            await this.runs.start(agent, text, cwd, thread, current.id, scope, null);
+          }
         } else if (perm === 'read' && !this.readViaAcp()) {
           // Read-only CLI run on the real folder; the core resumes this agent's CLI session.
           const resumable = current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;
