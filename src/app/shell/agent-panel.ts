@@ -1048,8 +1048,14 @@ export class AgentPanel {
           if (current!.perm !== perm) await this.runs.setApproval(current!.id, approval);
           await this.runs.sendMessage(current!.id, text);
         } else if (perm === 'read' && !this.readViaAcp() && current && !current.task && current.agent === agent && current.status === 'idle') {
-          // Claude's Chỉ hỏi process is still open: the question goes straight to it.
-          await this.runs.sendMessage(current.id, text);
+          // Claude's Chỉ hỏi process is still open: the question goes straight to it. It may
+          // have just closed (idle limit, crash) before its exit reached the UI: resume instead.
+          try {
+            await this.runs.sendMessage(current.id, text);
+          } catch (e) {
+            if (!(e instanceof Error ? e.message : String(e)).includes('đã đóng')) throw e;
+            await this.runs.start(agent, text, cwd, thread, current.id, scope, null);
+          }
         } else if (perm === 'read' && !this.readViaAcp()) {
           // Read-only CLI run on the real folder; the core resumes this agent's CLI session.
           const resumable = current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;

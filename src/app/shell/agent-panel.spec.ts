@@ -280,6 +280,25 @@ describe('AgentPanel composer', () => {
     await vi.waitFor(() => expect(runs.selected()!.lines.some((l) => l.tone === 'user' && l.text === 'câu hai')).toBe(true));
   });
 
+  it('resumes the CLI session when the open Claude process has just closed', async () => {
+    const { backend, panel } = await setup();
+    const calls: (string | null | undefined)[] = [];
+    const start = backend.start.bind(backend);
+    backend.start = (agent, prompt, cwd, thread, resumeFrom) => { calls.push(resumeFrom); return start(agent, prompt, cwd); };
+    panel.mode.set('read');
+    panel.prompt.set('câu một');
+    await panel.send();
+    const runs = TestBed.inject(RunsService);
+    const first = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
+    TestBed.tick();
+    backend.sendMessage = () => Promise.reject(new Error('Phiên này đã đóng.'));
+    panel.prompt.set('câu hai');
+    await panel.send();
+    expect(calls).toEqual([null, first.id]);
+    expect(panel.error()).toBeNull();
+  });
+
   it('keeps the prompt and shows why when a pipeline cannot start', async () => {
     const { backend, panel } = await setup();
     backend.startResult = () => Promise.reject(new Error('không tạo được worktree'));

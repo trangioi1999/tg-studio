@@ -34,25 +34,42 @@ pub struct HeadlessSession {
 }
 
 impl HeadlessSession {
-    fn close(&self) { self.input.lock().unwrap().take(); }
-
-    /// Hands a question to the process unless it is still answering. Err: what to tell the user.
-    fn ask(&self, prompt: &str) -> Result<(), String> {
+    /// Hands a question to the process unless it is still answering. `before` runs once the
+    /// question is accepted but before the CLI sees it, so the UI hears of the question
+    /// before any answer. Err: what to tell the user.
+    fn ask(&self, prompt: &str, before: impl FnOnce()) -> Result<(), String> {
+        // One lock with the idle timer: it never closes the input between check and send.
+        let input = self.input.lock().unwrap();
+        let Some(tx) = input.as_ref().filter(|tx| !tx.is_closed()) else { return Err("Phiên này đã đóng.".into()) };
         if self.busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return Err("Agent đang chạy. Hãy chờ hoặc dừng trước.".into());
         }
         self.generation.fetch_add(1, Ordering::SeqCst);
-        let line = self.agent.headless_input(prompt).unwrap_or_default();
-        let sent = self.input.lock().unwrap().as_ref().is_some_and(|tx| tx.send(line).is_ok());
-        if !sent { self.busy.store(false, Ordering::SeqCst); return Err("Phiên này đã đóng.".into()); }
+        before();
+        if tx.send(self.agent.headless_input(prompt).unwrap_or_default()).is_err() {
+            self.busy.store(false, Ordering::SeqCst);
+            return Err("Phiên này đã đóng.".into());
+        }
         Ok(())
     }
 
     /// The answer is complete. Returns the generation an idle timer must still see to close.
     fn answered(&self) -> u64 {
+        let _input = self.input.lock().unwrap();
         self.busy.store(false, Ordering::SeqCst);
         self.generation.fetch_add(1, Ordering::SeqCst) + 1
     }
+
+    /// Ends the process after its answer, unless a question came after `generation`.
+    fn close_if_idle(&self, generation: u64) -> bool {
+        let mut input = self.input.lock().unwrap();
+        let idle = self.generation.load(Ordering::SeqCst) == generation && !self.busy.load(Ordering::SeqCst);
+        if idle { input.take(); }
+        idle
+    }
+
+    #[cfg(test)]
+    fn close(&self) { self.input.lock().unwrap().take(); }
 }
 
 #[derive(Default)]
@@ -70,7 +87,7 @@ fn turn_status(line: &str) -> Option<&'static str> {
 /// The next question of an open headless session. `None`: no such session (an ACP run).
 pub(crate) fn send_headless(app: &AppHandle, run_id: &str, prompt: &str) -> Option<Result<(), String>> {
     let session = app.state::<HeadlessSessions>().0.lock().ok()?.get(run_id).cloned()?;
-    Some(session.ask(prompt).map(|()| {
+    Some(session.ask(prompt, || {
         log_store_error(app.state::<Store>().set_run_status(run_id, "running"));
         let mut ev = AgentEvent::new(run_id, session.agent, "user");
         ev.line = Some(prompt.to_string());
@@ -275,14 +292,20 @@ pub async fn start_agent(
                 publish(&app, ev);
                 if let (Some(status), Some(session)) = (ended, &session) {
                     let generation = session.answered();
-                    log_store_error(app.state::<Store>().set_run_status(&id, "idle"));
-                    let mut ev = AgentEvent::new(&id, agent, "turn_end");
-                    ev.data = Some(serde_json::json!({ "status": status }));
-                    publish(&app, ev);
+                    // Under the sessions lock: once `exit` has removed the session, its
+                    // final status must not be turned back into `idle`.
+                    if let Ok(open) = app.state::<HeadlessSessions>().0.lock() {
+                        if open.contains_key(&id) {
+                            log_store_error(app.state::<Store>().set_run_status(&id, "idle"));
+                            let mut ev = AgentEvent::new(&id, agent, "turn_end");
+                            ev.data = Some(serde_json::json!({ "status": status }));
+                            publish(&app, ev);
+                        }
+                    }
                     let session = session.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(IDLE_LIMIT).await;
-                        if session.generation.load(Ordering::SeqCst) == generation { session.close(); }
+                        session.close_if_idle(generation);
                     });
                 }
             }
@@ -414,33 +437,48 @@ mod tests {
     #[test]
     fn a_live_session_takes_one_question_at_a_time() {
         let (session, mut rx) = live(true);
-        assert_eq!(session.ask("hai").unwrap_err(), "Agent đang chạy. Hãy chờ hoặc dừng trước.");
+        assert_eq!(session.ask("hai", || {}).unwrap_err(), "Agent đang chạy. Hãy chờ hoặc dừng trước.");
         assert!(rx.try_recv().is_err(), "không được ghi chồng khi đang trả lời");
         session.answered();
-        session.ask("hai").unwrap();
+        session.ask("hai", || {}).unwrap();
         let line: serde_json::Value = serde_json::from_str(rx.try_recv().unwrap().trim()).unwrap();
         assert_eq!(line["message"]["content"], "hai");
-        assert!(session.ask("ba").is_err());
+        assert!(session.ask("ba", || {}).is_err());
     }
 
     #[test]
     fn a_closed_session_refuses_questions_and_frees_itself() {
         let (session, _rx) = live(false);
         session.close();
-        assert_eq!(session.ask("hai").unwrap_err(), "Phiên này đã đóng.");
+        assert_eq!(session.ask("hai", || {}).unwrap_err(), "Phiên này đã đóng.");
         session.answered();
         let (session, rx) = live(false);
         drop(rx);
-        assert_eq!(session.ask("hai").unwrap_err(), "Phiên này đã đóng.", "tiến trình đã thoát");
+        assert_eq!(session.ask("hai", || {}).unwrap_err(), "Phiên này đã đóng.", "tiến trình đã thoát");
         assert!(!session.busy.load(Ordering::SeqCst));
     }
 
     #[test]
     fn a_question_after_an_answer_cancels_its_idle_timer() {
-        let (session, _rx) = live(true);
+        let (session, mut rx) = live(true);
         let timer = session.answered();
-        session.ask("hai").unwrap();
-        assert_ne!(session.generation.load(Ordering::SeqCst), timer);
+        session.ask("hai", || {}).unwrap();
+        assert!(!session.close_if_idle(timer), "câu mới phải huỷ hẹn giờ cũ");
+        assert!(rx.try_recv().is_ok());
+        let later = session.answered();
+        assert!(session.close_if_idle(later));
+        assert_eq!(session.ask("ba", || {}).unwrap_err(), "Phiên này đã đóng.");
+    }
+
+    #[test]
+    fn the_question_is_announced_before_the_cli_sees_it() {
+        let (session, mut rx) = live(false);
+        let mut seen_before = None;
+        session.ask("hai", || seen_before = Some(rx.try_recv().is_err())).unwrap();
+        assert_eq!(seen_before, Some(true));
+        let mut called = false;
+        assert!(session.ask("ba", || called = true).is_err());
+        assert!(!called, "câu bị từ chối thì không báo lên UI");
     }
 
     #[test]
