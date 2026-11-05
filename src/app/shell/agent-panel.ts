@@ -330,7 +330,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                   @for (seg of segments()[tr.id]; track $index; let last = $last) {
                     @switch (seg.kind) {
                       @case ('user') { <div class="msg-user">{{ seg.text }}</div> }
-                      @case ('text') { <tg-markdown class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
+                      @case ('text') { <tg-markdown [animate]="last && tr.status === 'running'" class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
                       @case ('work') {
                         <details class="worklog" [open]="seg.live" [class.live]="seg.live">
                           <summary>

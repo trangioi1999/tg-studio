@@ -132,8 +132,15 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Claude's partial-message line (`--include-partial-messages`).
+fn is_stream_chunk(line: &str) -> bool {
+    line.starts_with(r#"{"type":"stream_event""#)
+}
+
 /// Writes an event to the run history. "exit" is saved through `finish_run`.
 fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
+    // A streamed chunk is repeated whole by the final `assistant` line, which is kept.
+    if ev.kind == "log" && ev.line.as_deref().is_some_and(is_stream_chunk) { return Ok(()); }
     match (ev.kind, &ev.line, &ev.usage) {
         ("started" | "log" | "stderr" | "user", Some(line), _) => {
             store.append_line(&ev.run_id, ev.kind, line, ev.at_ms)
@@ -395,6 +402,18 @@ mod tests {
         let mut ev = AgentEvent::new("r", AgentKind::Codex, kind);
         ev.line = line.map(str::to_string);
         ev
+    }
+
+    /// Partial messages only show the answer as it is written; its final `assistant` line
+    /// has the whole text, so history keeps that and none of the dozens of chunks.
+    #[test]
+    fn streamed_chunks_are_shown_but_not_saved() {
+        let store = store_with_run();
+        let fixture = include_str!("../tests/fixtures/claude/2.1.318/ask-session.jsonl");
+        for line in fixture.lines() { save_event(&store, &event("log", Some(line))).unwrap(); }
+        let saved = store.list_runs(1).unwrap().remove(0).lines;
+        assert!(saved.iter().all(|l| !l.line.contains("\"stream_event\"")));
+        assert_eq!(saved.len(), fixture.lines().filter(|l| !l.contains("\"type\":\"stream_event\"")).count());
     }
 
     #[test]
