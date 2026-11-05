@@ -13,7 +13,7 @@ import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
-import { Markdown } from './markdown';
+import { Markdown, copyText, plainText } from './markdown';
 import { NgTemplateOutlet } from '@angular/common';
 import { segmentsOf, Segment } from '../core/timeline';
 import { Approval, ConfigChoice, Place } from '../core/protocol';
@@ -327,10 +327,10 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                       }
                     </div>
                   }
-                  @for (seg of segments()[tr.id]; track $index) {
+                  @for (seg of segments()[tr.id]; track $index; let last = $last) {
                     @switch (seg.kind) {
                       @case ('user') { <div class="msg-user">{{ seg.text }}</div> }
-                      @case ('text') { <tg-markdown class="msg-agent" [text]="seg.text" /> }
+                      @case ('text') { <tg-markdown class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
                       @case ('work') {
                         <details class="worklog" [open]="seg.live" [class.live]="seg.live">
                           <summary>
@@ -354,6 +354,16 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                           </ol>
                         </details>
                       }
+                    }
+                    @if (answers()[tr.id]?.[$index]; as answer) {
+                      <div class="answer-actions">
+                        <button class="act-btn" [class.done]="copied() === tr.id + ':' + $index + ':plain'" (click)="copyAnswer(tr.id, $index, answer, false)">
+                          @if (copied() === tr.id + ':' + $index + ':plain') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Đã chép } @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Chép }
+                        </button>
+                        <button class="act-btn" [class.done]="copied() === tr.id + ':' + $index + ':md'" (click)="copyAnswer(tr.id, $index, answer, true)">
+                          @if (copied() === tr.id + ':' + $index + ':md') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Đã chép } @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Chép Markdown }
+                        </button>
+                      </div>
                     }
                   }
                   @if (tr.status === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
@@ -427,6 +437,18 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
         @if (r.permissions.length) {
           <div class="ap-approvals">
             @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
+          </div>
+        }
+        @if (live(); as l) {
+          <div class="live-status" role="status" [class.waiting]="l.waiting">
+            <tg-agent-avatar [agent]="l.run.agent" [size]="20" />
+            <strong>{{ meta[l.run.agent].name }} {{ l.verb }}</strong>
+            @if (!l.waiting) { <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span> }
+            <span class="sep">·</span><span class="mono clock">{{ duration(l.run) }}</span>
+            <span class="sep">·</span><span class="ellipsis step" [title]="l.step">{{ l.step }}</span>
+            <button class="act-btn bordered" [title]="'Dừng (Esc)'" (click)="runs.stop(l.run.id)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>Dừng<span class="kbd">Esc</span>
+            </button>
           </div>
         }
         <ng-container *ngTemplateOutlet="composer" />
@@ -636,6 +658,50 @@ export class AgentPanel {
     for (const r of this.threadRuns()) out[r.id] = segmentsOf(r.lines, r.status === 'running');
     return out;
   });
+  /** What the selected run is doing right now, for the status line above the composer. */
+  protected readonly live = computed(() => {
+    const r = this.run();
+    if (!r || r.status !== 'running') return null;
+    const last = (this.segments()[r.id] ?? []).at(-1);
+    const waiting = r.permissions.length > 0;
+    let step = 'đang suy nghĩ…';
+    if (waiting) step = `chờ bạn duyệt: ${r.permissions[0].toolCall.title ?? 'một thao tác'}`;
+    else if (r.progress) step = r.progress.step;
+    else if (last?.kind === 'work') step = last.steps.at(-1)?.text ?? step;
+    else if (last?.kind === 'text') step = 'đang viết câu trả lời…';
+    return { run: r, waiting, step, verb: waiting ? 'đang chờ bạn' : r.task && r.perm !== 'read' ? 'đang làm' : 'đang trả lời' };
+  });
+  /** Where each finished answer ends (the text since the last user message), keyed by run, then segment. */
+  protected readonly answers = computed(() => {
+    const out: Record<string, Record<number, string>> = {};
+    for (const r of this.threadRuns()) {
+      const segs = this.segments()[r.id] ?? [];
+      const ends: Record<number, string> = {};
+      let texts: string[] = [];
+      segs.forEach((seg, i) => {
+        if (seg.kind === 'user') texts = [];
+        if (seg.kind !== 'text') return;
+        texts.push(seg.text);
+        const next = segs.slice(i + 1).find((x) => x.kind !== 'work');
+        const finished = next ? next.kind === 'user' : r.status !== 'running';
+        if (finished && (!next || next.kind === 'user')) {
+          ends[i] = texts.join('\n\n');
+          texts = [];
+        }
+      });
+      out[r.id] = ends;
+    }
+    return out;
+  });
+  protected readonly copied = signal<string | null>(null);
+
+  protected async copyAnswer(runId: string, index: number, markdown: string, asMarkdown: boolean): Promise<void> {
+    if (!(await copyText(asMarkdown ? markdown : plainText(markdown)))) return;
+    const key = `${runId}:${index}:${asMarkdown ? 'md' : 'plain'}`;
+    this.copied.set(key);
+    setTimeout(() => this.copied() === key && this.copied.set(null), 1500);
+  }
+
   protected readonly projectName = computed(() => this.workspace.project()?.name ?? this.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? '');
 
   protected permLabel(r: Run): string {
@@ -685,6 +751,10 @@ export class AgentPanel {
       this.toggleMenu('agent');
     } else if (e.key === 'Escape' && this.menu()) {
       this.menu.set(null);
+    } else if (e.key === 'Escape' && this.run()?.status === 'running' && !(e.target as HTMLElement | null)?.closest('input, .repo-edit')) {
+      // Esc stops the agent, as the status line says.
+      e.preventDefault();
+      void this.runs.stop(this.run()!.id);
     }
   }
 

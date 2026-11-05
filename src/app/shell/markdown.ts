@@ -1,10 +1,10 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, ElementRef, afterRenderEffect, computed, inject, input } from '@angular/core';
 import { marked } from 'marked';
 
 /**
  * An agent's message as rendered Markdown. Angular sanitizes the HTML bound to
  * `innerHTML` (no scripts, no handlers). Links never navigate the app's window:
- * a click copies the address instead.
+ * a click copies the address instead. Each code block gets its own copy button.
  */
 @Component({
   selector: 'tg-markdown',
@@ -12,15 +12,39 @@ import { marked } from 'marked';
   template: `<div [innerHTML]="html()"></div>`,
 })
 export class Markdown {
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly text = input.required<string>();
   protected readonly html = computed(() => renderMarkdown(this.text()));
 
+  constructor() {
+    // The sanitizer drops buttons from bound HTML, so they are added to the DOM afterwards.
+    afterRenderEffect(() => {
+      this.html();
+      for (const pre of Array.from(this.host.nativeElement.querySelectorAll('pre'))) {
+        if (pre.querySelector('.copy-code')) continue;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'copy-code';
+        button.textContent = 'Chép';
+        button.setAttribute('aria-label', 'Chép đoạn code');
+        pre.prepend(button);
+      }
+    });
+  }
+
   protected onClick(e: MouseEvent): void {
-    const link = (e.target as HTMLElement | null)?.closest('a');
+    const target = e.target as HTMLElement | null;
+    const copy = target?.closest('.copy-code');
+    if (copy) {
+      const code = copy.parentElement?.querySelector('code')?.textContent ?? '';
+      void copyText(code).then(() => flash(copy as HTMLElement));
+      return;
+    }
+    const link = target?.closest('a');
     if (!link) return;
     e.preventDefault();
     const href = link.getAttribute('href');
-    if (href) void navigator.clipboard?.writeText(href).catch(() => {});
+    if (href) void copyText(href);
   }
 }
 
@@ -30,4 +54,30 @@ export function renderMarkdown(text: string): string {
   } catch {
     return text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
   }
+}
+
+/** The text a reader sees, without Markdown marks. */
+export function plainText(markdown: string): string {
+  const doc = new DOMParser().parseFromString(renderMarkdown(markdown), 'text/html');
+  doc.querySelectorAll('li').forEach((li) => li.prepend('• '));
+  doc.querySelectorAll('p, li, pre, h1, h2, h3, h4, tr, blockquote').forEach((el) => el.append('\n'));
+  return (doc.body.textContent ?? '').replace(/\n\s*\n+/g, '\n').trim();
+}
+
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function flash(button: HTMLElement): void {
+  button.textContent = 'Đã chép ✓';
+  button.classList.add('done');
+  setTimeout(() => {
+    button.textContent = 'Chép';
+    button.classList.remove('done');
+  }, 1500);
 }
