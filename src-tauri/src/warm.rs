@@ -18,20 +18,23 @@ const STDERR_TAIL: usize = 50;
 pub struct WarmKey {
     pub agent: AgentKind,
     pub cwd: PathBuf,
-    /// The user's MCP servers for this agent, serialized; tg-bridge is `bridge`.
+    /// The user's MCP servers, serialized; tg-bridge is `bridge`.
     pub servers: String,
     pub bridge: bool,
 }
 
-/// The user's MCP servers a task session of `agent` gets, without tg-bridge.
-pub fn user_servers(store: &Store, agent: AgentKind) -> Vec<McpServer> {
-    let _ = agent;
+/// The user's MCP servers a task session gets, without tg-bridge.
+pub fn user_servers(store: &Store) -> Vec<McpServer> {
     mcp::load(store).into_iter().filter(|s| s.name != bridge::SERVER_NAME).collect()
 }
 
+/// The key for these servers: `warm_task` opens with the very list it keyed on.
+pub fn key_of(agent: AgentKind, cwd: &Path, servers: &[McpServer], bridge: bool) -> WarmKey {
+    WarmKey { agent, cwd: cwd.to_path_buf(), servers: serde_json::to_string(servers).unwrap_or_default(), bridge }
+}
+
 pub fn key_for(store: &Store, agent: AgentKind, cwd: &Path) -> WarmKey {
-    let servers = serde_json::to_string(&user_servers(store, agent)).unwrap_or_default();
-    WarmKey { agent, cwd: cwd.to_path_buf(), servers, bridge: crate::acp_tasks::bridge_enabled(store) }
+    key_of(agent, cwd, &user_servers(store), crate::acp_tasks::bridge_enabled(store))
 }
 
 /// Adapter stderr: kept as a short tail until a run owns the session, then streamed as events.
@@ -47,15 +50,9 @@ fn emit_stderr(sink: &Arc<dyn EventSink>, run_id: &str, agent: AgentKind, line: 
 /// An opened session waiting for its run.
 pub struct Warm {
     child: Child,
-    client: AcpClient,
-    late: Arc<LateHandler>,
-    session_id: String,
-    /// Reserved tg-bridge token, bound to the run's tools on claim.
-    token: Option<String>,
-    /// Said to the user once the run exists (for example skipped MCP servers).
-    notes: Vec<String>,
-    relay: Arc<Mutex<Relay>>,
-    stderr_task: JoinHandle<()>,
+    /// Taken at spawn: once the wrapper exits, `child.id()` is gone but its descendants may not be.
+    pid: Option<u32>,
+    parts: Claimed,
 }
 
 /// A warm session handed to its run; the run owns the adapter process separately.
@@ -63,10 +60,14 @@ pub struct Claimed {
     pub client: AcpClient,
     pub late: Arc<LateHandler>,
     pub session_id: String,
+    pub pid: Option<u32>,
+    /// Reserved tg-bridge token, bound to the run's tools on claim.
     pub token: Option<String>,
+    /// Said to the user once the run exists (for example skipped MCP servers).
     pub notes: Vec<String>,
     relay: Arc<Mutex<Relay>>,
     pub stderr_task: JoinHandle<()>,
+    hub: Arc<BridgeHub>,
 }
 
 impl Claimed {
@@ -76,23 +77,26 @@ impl Claimed {
         for line in relay.tail.drain(..) { emit_stderr(&sink, run_id, agent, line); }
         relay.target = Some((sink, run_id.to_string(), agent));
     }
+
+    /// Releases everything but the process, which whoever holds the child stops.
+    pub fn release(self) {
+        self.client.close();
+        if let Some(t) = &self.token { self.hub.unregister(t); }
+        self.stderr_task.abort();
+    }
 }
 
 impl Warm {
-    pub fn into_parts(self) -> (Child, Claimed) {
-        let Warm { child, client, late, session_id, token, notes, relay, stderr_task } = self;
-        (child, Claimed { client, late, session_id, token, notes, relay, stderr_task })
+    pub fn into_parts(self) -> (Child, Claimed) { (self.child, self.parts) }
+
+    fn alive(&mut self) -> bool { !self.parts.late.is_closed() && matches!(self.child.try_wait(), Ok(None)) }
+
+    pub async fn close(mut self) {
+        crate::acp_tasks::terminate_adapter(&mut self.child, self.pid).await;
+        self.parts.release();
     }
 
-    fn alive(&mut self) -> bool { !self.late.is_closed() && matches!(self.child.try_wait(), Ok(None)) }
-
-    async fn close(mut self, hub: &BridgeHub) {
-        self.client.close();
-        if let Some(t) = &self.token { hub.unregister(t); }
-        let pid = self.child.id();
-        crate::acp_tasks::terminate_adapter(&mut self.child, pid).await;
-        self.stderr_task.abort();
-    }
+    pub fn close_later(self) { tauri::async_runtime::spawn(self.close()); }
 }
 
 struct Entry {
@@ -100,45 +104,55 @@ struct Entry {
     generation: u64,
     /// Held by the opening task until the session is ready (or failed: `None`).
     slot: Arc<tokio::sync::Mutex<Option<Warm>>>,
-    opening: JoinHandle<()>,
 }
 
 #[derive(Default)]
 pub struct WarmPool { entry: Mutex<Option<Entry>>, generation: Mutex<u64> }
 
 impl WarmPool {
-    /// Removes the entry, whatever its state, and closes it.
-    async fn discard(entry: Entry, hub: &BridgeHub) {
-        entry.opening.abort();
-        // An aborted opening drops its adapter (kill_on_drop); a finished one is closed here.
-        if let Some(warm) = entry.slot.lock().await.take() { warm.close(hub).await; }
+    /// Closes the entry in the background once its opening has finished, so the adapter
+    /// tree, the bridge token and the stderr reader are always released.
+    fn discard(entry: Entry) {
+        tauri::async_runtime::spawn(async move {
+            if let Some(warm) = entry.slot.lock().await.take() { warm.close().await; }
+        });
     }
 
     /// The session opened for `key`, waiting for it if it is still opening. `None`: open your own.
-    pub async fn take(&self, key: &WarmKey, hub: &BridgeHub) -> Option<Warm> {
+    pub async fn take(&self, key: &WarmKey) -> Option<Warm> {
         let entry = self.entry.lock().unwrap().take()?;
         if &entry.key != key {
-            Self::discard(entry, hub).await;
+            Self::discard(entry);
             return None;
         }
         let mut warm = entry.slot.lock().await.take()?;
-        if warm.alive() { Some(warm) } else { warm.close(hub).await; None }
+        if warm.alive() { Some(warm) } else { warm.close_later(); None }
     }
 
-    async fn expire(&self, generation: u64, hub: &BridgeHub) {
-        let entry = {
-            let mut slot = self.entry.lock().unwrap();
-            if slot.as_ref().is_some_and(|e| e.generation == generation) { slot.take() } else { None }
-        };
-        if let Some(entry) = entry { Self::discard(entry, hub).await; }
+    fn expire(&self, generation: u64) {
+        let mut slot = self.entry.lock().unwrap();
+        if slot.as_ref().is_some_and(|e| e.generation == generation) { Self::discard(slot.take().unwrap()); }
+    }
+
+    /// Puts an opening session in the pool unless one with this key is there.
+    /// Replacing happens under one lock, so a slower earlier call can never win.
+    fn install(&self, key: &WarmKey) -> Option<(u64, tokio::sync::OwnedMutexGuard<Option<Warm>>)> {
+        let mut entry = self.entry.lock().unwrap();
+        if entry.as_ref().is_some_and(|e| &e.key == key) { return None; }
+        let generation = { let mut g = self.generation.lock().unwrap(); *g += 1; *g };
+        let slot = Arc::new(tokio::sync::Mutex::new(None));
+        let guard = slot.clone().try_lock_owned().expect("khoá mới tạo");
+        if let Some(old) = entry.replace(Entry { key: key.clone(), generation, slot }) { Self::discard(old); }
+        Some((generation, guard))
     }
 }
 
-/// Opens adapter + session for `key`; the result is stored in `slot`.
-async fn open(app: &AppHandle, key: &WarmKey) -> Result<Warm, String> {
+/// Opens adapter + session for `key` with exactly the servers it was keyed on.
+async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -> Result<Warm, String> {
     let command = key.agent.acp_command(env::which).ok_or("Không tìm thấy adapter.")?;
     let timeout = setup_timeout(&command.0);
     let mut child = crate::acp_tasks::spawn_adapter(&command, &key.cwd)?;
+    let pid = child.id();
     let relay = Arc::new(Mutex::new(Relay::default()));
     let stderr = child.stderr.take().expect("piped stderr");
     let stderr_task = {
@@ -159,8 +173,6 @@ async fn open(app: &AppHandle, key: &WarmKey) -> Result<Warm, String> {
     };
     let late = LateHandler::new();
     let client = AcpClient::start_with_timeout(child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"), late.clone(), timeout);
-    let hub = app.state::<Arc<BridgeHub>>().inner().clone();
-    let mut servers = user_servers(&app.state::<Store>(), key.agent);
     let mut notes = Vec::new();
     let mut token = None;
     if key.bridge {
@@ -180,13 +192,12 @@ async fn open(app: &AppHandle, key: &WarmKey) -> Result<Warm, String> {
         if !skipped.is_empty() { notes.push(format!("Bỏ qua MCP server {} vì agent không báo hỗ trợ kết nối http.", skipped.join(", "))); }
         client.new_session(&key.cwd, mcp).await
     };
-    match tokio::time::timeout(timeout + Duration::from_secs(5), opened).await.unwrap_or_else(|_| Err("Adapter không trả lời kịp.".into())) {
-        Ok(session_id) => Ok(Warm { child, client, late, session_id, token, notes, relay, stderr_task }),
-        Err(e) => {
-            let warm = Warm { child, client, late, session_id: String::new(), token, notes, relay, stderr_task };
-            warm.close(&hub).await;
-            Err(e)
-        }
+    let result = tokio::time::timeout(timeout + Duration::from_secs(5), opened).await.unwrap_or_else(|_| Err("Adapter không trả lời kịp.".into()));
+    let session_id = result.as_ref().cloned().unwrap_or_default();
+    let warm = Warm { child, pid, parts: Claimed { client, late, session_id, pid, token, notes, relay, stderr_task, hub } };
+    match result {
+        Ok(_) => Ok(warm),
+        Err(e) => { warm.close().await; Err(e) }
     }
 }
 
@@ -196,40 +207,19 @@ pub async fn warm_task(app: AppHandle, agent: AgentKind, repo: String, scope: Op
     let root = crate::worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| e.to_string())?;
     let cwd = env::scoped_dir(&repo, scope.as_deref())?;
-    let key = key_for(&app.state::<Store>(), agent, &cwd);
-    let pool = app.state::<WarmPool>();
+    let (servers, bridge) = { let store = app.state::<Store>(); (user_servers(&store), crate::acp_tasks::bridge_enabled(&store)) };
+    let key = key_of(agent, &cwd, &servers, bridge);
+    let Some((generation, mut guard)) = app.state::<WarmPool>().install(&key) else { return Ok(()) };
     let hub = app.state::<Arc<BridgeHub>>().inner().clone();
-    let replaced = {
-        let mut entry = pool.entry.lock().unwrap();
-        if entry.as_ref().is_some_and(|e| e.key == key) { return Ok(()); }
-        entry.take()
-    };
-    if let Some(old) = replaced { WarmPool::discard(old, &hub).await; }
-    let generation = { let mut g = pool.generation.lock().unwrap(); *g += 1; *g };
-    let slot = Arc::new(tokio::sync::Mutex::new(None));
-    let guard = slot.clone().lock_owned().await;
-    let opening = {
-        let (app, key) = (app.clone(), key.clone());
-        tokio::spawn(async move {
-            let mut guard = guard;
-            match open(&app, &key).await {
-                Ok(warm) => *guard = Some(warm),
-                Err(e) => eprintln!("Không mở sẵn được phiên {}: {e}", key.agent.display_name()),
-            }
-        })
-    };
-    {
-        let mut entry = pool.entry.lock().unwrap();
-        // Another warm_task may have won the race while the old entry was closing.
-        if let Some(other) = entry.replace(Entry { key, generation, slot, opening }) {
-            tauri::async_runtime::spawn(async move { WarmPool::discard(other, &hub).await; });
+    tauri::async_runtime::spawn(async move {
+        match open(hub, &key, servers).await {
+            Ok(warm) => *guard = Some(warm),
+            Err(e) => eprintln!("Không mở sẵn được phiên {}: {e}", key.agent.display_name()),
         }
-    }
-    let app2 = app.clone();
+    });
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(WARM_TTL).await;
-        let hub = app2.state::<Arc<BridgeHub>>().inner().clone();
-        app2.state::<WarmPool>().expire(generation, &hub).await;
+        app.state::<WarmPool>().expire(generation);
     });
     Ok(())
 }
@@ -248,63 +238,87 @@ mod tests {
         let (reader, writer, _) = crate::acp::fake::spawn(vec![]);
         let late = LateHandler::new();
         let client = AcpClient::start(reader, writer, late.clone());
-        Warm { child, client, late, session_id: "s".into(), token: None, notes: vec![], relay: Default::default(), stderr_task: tokio::spawn(async {}) }
+        let pid = child.id();
+        Warm { child, pid, parts: Claimed { client, late, session_id: "s".into(), pid, token: None, notes: vec![], relay: Default::default(), stderr_task: tokio::spawn(async {}), hub: Arc::new(BridgeHub::default()) } }
     }
 
     fn entry(pool: &WarmPool, key: WarmKey, generation: u64, ready: Option<Warm>) -> Arc<tokio::sync::Mutex<Option<Warm>>> {
         let slot = Arc::new(tokio::sync::Mutex::new(ready));
-        *pool.entry.lock().unwrap() = Some(Entry { key, generation, slot: slot.clone(), opening: tokio::spawn(async {}) });
+        *pool.entry.lock().unwrap() = Some(Entry { key, generation, slot: slot.clone() });
         slot
     }
 
     #[tokio::test]
     async fn a_send_while_opening_waits_for_that_session() {
-        let (pool, hub) = (WarmPool::default(), BridgeHub::default());
+        let pool = WarmPool::default();
         let slot = entry(&pool, key(AgentKind::Claude), 1, None);
         let mut guard = slot.clone().lock_owned().await;
         let opening = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
             *guard = Some(warm());
         });
-        let taken = pool.take(&key(AgentKind::Claude), &hub).await.expect("phiên đang mở phải được chờ");
-        assert_eq!(taken.session_id, "s");
+        let taken = pool.take(&key(AgentKind::Claude)).await.expect("phiên đang mở phải được chờ");
+        assert_eq!(taken.parts.session_id, "s");
         opening.await.unwrap();
         assert!(pool.entry.lock().unwrap().is_none(), "phiên chỉ được nhận một lần");
     }
 
     #[tokio::test]
     async fn another_key_gets_nothing_and_the_old_session_is_closed() {
-        let (pool, hub) = (WarmPool::default(), BridgeHub::default());
+        let pool = WarmPool::default();
         let slot = entry(&pool, key(AgentKind::Claude), 1, Some(warm()));
-        assert!(pool.take(&key(AgentKind::Codex), &hub).await.is_none());
-        assert!(slot.lock().await.is_none(), "phiên cũ phải bị đóng");
+        assert!(pool.take(&key(AgentKind::Codex)).await.is_none());
+        tokio::time::timeout(Duration::from_secs(2), async { while slot.lock().await.is_some() { tokio::task::yield_now().await; } }).await.expect("phiên cũ phải bị đóng");
         assert!(pool.entry.lock().unwrap().is_none());
     }
 
     #[tokio::test]
     async fn a_dead_adapter_is_not_handed_out() {
-        let (pool, hub) = (WarmPool::default(), BridgeHub::default());
+        let pool = WarmPool::default();
         let mut dead = warm();
         dead.child.kill().await.unwrap();
         entry(&pool, key(AgentKind::Claude), 1, Some(dead));
-        assert!(pool.take(&key(AgentKind::Claude), &hub).await.is_none());
+        assert!(pool.take(&key(AgentKind::Claude)).await.is_none());
     }
 
     #[tokio::test]
     async fn a_failed_opening_falls_back() {
-        let (pool, hub) = (WarmPool::default(), BridgeHub::default());
+        let pool = WarmPool::default();
         entry(&pool, key(AgentKind::Claude), 1, None);
-        assert!(pool.take(&key(AgentKind::Claude), &hub).await.is_none());
+        assert!(pool.take(&key(AgentKind::Claude)).await.is_none());
     }
 
     #[tokio::test]
     async fn only_the_same_generation_expires() {
-        let (pool, hub) = (WarmPool::default(), BridgeHub::default());
+        let pool = WarmPool::default();
         entry(&pool, key(AgentKind::Claude), 2, Some(warm()));
-        pool.expire(1, &hub).await;
+        pool.expire(1);
         assert!(pool.entry.lock().unwrap().is_some(), "hết hạn của lần mở cũ không được đóng phiên mới");
-        pool.expire(2, &hub).await;
+        pool.expire(2);
         assert!(pool.entry.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn a_later_warm_always_replaces_an_earlier_one() {
+        let pool = WarmPool::default();
+        let (first, _a) = pool.install(&key(AgentKind::Claude)).unwrap();
+        assert!(pool.install(&key(AgentKind::Claude)).is_none(), "cùng khoá thì giữ phiên đang mở");
+        let (second, _b) = pool.install(&key(AgentKind::Codex)).unwrap();
+        assert!(second > first);
+        let entry = pool.entry.lock().unwrap();
+        assert_eq!(entry.as_ref().map(|e| (e.key.agent, e.generation)), Some((AgentKind::Codex, second)));
+    }
+
+    #[tokio::test]
+    async fn a_replaced_session_is_closed_once_its_opening_ends() {
+        let pool = WarmPool::default();
+        let (_, mut opening) = pool.install(&key(AgentKind::Claude)).unwrap();
+        let old = pool.entry.lock().unwrap().as_ref().unwrap().slot.clone();
+        pool.install(&key(AgentKind::Codex)).unwrap();
+        // Still opening: nothing is aborted half-way; the opening finishes, then it is closed.
+        *opening = Some(warm());
+        drop(opening);
+        tokio::time::timeout(Duration::from_secs(2), async { while old.lock().await.is_some() { tokio::task::yield_now().await; } }).await.expect("phiên bị thay phải được đóng");
     }
 
     #[test]
