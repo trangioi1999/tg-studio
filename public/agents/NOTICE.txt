@@ -1,0 +1,4 @@
+Agent logos in this folder come from LobeHub Icons (@lobehub/icons-static-svg 1.102.0),
+https://github.com/lobehub/lobe-icons, published under the MIT License.
+The marks themselves are trademarks of their owners (Anthropic, OpenAI, Google, Amazon)
+and are used only to show which agent a conversation belongs to.

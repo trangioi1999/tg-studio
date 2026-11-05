@@ -5,7 +5,7 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -29,6 +29,8 @@ pub trait ClientHandler: Send + Sync + 'static {
 pub struct AcpClient {
     transport: Transport,
     setup_timeout: Duration,
+    /// `configOptions` of the latest opened session (model, effort…), updated by `set_config_option`.
+    config: Arc<Mutex<Value>>,
 }
 
 impl AcpClient {
@@ -68,7 +70,7 @@ impl AcpClient {
             }
             handler.on_closed();
         });
-        AcpClient { transport, setup_timeout }
+        AcpClient { transport, setup_timeout, config: Arc::new(Mutex::new(Value::Null)) }
     }
 
     pub async fn initialize(&self) -> Result<Value, String> {
@@ -127,6 +129,7 @@ impl AcpClient {
             .as_str()
             .map(str::to_string)
             .ok_or_else(|| "Agent không trả về sessionId.".to_string())?;
+        *self.config.lock().unwrap() = result["configOptions"].clone();
         self.require_approvals(&id, &result["modes"]).await?;
         Ok(id)
     }
@@ -141,7 +144,23 @@ impl AcpClient {
             )
             .await
             .map_err(|e| format!("Không nối lại được phiên: {e}"))?;
+        *self.config.lock().unwrap() = result["configOptions"].clone();
         self.require_approvals(session_id, &result["modes"]).await
+    }
+
+    /// The session settings the agent offers (ACP `configOptions`), as last reported.
+    pub fn config_options(&self) -> Value { self.config.lock().unwrap().clone() }
+
+    /// Changes one session setting; the agent answers with every option, since one
+    /// change (the model) can change the others (its effort levels).
+    pub async fn set_config_option(&self, session_id: &str, config_id: &str, value: &str) -> Result<(), String> {
+        let result = self
+            .transport
+            .request("session/set_config_option", json!({ "sessionId": session_id, "configId": config_id, "value": value }), Some(self.setup_timeout))
+            .await
+            .map_err(|e| format!("Agent không đổi được {config_id}: {e}"))?;
+        if !result["configOptions"].is_null() { *self.config.lock().unwrap() = result["configOptions"].clone(); }
+        Ok(())
     }
 
     /// Runs one turn and returns its `stopReason`. No timeout: a turn can wait

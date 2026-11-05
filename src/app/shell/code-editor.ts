@@ -278,8 +278,10 @@ export class CodeEditor implements OnDestroy {
     bar.style.setProperty('--agent', meta.color);
     const avatar = document.createElement('span');
     avatar.className = 'avatar';
-    Object.assign(avatar.style, { width: '16px', height: '16px', background: meta.color });
-    avatar.textContent = meta.mono;
+    Object.assign(avatar.style, { width: '18px', height: '18px' });
+    const logo = document.createElement('img');
+    Object.assign(logo, { src: `agents/${this.agent()}.svg`, alt: meta.name, width: 13, height: 13 });
+    avatar.append(logo);
     const label = document.createElement('span');
     label.className = 'hunk-zone-label ellipsis';
     label.textContent = `${meta.name} · ${h.header.replace(/^@@[^@]*@@\s*/, '') || this.path()}`;

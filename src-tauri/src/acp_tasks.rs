@@ -4,7 +4,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, sync::oneshot};
-use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::{AgentKind, setup_timeout}, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
+use crate::{acp::client::AcpClient, acp_runner::{TaskSession, EventSink, RuleMemory}, adapters::{AgentKind, setup_timeout}, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, options::{self, SessionPrefs}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -144,6 +144,8 @@ struct SessionPlan<'a> {
     /// `None`: the session ends after one turn (a pipeline step).
     next: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
     idle_limit: Duration,
+    /// Model and effort picked in the composer, applied once the session is open.
+    prefs: SessionPrefs,
 }
 
 const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
@@ -212,6 +214,9 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
         }
     };
     on_opened(&session_id);
+    if !plan.prefs.is_empty() {
+        for note in options::apply(client, &session_id, &plan.prefs).await { session.note(note); }
+    }
     let mut prompt = match plan.recap.take().filter(|_| !loaded) {
         Some(recap) => format!("{recap}\n\n{}", plan.prompt),
         None => std::mem::take(&mut plan.prompt),
@@ -245,12 +250,12 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
 #[cfg(test)]
 async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     let mut stop = Some(stop);
-    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, next: None, idle_limit: IDLE_LIMIT };
+    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
     drive_session(client, session, plan, || stop.take().expect("một lượt chỉ có một tín hiệu dừng"), |_| {}, |_| {}, dead).await
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>) -> Result<String, String> {
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>) -> Result<String, String> {
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -356,7 +361,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         }
         let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
         session.set_cost_base(base);
-        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, next, idle_limit: IDLE_LIMIT };
+        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, next, idle_limit: IDLE_LIMIT, prefs: prefs.unwrap_or_default() };
         let next_stop = || {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut runs) = app.state::<Runs>().0.lock() { runs.insert(task_id.clone(), tx); }
@@ -529,7 +534,7 @@ mod tests {
     async fn session_with(client: &AcpClient, session: &TaskSession, resume: Option<String>, recap: Option<String>, messages: Vec<&'static str>, stop_each_turn: bool) -> (&'static str, Vec<&'static str>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let cwd = std::env::temp_dir();
-        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, next: Some(rx), idle_limit: Duration::from_millis(100) };
+        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, next: Some(rx), idle_limit: Duration::from_millis(100), prefs: SessionPrefs::default() };
         let stops = Mutex::new(Vec::new());
         let turns = Mutex::new(Vec::new());
         let remaining = Mutex::new(messages.into_iter());

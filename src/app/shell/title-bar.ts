@@ -1,19 +1,21 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { AgentBackend } from '../core/backend';
 import { fmtTokens, fmtUsd } from '../core/format';
 import { IS_MAC } from '../core/keys';
-import { AGENT_META } from '../core/protocol';
-import { Run, RunsService } from '../core/runs.service';
+import { estimateCost } from '../core/pricing';
+import { RunsService } from '../core/runs.service';
 import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
-import { AgentAvatar } from './agent-avatar';
 
-/** Repository and branch on the left, what each live agent is doing on the right. */
+/**
+ * The app's own title bar: project, branch and conversation on the left, cost and the
+ * side panel toggle on the right, then the window buttons (Windows and Linux).
+ */
 @Component({
   selector: 'tg-title-bar',
-  imports: [AgentAvatar],
   template: `
     <header class="titlebar" data-tauri-drag-region [class.mac]="isMac">
-      <span class="brand" data-tauri-drag-region>TG Studio</span>
+      <span class="brand-mark" aria-hidden="true" data-tauri-drag-region>TG</span>
       @if (editing()) {
         <form class="repo-edit" (submit)="$event.preventDefault(); apply()">
           <input class="mono" aria-label="Thư mục làm việc" [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown.escape)="cancelEdit()" spellcheck="false" />
@@ -21,59 +23,69 @@ import { AgentAvatar } from './agent-avatar';
           <button class="btn ghost sm" type="button" (click)="cancelEdit()">Hủy</button>
         </form>
       } @else {
-        <button class="repo" (click)="startEdit()" [title]="workspace.repo()?.root ?? workspace.folder()">
-          @if (workspace.repo(); as r) {
-            <strong>{{ r.name }}</strong>
-            <span class="dim">/</span>
-            <span class="mono branch">{{ r.branch ?? '(HEAD tách rời)' }}</span>
-          } @else {
-            <span class="mono ellipsis">{{ workspace.folder() || 'Nhập đường dẫn…' }}</span>
-            @if (workspace.folder()) { <span class="tag warn">không phải repo Git</span> }
-          }
-          @if (workspace.project()?.git === 'no_commits') { <span class="tag warn">chưa có commit</span> }
-        </button>
+        <nav class="crumbs" aria-label="Vị trí" data-tauri-drag-region>
+          <button class="crumb-btn" (click)="startEdit()" [title]="(workspace.repo()?.root ?? workspace.folder()) || 'Nhập đường dẫn'">
+            @if (workspace.repo(); as r) {
+              <span>{{ r.name }}</span>
+              <span class="branch mono">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg>{{ r.branch ?? 'HEAD tách rời' }}
+              </span>
+            } @else if (workspace.folder()) {
+              <span class="ellipsis">{{ folderName() }}</span>
+              <span class="tag warn">không phải repo Git</span>
+            } @else {
+              <span class="dim">TG Studio</span>
+            }
+            @if (workspace.project()?.git === 'no_commits') { <span class="tag warn">chưa có commit</span> }
+          </button>
+          @if (title(); as t) { <span class="crumb-sep" aria-hidden="true">/</span><span class="crumb-title ellipsis" [title]="t">{{ t }}</span> }
+        </nav>
       }
-      <button class="btn ghost sm" (click)="pick()">Mở thư mục</button>
       @if (workspace.folderError(); as e) { <span class="error-text ellipsis" role="alert" [title]="e">{{ e }}</span> }
       <span class="spacer" data-tauri-drag-region></span>
+      @if (cost(); as c) { <span class="tb-cost mono" title="Chi phí của cuộc trò chuyện này">{{ c }}</span> }
       @if (ui.screen() === 'chat') {
-        <button class="btn ghost sm" [class.on]="ui.sideOpen()" [attr.aria-pressed]="ui.sideOpen()" (click)="ui.sideOpen.set(!ui.sideOpen())">Tệp &amp; thay đổi</button>
+        <button class="icon-btn" [class.on]="ui.sideOpen()" [attr.aria-pressed]="ui.sideOpen()" aria-label="Tệp và thay đổi" title="Tệp và thay đổi" (click)="ui.sideOpen.set(!ui.sideOpen())">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+        </button>
       }
-      <div class="presence">
-        @for (r of live(); track r.id) {
-          <button class="chip" [style.--agent]="meta[r.agent].color" [class.attention]="r.permissions.length" (click)="runs.selectedId.set(r.id)">
-            <tg-agent-avatar [agent]="r.agent" [size]="16" />
-            {{ state(r) }}
-            @if (r.usage) { <span class="dim">· {{ tok(r.usage.inputTokens + r.usage.cachedInputTokens + r.usage.outputTokens) }}</span> }
-            @if (r.usage?.costUsd != null) { <span class="dim">{{ usd(r.usage!.costUsd) }}</span> }
-          </button>
-        }
-      </div>
+      @if (!isMac) {
+        <div class="win-controls">
+          <button aria-label="Thu nhỏ" (click)="win('minimize')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+          <button aria-label="Phóng to" (click)="win('maximize')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg></button>
+          <button class="close" aria-label="Đóng" (click)="win('close')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+        </div>
+      }
     </header>
   `,
 })
 export class TitleBar {
+  private readonly backend = inject(AgentBackend);
   protected readonly runs = inject(RunsService);
   protected readonly workspace = inject(WorkspaceService);
   protected readonly ui = inject(UiService);
   protected readonly isMac = IS_MAC;
-  protected readonly meta = AGENT_META;
-  protected readonly tok = fmtTokens;
-  protected readonly usd = fmtUsd;
   protected readonly editing = signal(false);
   protected readonly draft = signal('');
-  protected readonly live = computed(() => this.runs.runs().filter((r) => r.status === 'running'));
+  protected readonly folderName = computed(() => this.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? this.workspace.folder());
+  protected readonly title = computed(() => {
+    if (this.ui.screen() !== 'chat') return null;
+    const r = this.runs.selected();
+    return r ? r.prompt.split('\n')[0] : 'Trò chuyện mới';
+  });
+  /** Cost and tokens of the open conversation. */
+  protected readonly cost = computed(() => {
+    const r = this.runs.selected();
+    if (!r || this.ui.screen() !== 'chat') return null;
+    const all = this.runs.runs().filter((x) => (r.group ? x.group === r.group : x.thread === r.thread) && x.usage);
+    if (!all.length) return null;
+    const usd = all.reduce((n, x) => n + (x.usage!.costUsd ?? estimateCost(x.agent, x.usage!, x.startedAt) ?? 0), 0);
+    const tok = all.reduce((n, x) => n + x.usage!.inputTokens + x.usage!.cachedInputTokens + x.usage!.outputTokens, 0);
+    return `${fmtUsd(usd)} · ${fmtTokens(tok)} tok`;
+  });
 
-  protected state(r: Run): string {
-    if (r.permissions.length) return 'cần bạn';
-    const a = this.runs.activity()[r.id];
-    if (a && !a.done) return a.editing ? 'đang sửa' : 'đang đọc';
-    return 'đang chạy';
-  }
-
-  protected async pick(): Promise<void> {
-    await this.workspace.pickFolder();
-    if (!this.workspace.folderError()) this.editing.set(false);
+  protected win(action: 'minimize' | 'maximize' | 'close'): void {
+    void this.backend.windowAction(action).catch((e) => console.warn('Không điều khiển được cửa sổ', e));
   }
 
   protected cancelEdit(): void {

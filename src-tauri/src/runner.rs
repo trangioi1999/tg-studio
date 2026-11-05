@@ -110,6 +110,7 @@ pub async fn start_agent(
     thread: Option<String>,
     resume_from: Option<String>,
     scope: Option<String>,
+    prefs: Option<crate::options::SessionPrefs>,
 ) -> Result<String, String> {
     let unsupported = || format!("{} chưa chạy được ở chế độ Chỉ đọc trong bản này.", agent.display_name());
     if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
@@ -128,6 +129,9 @@ pub async fn start_agent(
             args = agent.resume_args(args, &session);
         }
     }
+    // Model and effort go right after the first word (`-p` / `exec`), before any subcommand or prompt.
+    let flags = crate::options::headless_flags(agent, &prefs.unwrap_or_default());
+    if !flags.is_empty() { args.splice(1..1, flags); }
     // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
     if agent == AgentKind::Claude {
         if let Some(config) = crate::mcp::claude_config(&crate::mcp::load(&app.state::<Store>())) {

@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { AgentBackend, SettingKey } from './backend';
 import { AgentsService } from './agents.service';
 import { MockBackend } from './mock-backend';
@@ -84,5 +85,39 @@ describe('AgentsService', () => {
     expect(calls).toBe(1);
     backend.finish([]);
     await first;
+  });
+});
+
+describe('AgentsService model picks', () => {
+  let service: AgentsService;
+  let backend: MockBackend;
+
+  beforeEach(() => {
+    localStorage.removeItem('tg.prefs');
+    backend = new MockBackend();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    service = TestBed.inject(AgentsService);
+  });
+
+  it('asks each agent once and names the picked model', async () => {
+    const spy = vi.spyOn(backend, 'agentOptions');
+    await service.loadOptions('claude', '/repo');
+    await service.loadOptions('claude', '/repo');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(service.prefsFor('claude')).toBeNull();
+    expect(service.modelLabel('claude')).toBeNull();
+    service.setPref('claude', { model: 'claude-opus-4-6' });
+    expect(service.prefsFor('claude')).toEqual({ model: 'claude-opus-4-6', effort: null });
+    expect(service.modelLabel('claude')).toBe('Opus 4.6');
+    expect(JSON.parse(localStorage.getItem('tg.prefs')!)).toEqual({ claude: { model: 'claude-opus-4-6', effort: null } });
+  });
+
+  it('can retry after the agent did not answer', async () => {
+    const spy = vi.spyOn(backend, 'agentOptions').mockRejectedValueOnce(new Error('timeout'));
+    await service.loadOptions('codex', null);
+    expect(service.options()['codex']).toBe('error');
+    await service.loadOptions('codex', null);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(typeof service.options()['codex']).toBe('object');
   });
 });
