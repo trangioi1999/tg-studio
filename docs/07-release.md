@@ -74,3 +74,24 @@ Installer: dùng **NSIS** (`.exe`) làm mặc định cho người dùng cuối;
 - [ ] Bản Windows: ký; cài trên máy sạch, không cảnh báo đỏ
 - [ ] Cập nhật từ bản trước lên bản mới thành công
 - [ ] Release notes; chuyển draft → published
+
+## 8. Trang tải cho anh em (Cloudflare Pages)
+
+Repo riêng tư nên không dùng GitHub Pages hay link Release được: người tải phải có quyền vào repo. Workflow **Download site** (`.github/workflows/site.yml`) build bộ cài Windows và macOS (universal: chạy trên cả Intel và Apple Silicon) trên GitHub Actions rồi đẩy lên Cloudflare Pages **chỉ** trang tải (`site/`), ảnh giao diện (`docs/ui-review/`), logo agent và bộ cài. Source không rời GitHub.
+
+**Làm một lần**
+1. Tạo tài khoản Cloudflare (miễn phí). Lấy **Account ID** ở trang Workers & Pages (cột phải).
+2. My Profile → API Tokens → Create Token → mẫu **Edit Cloudflare Workers**, hoặc Custom token với quyền **Account → Cloudflare Pages → Edit**. Chép token.
+3. GitHub repo → Settings → Secrets and variables → Actions → New repository secret:
+   - `CLOUDFLARE_API_TOKEN`: token vừa tạo
+   - `CLOUDFLARE_ACCOUNT_ID`: Account ID
+   - (tuỳ chọn) tab Variables: `CF_PAGES_PROJECT` nếu muốn tên khác `tg-studio`.
+4. Actions → **Download site** → Run workflow. Lần đầu workflow tự tạo project Pages; **không** tạo project bằng nút "Connect to Git" của Cloudflare, vì máy build của Cloudflare chạy Linux, không build được bộ cài Windows/macOS và phải cấp cho Cloudflare quyền đọc repo riêng tư. Xong, trang ở `https://tg-studio.pages.dev` (hoặc tên project bạn đặt).
+
+**Mỗi lần có bản mới:** chạy lại workflow bằng tay, hoặc đẩy tag `vX.Y.Z` (cùng lúc workflow Release tạo bản nháp trên GitHub). Trang tự nhận ra máy Windows hay Mac và đưa bản tương ứng lên trước. Bộ cài được nén thành `.zip` (trình duyệt và bộ lọc mail hay chặn `.exe` chưa ký số). Link cố định `downloads/TG-Studio-latest-windows-x64-setup.zip` luôn trỏ bản mới nhất; trang tự đọc phiên bản và dung lượng từ `version.json`.
+
+**Chỉ cho người trong nhóm tải:** Cloudflare Zero Trust → Access → Applications → Add → Self-hosted, domain `tg-studio.pages.dev`, policy **Allow** theo danh sách email (gói Free tới 50 người). Người tải nhập email, nhận mã đăng nhập một lần. Không bật Access thì ai có link đều tải được (source vẫn không lộ).
+
+Bản macOS chưa ký số và chưa notarize: lần đầu mở, chuột phải → Open, hoặc System Settings → Privacy & Security → Open Anyway. Nếu job macOS lỗi, workflow vẫn đăng bản Windows và trang ghi "macOS: chưa có bản".
+
+Giới hạn của Pages: mỗi tệp tối đa 25 MiB; zip Windows khoảng 7 MiB, zip macOS (universal) khoảng 10–15 MiB.
