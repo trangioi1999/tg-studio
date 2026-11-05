@@ -9,6 +9,9 @@ export interface ConsoleLine {
   label?: string;
 }
 
+export const MESSAGE_KEY = 'message';
+export const FINAL_KEY = 'message-final';
+
 type Json = Record<string, unknown>;
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
@@ -32,6 +35,14 @@ export function describeLine(agent: AgentId, raw: string): ConsoleLine | null {
   const type = str(v['type']) ?? '';
 
   if (agent === 'claude') {
+    if (type === 'stream_event') {
+      const event = obj(v['event']);
+      const delta = obj(event?.['delta']);
+      if (event?.['type'] === 'content_block_delta' && delta?.['type'] === 'text_delta' && typeof delta['text'] === 'string') {
+        return { text: delta['text'], tone: 'text', key: MESSAGE_KEY };
+      }
+      return null;
+    }
     if (type === 'rate_limit_event') return null;
     if (type === 'system' && (v['subtype'] === 'hook_started' || v['subtype'] === 'hook_response')) return null;
     if (type === 'assistant') {
@@ -44,7 +55,11 @@ export function describeLine(agent: AgentId, raw: string): ConsoleLine | null {
           if (block['type'] === 'tool_use') return `› ${str(block['name']) ?? 'tool'} ${summarizeInput(block['input'])}`;
           return '';
         }).filter(Boolean);
-        if (parts.length) return { text: parts.join('\n'), tone: parts[0].startsWith('›') ? 'tool' : 'text' };
+        if (parts.length) return {
+          text: parts.join('\n'),
+          tone: parts[0].startsWith('›') ? 'tool' : 'text',
+          ...(content.every((c) => obj(c)?.['type'] === 'text') ? { key: FINAL_KEY } : {}),
+        };
       }
       return null;
     }
@@ -87,4 +102,22 @@ function summarizeInput(input: unknown): string {
   if (!o) return '';
   const first = str(o['file_path']) ?? str(o['path']) ?? str(o['command']) ?? str(o['pattern']);
   return first ? first.slice(0, 120) : '';
+}
+
+/** Streamed chunks join their message; its final copy seals it without duplication. */
+export function addLine(lines: ConsoleLine[], line: ConsoleLine | null): ConsoleLine[] {
+  if (!line) return lines;
+  const last = lines.at(-1);
+  if (line.key === FINAL_KEY) {
+    if (last?.key === MESSAGE_KEY && last.text.trim().endsWith(line.text.trim())) {
+      const { key, ...sealed } = last;
+      return [...lines.slice(0, -1), sealed];
+    }
+    const { key, ...final } = line;
+    return [...lines, final];
+  }
+  if (line.key === MESSAGE_KEY && last?.key === MESSAGE_KEY) {
+    return [...lines.slice(0, -1), { ...last, text: last.text + line.text }];
+  }
+  return [...lines, line];
 }

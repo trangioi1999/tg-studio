@@ -1,5 +1,6 @@
-import { Component, ElementRef, afterRenderEffect, computed, inject, input } from '@angular/core';
+import { Component, DestroyRef, ElementRef, afterRenderEffect, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { marked } from 'marked';
+import { nextReveal } from '../core/reveal';
 
 /**
  * An agent's message as rendered Markdown. Angular sanitizes the HTML bound to
@@ -8,15 +9,37 @@ import { marked } from 'marked';
  */
 @Component({
   selector: 'tg-markdown',
-  host: { class: 'md', '(click)': 'onClick($event)' },
+  host: { class: 'md', '(click)': 'onClick($event)', '[class.revealing]': 'shown().length < text().length' },
   template: `<div [innerHTML]="html()"></div>`,
 })
 export class Markdown {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly text = input.required<string>();
-  protected readonly html = computed(() => renderMarkdown(this.text()));
+  readonly animate = input(false);
+  protected readonly shown = signal('');
+  protected readonly html = computed(() => renderMarkdown(this.shown()));
+  private frame: number | null = null;
+  private lastFrameTime = 0;
 
   constructor() {
+    effect(() => {
+      const text = this.text();
+      const animate = this.animate();
+      const shown = untracked(this.shown);
+      if (!text.startsWith(shown) || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        this.cancelFrame();
+        this.shown.set(text);
+      } else if (this.frame !== null || animate) {
+        if (shown !== text && this.frame === null) {
+          this.lastFrameTime = performance.now();
+          this.frame = requestAnimationFrame(this.revealFrame);
+        }
+      } else {
+        this.shown.set(text);
+      }
+    });
+    inject(DestroyRef).onDestroy(() => this.cancelFrame());
+
     // The sanitizer drops buttons from bound HTML, so they are added to the DOM afterwards.
     afterRenderEffect(() => {
       this.html();
@@ -30,6 +53,20 @@ export class Markdown {
         pre.prepend(button);
       }
     });
+  }
+
+  private readonly revealFrame = (now: number): void => {
+    this.frame = null;
+    const text = this.text();
+    const next = nextReveal(this.shown().length, text, now - this.lastFrameTime);
+    this.lastFrameTime = now;
+    this.shown.set(text.slice(0, next));
+    if (next < text.length) this.frame = requestAnimationFrame(this.revealFrame);
+  };
+
+  private cancelFrame(): void {
+    if (this.frame !== null) cancelAnimationFrame(this.frame);
+    this.frame = null;
   }
 
   protected onClick(e: MouseEvent): void {
