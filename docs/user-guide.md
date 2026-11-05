@@ -6,12 +6,13 @@ TG Studio điều phối các agent lập trình (Claude Code, Codex, Gemini CLI
 
 **Windows:** chạy `TG-Studio_x.y.z_x64-setup.exe`. Bản chưa ký số sẽ hiện cảnh báo SmartScreen: bấm *More info* → *Run anyway*. Windows 10 cần WebView2; nếu máy chưa có, bộ cài tự tải.
 
-**macOS:** mở tệp `.dmg`, kéo TG Studio vào Applications. Bản chưa ký số: lần đầu chuột phải vào app → *Open*.
+**macOS:** mở tệp `.dmg`, kéo TG Studio vào Applications. Bản chưa ký số: lần đầu chuột phải vào app → *Open*. Nếu macOS báo "app bị hỏng" hoặc không mở được (thường gặp khi tải qua trình duyệt hay chat), chạy một lần trong Terminal: `xattr -cr "/Applications/TG Studio.app"`. Bản trên trang tải là universal (Mac Intel và Apple Silicon); bản `…_aarch64.dmg` build trên máy chỉ chạy trên Apple Silicon.
 
 **Cần thêm:**
 - Ít nhất một agent CLI, ví dụ `npm i -g @anthropic-ai/claude-code`.
 - Git, nếu muốn dùng chế độ Sửa code.
 - Node.js (có `npx`), để lần đầu chạy Sửa code app tải adapter ACP của Claude/Codex.
+- Nên cài sẵn adapter để Sửa code không phải tải qua `npx` mỗi lần mở phiên: `npm i -g @agentclientprotocol/claude-agent-acp@0.100.0 @agentclientprotocol/codex-acp@2.5.0`.
 
 ## 2. Lần đầu mở app
 

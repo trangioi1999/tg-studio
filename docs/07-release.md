@@ -75,12 +75,12 @@ Installer: dùng **NSIS** (`.exe`) làm mặc định cho người dùng cuối;
 - [ ] Cập nhật từ bản trước lên bản mới thành công
 - [ ] Release notes; chuyển draft → published
 
-## 8. Trang tải cho anh em (Cloudflare Pages)
+## 8. Trang tải cho anh em (Cloudflare Worker)
 
 Repo riêng tư nên không dùng GitHub Pages hay link Release được: người tải phải có quyền vào repo. Cách làm:
 
 - Workflow **Download site** (`.github/workflows/site.yml`) build bộ cài Windows và macOS (universal: chạy trên cả Intel và Apple Silicon) trên GitHub Actions, ghép trang tải (`site/`), ảnh giao diện (`docs/ui-review/`), logo agent và bộ cài (nén `.zip`), rồi đẩy sang nhánh **`site-dist`**, trong thư mục `site/`. Nhánh này chỉ có trang đã build, được thay mới mỗi lần chạy (không tích bộ cài cũ trong lịch sử).
-- **Cloudflare Pages** nối với repo trong dashboard và deploy nhánh `site-dist`. Máy build của Cloudflare không build bộ cài (nó chạy Linux), nên ở đó không có lệnh build nào.
+- **Cloudflare Worker** (cách đang dùng; Pages vẫn được) nối với repo trong dashboard và deploy nhánh `site-dist`. Máy build của Cloudflare không build bộ cài (nó chạy Linux), nên ở đó không có lệnh build nào.
 
 **Làm một lần trong Cloudflare.** Nhánh `site-dist` có `site/` và `wrangler.jsonc` (Worker chỉ phục vụ `site/` như tệp tĩnh), nên dùng được cả hai kiểu project:
 
@@ -94,12 +94,12 @@ Repo riêng tư nên không dùng GitHub Pages hay link Release được: ngư�
 
 Cả hai kiểu chỉ publish `site/`: source không có trên `site-dist`, và nếu lỡ build nhánh `main` thì `wrangler deploy` dừng vì `main` không có `wrangler.jsonc`. Chạy workflow (bước dưới) trước để nhánh `site-dist` có sẵn khi Cloudflare build lần đầu.
 
-**Mỗi lần có bản mới:** GitHub → Actions → **Download site** → Run workflow (hoặc đẩy tag `vX.Y.Z`). Workflow cập nhật `site-dist`, Cloudflare tự deploy. Trang ở `https://<tên-project>.pages.dev`.
+**Mỗi lần có bản mới:** GitHub → Actions → **Download site** → Run workflow (hoặc đẩy tag `vX.Y.Z`). Workflow cập nhật `site-dist`, Cloudflare tự deploy. Trang ở `https://<tên-project>.<subdomain>.workers.dev` (kiểu Worker; subdomain xem ở Workers & Pages → Settings) hoặc `https://<tên-project>.pages.dev` (kiểu Pages). Muốn tên miền riêng: Worker → Settings → Domains & Routes → Add → Custom domain.
 
 Trang tự nhận ra máy Windows hay Mac và đưa bản tương ứng lên trước. Bộ cài được nén thành `.zip` (trình duyệt và bộ lọc mail hay chặn bộ cài chưa ký số); link cố định `downloads/TG-Studio-latest-windows-x64-setup.zip` và `downloads/TG-Studio-latest-macos-universal.zip` luôn trỏ bản mới nhất, trang đọc phiên bản và dung lượng từ `version.json`.
 
-Bản macOS chưa ký số và chưa notarize: lần đầu mở, chuột phải → Open, hoặc System Settings → Privacy & Security → Open Anyway. Nếu job macOS lỗi, workflow vẫn đăng bản Windows và trang ghi "macOS: chưa có bản".
+Bản macOS chưa ký số và chưa notarize: lần đầu mở, chuột phải → Open, hoặc System Settings → Privacy & Security → Open Anyway. Tải qua trình duyệt thì macOS hay báo "app bị hỏng": chạy `xattr -cr "/Applications/TG Studio.app"` một lần. Nếu job macOS lỗi, workflow vẫn đăng bản Windows và trang ghi "macOS: chưa có bản".
 
-**Chỉ cho người trong nhóm tải:** Cloudflare Zero Trust → Access → Applications → Add → Self-hosted, domain của trang (`<tên-project>.pages.dev`), policy **Allow** theo danh sách email (gói Free tới 50 người). Người tải nhập email, nhận mã đăng nhập một lần.
+**Chỉ cho người trong nhóm tải:** Cloudflare Zero Trust → Access → Applications → Add → Self-hosted, domain của trang (`<tên-project>.<subdomain>.workers.dev` hoặc `.pages.dev`), policy **Allow** theo danh sách email (gói Free tới 50 người). Người tải nhập email, nhận mã đăng nhập một lần.
 
-Giới hạn của Pages: mỗi tệp tối đa 25 MiB; zip Windows khoảng 7 MiB, zip macOS (universal) khoảng 10–15 MiB.
+Giới hạn (Worker static assets và Pages như nhau): mỗi tệp tối đa 25 MiB; zip Windows khoảng 7 MiB, zip macOS (universal) khoảng 10–15 MiB.
