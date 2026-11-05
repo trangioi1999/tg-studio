@@ -3,7 +3,7 @@ import { vi } from 'vitest';
 import { MockBackend } from './mock-backend';
 import { AgentBackend, Unlisten } from './backend';
 import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from './protocol';
-import { Run, RunsService, isQuiet, recapOf } from './runs.service';
+import { Run, RunsService, isQuiet, recapOf, turnStart } from './runs.service';
 
 const usage: Usage = {
   inputTokens: 10,
@@ -547,6 +547,18 @@ describe('RunsService open sessions', () => {
     expect(service.runs()[0].lines.at(-1)).toEqual({ text: 'câu hai', tone: 'user' });
     backend.handler(liveEvent({ kind: 'exit', code: 0, data: { status: 'done' } }));
     expect(service.runs()[0].status).toBe('done');
+  });
+
+  it('times each question from when it was sent, not from the session start', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'started', atMs: 1000 }));
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'done' }, atMs: 5000 }));
+    backend.handler(liveEvent({ kind: 'user', line: 'câu hai', atMs: 90_000 }));
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'done' }, atMs: 93_000 }));
+    const run = service.runs()[0];
+    expect(run.turnAt).toBe(90_000);
+    expect(run.endedAt! - turnStart(run)).toBe(3000);
   });
 
   it('returns a stopped turn to the waiting state', async () => {
