@@ -24,6 +24,22 @@ pub struct Usage {
     pub cumulative: bool,
 }
 
+/// Usage of a live headless session (one Claude process, many questions). Each `result`
+/// has that turn's tokens and the process's running cost, so tokens add up and the cost is
+/// the latest one reported. The sum is always a running total for the run.
+#[derive(Debug, Default)]
+pub struct SessionTotals { input: u64, cached: u64, output: u64, cost: Option<f64> }
+
+impl SessionTotals {
+    pub fn add(&mut self, turn: &Usage) -> Usage {
+        self.input += turn.input_tokens;
+        self.cached += turn.cached_input_tokens;
+        self.output += turn.output_tokens;
+        if turn.cost_usd.is_some() { self.cost = turn.cost_usd; }
+        Usage { input_tokens: self.input, cached_input_tokens: self.cached, output_tokens: self.output, cost_usd: self.cost, source: turn.source, cumulative: true }
+    }
+}
+
 /// ACP usage_update reports context occupancy, not input/output token counts.
 /// Only a reported USD cost can be normalized; never guess token usage from `used`.
 pub fn parse_acp(update: &Value) -> Option<Usage> {
@@ -286,6 +302,34 @@ mod tests {
         assert_eq!((u.input_tokens, u.cached_input_tokens, u.output_tokens), (15, 100, 42));
         assert_eq!(u.cost_usd, Some(0.0123));
         assert!(u.cumulative);
+    }
+
+    /// One Claude process, two questions: each `result` has that turn's tokens and the
+    /// process's running cost. Partial-message `stream_event`s carry usage too; never counted.
+    #[test]
+    fn claude_ask_session_fixture_usage() {
+        let fixture = include_str!("../tests/fixtures/claude/2.1.318/ask-session.jsonl");
+        let turns: Vec<Usage> = fixture.lines().filter_map(|l| parse_line(AgentKind::Claude, l)).collect();
+        assert_eq!(turns.len(), 2, "mỗi câu đúng một usage");
+        let results: Vec<Value> = fixture.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|v| v["type"] == "result").collect();
+        let mut totals = SessionTotals::default();
+        let last = turns.iter().map(|u| totals.add(u)).last().unwrap();
+        let sum = |key: &str| results.iter().map(|r| n(&r["usage"][key])).sum::<u64>();
+        assert_eq!(last.input_tokens, sum("input_tokens") + sum("cache_creation_input_tokens"));
+        assert_eq!(last.cached_input_tokens, sum("cache_read_input_tokens"));
+        assert_eq!(last.output_tokens, sum("output_tokens"));
+        assert_eq!(last.cost_usd, results[1]["total_cost_usd"].as_f64());
+        assert!(last.cumulative);
+    }
+
+    #[test]
+    fn session_totals_keep_the_last_reported_cost() {
+        let turn = |tokens: u64, cost: Option<f64>| Usage { input_tokens: tokens, cached_input_tokens: tokens, output_tokens: tokens, cost_usd: cost, source: "reported", cumulative: true };
+        let mut totals = SessionTotals::default();
+        totals.add(&turn(1, Some(0.1)));
+        let both = totals.add(&turn(2, None));
+        assert_eq!((both.input_tokens, both.cached_input_tokens, both.output_tokens), (3, 3, 3));
+        assert_eq!(both.cost_usd, Some(0.1), "câu không báo chi phí giữ số trước");
     }
 
     #[test]

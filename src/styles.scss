@@ -777,9 +777,13 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .answer-actions { display: flex; gap: 2px; margin: -4px 0 0 -8px; opacity: 0.55; transition: opacity 0.12s; }
 .turn:hover .answer-actions, .answer-actions:focus-within { opacity: 1; }
 @keyframes tg-blink { 50% { opacity: 0; } }
-.md.typing > div > :last-child::after { content: ''; display: inline-block; width: 7px; height: 15px; margin-left: 3px; vertical-align: -2px; background: var(--run); animation: tg-blink 1s step-end infinite; }
+.md.typing > div > :last-child::after, .md.revealing > div > :last-child::after { content: ''; display: inline-block; width: 7px; height: 15px; margin-left: 3px; vertical-align: -2px; background: var(--run); animation: tg-blink 1s step-end infinite; }
 .md pre { position: relative; }
 .copy-code { position: absolute; top: 6px; right: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 6px; background: #16161b; color: var(--muted); font: 500 11.5px var(--font); cursor: pointer; opacity: 0; transition: opacity 0.12s; }
 .md pre:hover .copy-code, .copy-code:focus-visible, .copy-code.done { opacity: 1; }
 .copy-code:hover { color: var(--text); }
 .copy-code.done { color: var(--done); }
+
+@media (prefers-reduced-motion: reduce) {
+  .md.typing > div > :last-child::after, .md.revealing > div > :last-child::after { animation: none; }
+}

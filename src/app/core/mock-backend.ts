@@ -221,7 +221,8 @@ export class MockBackend extends AgentBackend {
 
   async start(agent: AgentId, prompt: string, _cwd?: string, _thread: string | null = null, _resumeFrom: string | null = null, _scope: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
-    const run = { agent, timers: [] as ReturnType<typeof setTimeout>[], active: true };
+    // Claude keeps one process for a whole Chỉ hỏi conversation, as the core does.
+    const run: MockRun = { agent, timers: [], active: true, open: agent === 'claude' };
     this.runs.set(runId, run);
     const emit = (partial: Partial<AgentEvent>, delay: number) => {
       run.timers.push(setTimeout(() => {
@@ -243,7 +244,7 @@ export class MockBackend extends AgentBackend {
     emit({ line: 'Dự án dùng **Angular 21** (đọc từ `package.json`). Phản hồi giả lập của mock mode:\n\n- Signal forms chính thức\n- Build nhanh hơn với esbuild\n- Không có breaking change đáng kể\n\n```json\n\"@angular/core\": \"21.2.20\"\n```' }, 1500);
     emit({ kind: 'usage', usage }, 1900);
     if (agent === 'claude') emit({ kind: 'limits', data: mockLimits() as unknown as AgentEvent['data'] }, 1950);
-    emit({ kind: 'exit', code: 0 }, 2100);
+    this.endTurn(runId, run, 2100);
     return runId;
   }
 

@@ -62,6 +62,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(project::OpenedProjects::default())
         .manage(runner::Runs::default())
+        .manage(runner::HeadlessSessions::default())
         .manage(acp_tasks::TaskRuns::default())
         .manage(acp_tasks::SessionInboxes::default())
         .manage(warm::WarmPool::default())

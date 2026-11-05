@@ -1,7 +1,7 @@
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
-import { ConsoleLine, describeLine } from './describe-line';
+import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from './describe-line';
 import { estimateCost } from './pricing';
 import { AGENT_IDS, AGENT_META, AccountLimits, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
@@ -439,7 +439,7 @@ export class RunsService {
         case 'log':
         case 'stderr': {
           const line = toConsoleLine(run.agent, e.kind, e.line);
-          return line ? { ...run, lines: [...run.lines, line].slice(-MAX_LINES) } : run;
+          return line ? { ...run, lines: addLine(run.lines, line).slice(-MAX_LINES) } : run;
         }
         case 'usage':
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
@@ -527,8 +527,6 @@ export class RunsService {
   }
 }
 
-const MESSAGE_KEY = 'message';
-
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -545,16 +543,6 @@ function toConsoleLine(agent: AgentId, kind: StoredRun['lines'][number]['kind'],
   if (kind === 'message') return { text: line, tone: 'text', key: MESSAGE_KEY };
   if (kind === 'user') return { text: line, tone: 'user' };
   return kind === 'log' ? describeLine(agent, line) : { text: line, tone: 'error' };
-}
-
-/** Streamed message chunks join the message line they continue. */
-function addLine(lines: ConsoleLine[], line: ConsoleLine | null): ConsoleLine[] {
-  if (!line) return lines;
-  const last = lines.at(-1);
-  if (line.key === MESSAGE_KEY && last?.key === MESSAGE_KEY) {
-    return [...lines.slice(0, -1), { ...last, text: last.text + line.text }];
-  }
-  return [...lines, line];
 }
 
 /** A tool call has one console line, updated in place as its status changes. */
