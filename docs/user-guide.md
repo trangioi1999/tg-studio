@@ -123,5 +123,5 @@ Bấm **Chẩn đoán** ở thanh trạng thái: app lưu một tệp JSON vào 
 | Nút Chạy xám | Đọc dòng gợi ý dưới ô giao việc: thiếu yêu cầu, thiếu agent, thư mục không phải repo Git, hoặc đã chạm ngân sách ngày |
 | Agent "chưa cài" dù đã cài | Mở lại app sau khi cài; bấm **Dò lại**. App lấy PATH từ login shell, nên CLI cài qua nvm/Homebrew vẫn thấy được |
 | Sửa code báo không tìm thấy adapter | Cần `npx` (Node.js) để tải `claude-agent-acp` / `codex-acp` lần đầu |
-| Kiro không chạy | Đăng nhập Kiro trong terminal trước (`kiro-cli login`) |
+| Kiro không chạy | Đăng nhập Kiro trong terminal trước (`kiro-cli login`; kiểm tra bằng `kiro-cli whoami`). Kiro chỉ dùng được với quyền **Sửa code**; chọn Kiro khi đang ở Chỉ hỏi thì app tự chuyển sang Sửa code |
 | Chi phí hiện "—" | Agent không tự báo chi phí: nhập bảng giá ở màn Usage |
