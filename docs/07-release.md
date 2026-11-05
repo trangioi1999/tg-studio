@@ -88,8 +88,8 @@ Repo riêng tư nên không dùng GitHub Pages hay link Release được: ngư�
    - (tuỳ chọn) tab Variables: `CF_PAGES_PROJECT` nếu muốn tên khác `tg-studio`.
 4. Actions → **Download site** → Run workflow. Lần đầu workflow tự tạo project Pages. Xong, trang ở `https://tg-studio.pages.dev` (hoặc tên project bạn đặt).
 
-**Mỗi lần có bản mới:** chạy lại workflow bằng tay, hoặc đẩy tag `vX.Y.Z` (cùng lúc workflow Release tạo bản nháp trên GitHub). Link cố định `downloads/TG-Studio-latest-windows-x64-setup.exe` luôn trỏ bản mới nhất; trang tự đọc phiên bản và dung lượng từ `version.json`.
+**Mỗi lần có bản mới:** chạy lại workflow bằng tay, hoặc đẩy tag `vX.Y.Z` (cùng lúc workflow Release tạo bản nháp trên GitHub). Bộ cài được nén thành `.zip` (trình duyệt và bộ lọc mail hay chặn `.exe` chưa ký số). Link cố định `downloads/TG-Studio-latest-windows-x64-setup.zip` luôn trỏ bản mới nhất; trang tự đọc phiên bản và dung lượng từ `version.json`.
 
 **Chỉ cho người trong nhóm tải:** Cloudflare Zero Trust → Access → Applications → Add → Self-hosted, domain `tg-studio.pages.dev`, policy **Allow** theo danh sách email (gói Free tới 50 người). Người tải nhập email, nhận mã đăng nhập một lần. Không bật Access thì ai có link đều tải được (source vẫn không lộ).
 
-Giới hạn của Pages: mỗi tệp tối đa 25 MiB; bộ cài hiện khoảng 7 MiB.
+Giới hạn của Pages: mỗi tệp tối đa 25 MiB; tệp zip hiện khoảng 7 MiB.

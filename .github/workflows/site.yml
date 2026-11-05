@@ -53,10 +53,13 @@ jobs:
           mkdir -p site/downloads site/ui-review site/agents
           cp -r docs/ui-review/. site/ui-review/
           cp public/agents/*.svg site/agents/
-          name="TG-Studio-${version}-windows-x64-setup.exe"
-          cp "$exe" "site/downloads/$name"
-          cp "$exe" site/downloads/TG-Studio-latest-windows-x64-setup.exe
-          bytes="$(stat -c%s "$exe")"
+          # Shipped as a zip, like the builds shared by hand: browsers and mail filters
+          # treat a bare unsigned .exe as suspicious.
+          name="TG-Studio-${version}-windows-x64-setup.zip"
+          cp "$exe" "dl/TG Studio ${version} Setup.exe"
+          (cd dl && zip -q -9 "../site/downloads/$name" "TG Studio ${version} Setup.exe")
+          cp "site/downloads/$name" site/downloads/TG-Studio-latest-windows-x64-setup.zip
+          bytes="$(stat -c%s "site/downloads/$name")"
           printf '{"version":"%s","date":"%s","commit":"%s","windows":{"file":"downloads/%s","bytes":%s}}\n' \
             "$version" "$(date -u +%F)" "${GITHUB_SHA::7}" "$name" "$bytes" > site/version.json
           ls -la site site/downloads
