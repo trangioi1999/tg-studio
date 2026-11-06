@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>TG Studio UI Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one app bar with three modes. Board = pannable canvas of artboards by flow; Review = verdict cards; Present = full-screen slideshow. */
+:root {
+  --bg: #0b0b0d; --canvas: #18181b; --panel: #111115; --raised: #1c1c21; --line: #26262d; --line-2: #36363f;
+  --fg: #ececee; --fg-2: #c4c4cc; --muted: #8e8e99; --faint: #6a6a74;
+  --run: #a3c0ff; --ok: #7fddb4; --ok-bg: rgba(111,211,168,.14); --fix: #f6a999; --fix-bg: rgba(242,155,139,.15); --wait: #e8b672;
+  --body: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 var(--body); overflow: hidden; }
+button, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+.app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+
+/* App bar */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--line); background: var(--bg); }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark { width: 28px; height: 28px; border-radius: 8px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font: 700 11px var(--body); flex: none; }
+.brand h1 { margin: 0; font: 600 16px/1.2 var(--body); letter-spacing: -0.01em; white-space: nowrap; }
+.brand small { display: block; color: var(--muted); font: 11.5px var(--mono); }
+.tabs { display: flex; padding: 3px; border-radius: 10px; background: var(--raised); }
+.tabs button { height: 30px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: #2c2c34; color: var(--fg); font-weight: 500; }
+.spacer { flex: 1; }
+.counts { display: flex; gap: 10px; font: 12px var(--mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.counts b { color: var(--fg); font-weight: 500; }
+.btn { height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--line-2); background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.btn:hover { background: var(--raised); }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; }
+.btn.primary:hover { background: #fff; }
+.kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line-2); border-radius: 5px; padding: 0 5px; }
+
+/* Board: pannable canvas */
+.board { position: relative; overflow: hidden; background-color: var(--canvas); background-image: radial-gradient(#2a2a30 1px, transparent 1px); background-size: 24px 24px; cursor: grab; touch-action: none; }
+.board.dragging { cursor: grabbing; }
+.stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.row-title { position: absolute; width: 360px; white-space: normal; font: 600 64px/1.1 var(--body); letter-spacing: -0.02em; color: var(--fg); white-space: nowrap; }
+.row-title small { display: block; margin-top: 12px; font: 400 26px/1.35 var(--body); color: var(--muted); letter-spacing: 0; }
+.artboard { position: absolute; display: flex; flex-direction: column; gap: 10px; }
+.ab-head { display: flex; align-items: center; gap: 12px; font: 500 26px var(--body); color: var(--fg-2); white-space: nowrap; }
+.ab-head .num { font: 500 22px var(--mono); color: var(--faint); }
+.ab-head .dot { width: 12px; height: 12px; }
+.ab-head .play { margin-left: auto; height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--fg-2); font: 500 16px var(--body); cursor: pointer; }
+.ab-head .play:hover { color: var(--fg); background: var(--raised); }
+.ab-frame { display: block; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: #000; overflow: hidden; cursor: zoom-in; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+.ab-frame img { display: block; width: 100%; height: auto; pointer-events: none; user-select: none; }
+.artboard[data-s="ok"] .ab-frame { border-color: var(--ok); }
+.artboard[data-s="fix"] .ab-frame { border-color: var(--fix); }
+.zoom { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); display: flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--panel); cursor: default; }
+.zoom button { width: 32px; height: 30px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; }
+.zoom button:hover { background: var(--raised); }
+.zoom output { min-width: 52px; text-align: center; font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.zoom .fit { width: auto; padding: 0 10px; font-size: 12.5px; }
+.hint { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); padding: 6px 10px; border-radius: 8px; background: rgba(17,17,21,.85); color: var(--muted); font-size: 12px; cursor: default; }
+
+/* Review list */
+.review { overflow: auto; }
+.review .wrap { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 64px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+.chip { height: 28px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--raised); color: var(--fg); border-color: var(--muted); }
+.flow { margin-bottom: 36px; }
+.flow > h2 { margin: 0 0 4px; font: 600 20px/1.3 var(--body); text-wrap: balance; }
+.flow > p { margin: 0 0 14px; color: var(--muted); max-width: 70ch; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px; }
+.card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.card[data-s="ok"] { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.card[data-s="fix"] { border-color: color-mix(in srgb, var(--fix) 55%, var(--line)); }
+.shot { display: block; width: 100%; padding: 0; border: 0; border-bottom: 1px solid var(--line); background: #000; cursor: zoom-in; aspect-ratio: 16 / 10; max-width: 100%; }
+.shot img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+.cbody { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.head { display: flex; align-items: baseline; gap: 10px; }
+.num { font: 500 12px var(--mono); color: var(--faint); }
+.head h3 { margin: 0; font: 600 15px/1.35 var(--body); }
+.checks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--fg-2); }
+.checks li { display: flex; gap: 8px; }
+.checks li::before { content: "□"; color: var(--faint); flex: none; }
+.verdict { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.verdict button { flex: 1; height: 32px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; cursor: pointer; font-size: 13px; }
+.verdict button:hover { background: var(--raised); }
+.verdict button[aria-pressed="true"][data-v="ok"] { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.verdict button[aria-pressed="true"][data-v="fix"] { background: var(--fix-bg); border-color: var(--fix); color: var(--fix); font-weight: 600; }
+textarea.note { width: 100%; height: 36px; resize: vertical; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font-size: 13px; }
+textarea.note::placeholder { color: var(--faint); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; display: inline-block; }
+.dot[data-s="ok"] { background: var(--ok); } .dot[data-s="fix"] { background: var(--fix); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* Present */
+.present { position: fixed; inset: 0; z-index: 40; background: #050506; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.slide { position: relative; min-height: 0; overflow: hidden; }
+.slide img { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 20px); bottom: 12px; left: max(20px, env(safe-area-inset-left, 0px)); right: max(20px, env(safe-area-inset-right, 0px)); width: calc(100% - 40px); height: calc(100% - 32px - env(safe-area-inset-top, 0px)); object-fit: contain; filter: drop-shadow(0 24px 60px rgba(0,0,0,.6)); transition: opacity .35s ease; cursor: pointer; }
+.slide img.fading { opacity: 0; }
+.caption { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: center; padding: 14px max(20px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(20px, env(safe-area-inset-left, 0px)); border-top: 1px solid var(--line); background: var(--panel); }
+.cap-text { min-width: 0; }
+.cap-flow { font: 500 12px var(--mono); color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
+.cap-title { margin: 2px 0 6px; font: 600 20px/1.3 var(--body); }
+.cap-checks { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0; padding: 0; list-style: none; color: var(--fg-2); font-size: 13px; }
+.cap-checks li::before { content: "• "; color: var(--faint); }
+.controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.controls select { height: 34px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--raised); }
+.timer { grid-column: 1 / -1; height: 3px; border-radius: 3px; background: var(--raised); overflow: hidden; }
+.timer i { display: block; height: 100%; width: 0; background: var(--run); }
+.pager { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: max(20px, env(safe-area-inset-right, 0px)); font: 12px var(--mono); color: var(--muted); background: rgba(17,17,21,.85); padding: 4px 10px; border-radius: 8px; }
+
+/* Lightbox (review) */
+.lightbox { position: fixed; inset: 0; z-index: 30; background: rgba(5,5,7,.94); display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; padding: calc(env(safe-area-inset-top, 0px) + 12px) max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px)); }
+.lb-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lb-bar h3 { margin: 0; font: 600 15px var(--body); flex: 1; min-width: 0; }
+.lb-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; min-height: 0; }
+.lb-img { min-height: 0; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: #000; }
+.lb-img img { display: block; width: 100%; height: auto; }
+.lb-side { overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); transform: translateX(-50%); z-index: 50; padding: 10px 16px; border-radius: 10px; background: var(--fg); color: var(--bg); font-weight: 600; }
+@media (max-width: 760px) {
+  .counts { display: none; }
+  .lb-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .caption { grid-template-columns: minmax(0, 1fr); }
+  .controls { justify-content: flex-start; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .slide img { transition: none; } }
+</style>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">TG</span>
+      <div><h1>TG Studio · Giao diện</h1><small>16 màn hình · 5 luồng · ảnh chụp chế độ mock</small></div>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Chế độ xem">
+      <button role="tab" id="tab-board" aria-selected="true" aria-controls="board" type="button">Toàn cảnh</button>
+      <button role="tab" id="tab-review" aria-selected="false" aria-controls="review" type="button">Review</button>
+    </div>
+    <span class="spacer"></span>
+    <div class="counts" aria-label="Tiến độ review"><span><b id="c-ok">0</b> đạt</span><span><b id="c-fix">0</b> cần sửa</span><span><b id="c-todo">16</b> chưa xem</span></div>
+    <button class="btn" id="export" type="button">Chép kết quả</button>
+    <button class="btn primary" id="present" type="button">▶ Trình chiếu</button>
+  </header>
+
+  <section class="board" id="board" role="tabpanel" aria-labelledby="tab-board" tabindex="0">
+    <div class="stage" id="stage"></div>
+    <div class="hint">Kéo để di chuyển · cuộn hoặc Ctrl + cuộn để phóng to · bấm một màn để xem lớn</div>
+    <div class="zoom" role="group" aria-label="Thu phóng">
+      <button type="button" id="z-out" aria-label="Thu nhỏ">−</button>
+      <output id="z-val">100%</output>
+      <button type="button" id="z-in" aria-label="Phóng to">+</button>
+      <button type="button" id="z-fit" class="fit">Vừa màn hình</button>
+    </div>
+  </section>
+
+  <section class="review" id="review" role="tabpanel" aria-labelledby="tab-review" hidden>
+    <div class="wrap">
+      <div class="filters" role="group" aria-label="Lọc theo trạng thái">
+        <button class="chip" data-f="all" aria-pressed="true" type="button">Tất cả</button>
+        <button class="chip" data-f="todo" aria-pressed="false" type="button">Chưa xem</button>
+        <button class="chip" data-f="fix" aria-pressed="false" type="button">Cần sửa</button>
+        <button class="chip" data-f="ok" aria-pressed="false" type="button">Đạt</button>
+        <button class="chip" id="reset" type="button">Xoá đánh dấu</button>
+      </div>
+      <div id="flows"></div>
+    </div>
+  </section>
+</div>
+
+<div class="present" id="pr" hidden role="dialog" aria-modal="true" aria-label="Trình chiếu">
+  <div class="slide">
+    <img id="pr-img" alt="">
+    <span class="pager" id="pr-pager"></span>
+  </div>
+  <div class="caption">
+    <div class="cap-text">
+      <div class="cap-flow" id="pr-flow"></div>
+      <div class="cap-title" id="pr-title"></div>
+      <ul class="cap-checks" id="pr-checks"></ul>
+    </div>
+    <div class="controls">
+      <button class="btn" id="pr-prev" type="button" aria-label="Màn trước">←</button>
+      <button class="btn primary" id="pr-toggle" type="button">❚❚ Tạm dừng</button>
+      <button class="btn" id="pr-next" type="button" aria-label="Màn sau">→</button>
+      <label class="sr" for="pr-speed">Thời gian mỗi màn</label>
+      <select id="pr-speed">
+        <option value="3">3 giây</option>
+        <option value="5" selected>5 giây</option>
+        <option value="8">8 giây</option>
+        <option value="12">12 giây</option>
+      </select>
+      <button class="btn" id="pr-close" type="button">Thoát <span class="kbd">Esc</span></button>
+    </div>
+    <div class="timer" aria-hidden="true"><i id="pr-timer"></i></div>
+  </div>
+</div>
+
+<div class="lightbox" id="lb" hidden role="dialog" aria-modal="true" aria-labelledby="lb-title">
+  <div class="lb-bar">
+    <h3 id="lb-title"></h3>
+    <button class="btn" id="lb-prev" type="button" aria-label="Màn trước">←</button>
+    <button class="btn" id="lb-next" type="button" aria-label="Màn sau">→</button>
+    <button class="btn" id="lb-close" type="button">Đóng <span class="kbd">Esc</span></button>
+  </div>
+  <div class="lb-main">
+    <div class="lb-img"><img id="lb-img" alt=""></div>
+    <div class="lb-side" id="lb-side"></div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const FLOWS = [
+  { id: 'start', title: 'Bắt đầu', desc: 'Mở app lần đầu và vào một dự án.', screens: [
+    { id: '01-welcome', title: 'Màn chào khi chưa mở dự án', checks: ['Một nút chính duy nhất: Mở thư mục dự án', 'Logo thật của 4 agent, nhãn Sẵn sàng / Chép lệnh cài', 'Thanh tiêu đề riêng của app, có nút cửa sổ'] },
+    { id: '02-new-chat', title: 'Trò chuyện mới trong dự án', checks: ['Tiêu đề "Hôm nay làm gì với …?" và trạng thái repo Git + nhánh', 'Ô chat lớn ở giữa, 3 chip: agent, quyền, nơi làm việc', 'Gợi ý việc hay làm bấm được'] },
+  ]},
+  { id: 'composer', title: 'Ô chat', desc: 'Chọn ai làm, được làm gì và làm ở đâu.', screens: [
+    { id: '03-agent-model', title: 'Chọn agent, model và mức suy nghĩ', checks: ['Agent bên trái, model bên phải, có mô tả ngắn', 'Mức suy nghĩ: Mặc định / Thấp / Vừa / Cao', 'Cuối menu: Giao cho nhiều agent, Theo các bước'] },
+    { id: '04-parallel', title: 'Giao cho nhiều agent', checks: ['Tick nhiều agent, mỗi agent hiện model đang chọn', 'Chip đổi thành logo chồng nhau + "N agent · so sánh"'] },
+    { id: '05-permissions', title: '3 quyền cho mọi agent', checks: ['Chỉ hỏi / Sửa code · hỏi trước / Tự động, mỗi mục có một dòng giải thích', 'Tự động ghi rõ git push / merge vẫn bị chặn'] },
+    { id: '06-place', title: 'Làm ở đâu: thư mục hiện tại hoặc bản nháp từ nhánh', checks: ['Thư mục hiện tại là mặc định, có giải thích Giữ / Hoàn tác', 'Danh sách nhánh của repo, đánh dấu nhánh đang mở', 'Cảnh báo vàng khi chọn Tự động + Thư mục hiện tại'] },
+    { id: '12-auto-warning', title: 'Tự động + Thư mục hiện tại', checks: ['Dòng cảnh báo vàng ngay dưới ô chat', 'Chip quyền hiện biểu tượng tia sét màu vàng'] },
+  ]},
+  { id: 'working', title: 'Agent làm việc', desc: 'Từ lúc gửi yêu cầu tới lúc duyệt thay đổi.', screens: [
+    { id: '07-approval-status', title: 'Agent xin phép chạy lệnh', checks: ['Thẻ duyệt vàng ghim ngay trên ô chat', 'Dòng trạng thái vàng "đang chờ bạn" + Dừng (Esc)', 'Cột trái: nhãn vàng Chờ duyệt; icon Giám sát có số 1'] },
+    { id: '08-running-status', title: 'Agent đang làm', checks: ['Dòng trạng thái xanh: tên agent, 3 chấm, đồng hồ, việc đang làm', 'Nhật ký làm việc mở và chạy trực tiếp', 'Nút gửi đổi thành nút dừng'] },
+    { id: '09-done-changes', title: 'Agent làm xong, có thay đổi', checks: ['Câu trả lời Markdown; nhật ký thu gọn còn 1 dòng', 'Thẻ "N tệp đã đổi · đã ở trong code của bạn"', 'Editor có thanh Hoàn tác / Giữ cho từng đoạn', 'Chép / Chép Markdown dưới câu trả lời'] },
+  ]},
+  { id: 'ask', title: 'Hỏi đáp', desc: 'Câu hỏi Chỉ hỏi: đọc, trả lời, không sửa tệp.', screens: [
+    { id: '10-question-typing', title: 'Agent đang trả lời', checks: ['Con trỏ nhấp nháy ở cuối câu đang viết', 'Dòng trạng thái "đang trả lời" ngay trên ô chat'] },
+    { id: '11-question-copy', title: 'Chép câu trả lời và khối code', checks: ['Nút Chép ở góc khối code khi rê chuột', 'Chép và Chép Markdown dưới câu trả lời', 'Nhãn đầu lượt ghi "Chỉ hỏi"; thanh cuộn mảnh'] },
+  ]},
+  { id: 'screens', title: 'Các màn khác', desc: 'Mở từ thanh icon dưới cột trái.', screens: [
+    { id: '13-mission', title: 'Giám sát', checks: ['Đang chạy / chờ duyệt / chờ review', 'Hàng chờ của bạn và timeline'] },
+    { id: '14-usage', title: 'Chi phí', checks: ['Biểu đồ theo ngày, bảng lượt chạy có logo agent', 'Ngân sách và bảng giá ở cột phải'] },
+    { id: '15-agents', title: 'Agent', checks: ['Danh sách agent, phiên bản, trạng thái đăng nhập', 'Nút Dò lại'] },
+    { id: '16-integrations', title: 'Kết nối', checks: ['MCP server và Skills'] },
+  ]},
+];
+const SCREENS = FLOWS.flatMap((f) => f.screens.map((s) => ({ ...s, flow: f })));
+const indexOf = (id) => SCREENS.findIndex((s) => s.id === id);
+const pad = (n) => String(n + 1).padStart(2, '0');
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const $ = (id) => document.getElementById(id);
+
+/* ---------- Review state (per browser) ---------- */
+const KEY = 'tg-ui-review-v1';
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* this visit only */ } };
+const statusOf = (id) => state[id]?.v || 'todo';
+function setVerdict(id, v) { state[id] = { ...(state[id] || {}), v: statusOf(id) === v ? undefined : v }; save(); renderAll(); }
+function counts() {
+  const ok = SCREENS.filter((s) => statusOf(s.id) === 'ok').length, fix = SCREENS.filter((s) => statusOf(s.id) === 'fix').length;
+  $('c-ok').textContent = ok; $('c-fix').textContent = fix; $('c-todo').textContent = SCREENS.length - ok - fix;
+}
+
+/* ---------- Board ---------- */
+const AB_W = 720, AB_H = 450, GAP_X = 80, ROW_GAP = 150, TITLE_W = 440, HEAD = 56;
+let view = { x: 40, y: 40, k: 1 };
+function buildBoard() {
+  let y = 0, html = '';
+  for (const f of FLOWS) {
+    html += `<div class="row-title" style="left:0;top:${y + HEAD + 20}px">${esc(f.title)}<small>${esc(f.desc)}</small></div>`;
+    f.screens.forEach((s, i) => {
+      const n = indexOf(s.id);
+      html += `<div class="artboard" data-id="${s.id}" data-s="${statusOf(s.id)}" style="left:${TITLE_W + i * (AB_W + GAP_X)}px;top:${y}px;width:${AB_W}px">
+        <div class="ab-head"><span class="num">${pad(n)}</span><span class="dot" data-s="${statusOf(s.id)}"></span>${esc(s.title)}
+          <button class="play" type="button" data-present="${n}" aria-label="Trình chiếu từ ${esc(s.title)}">▶</button></div>
+        <button class="ab-frame" type="button" data-open="${n}" aria-label="Xem lớn: ${esc(s.title)}"><img src="img/${s.id}.webp" alt="${esc(s.title)}" width="1440" height="900" loading="lazy" draggable="false"></button>
+      </div>`;
+    });
+    y += HEAD + AB_H + ROW_GAP;
+  }
+  const stage = $('stage');
+  stage.innerHTML = html;
+  stage.style.width = `${TITLE_W + Math.max(...FLOWS.map((f) => f.screens.length)) * (AB_W + GAP_X)}px`;
+  stage.style.height = `${y}px`;
+}
+function applyView() {
+  $('stage').style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.k})`;
+  $('z-val').textContent = `${Math.round(view.k * 100)}%`;
+}
+function zoomAt(k, cx, cy) {
+  k = Math.min(2, Math.max(0.08, k));
+  view.x = cx - (cx - view.x) * (k / view.k);
+  view.y = cy - (cy - view.y) * (k / view.k);
+  view.k = k; applyView();
+}
+function fit() {
+  const b = $('board').getBoundingClientRect(), s = $('stage');
+  const w = parseFloat(s.style.width), h = parseFloat(s.style.height);
+  const k = Math.min((b.width - 80) / w, (b.height - 120) / h, 1);
+  view = { k, x: (b.width - w * k) / 2, y: 40 };
+  applyView();
+}
+(function boardInput() {
+  const board = $('board');
+  let drag = null, moved = false;
+  board.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.zoom, .hint, .play')) return;
+    drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; moved = false;
+    board.setPointerCapture(e.pointerId); board.classList.add('dragging');
+  });
+  board.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+    view.x = drag.vx + dx; view.y = drag.vy + dy; applyView();
+  });
+  const end = (e) => {
+    if (!drag) return;
+    board.classList.remove('dragging'); drag = null;
+    if (!moved) {
+      const hit = document.elementsFromPoint(e.clientX, e.clientY).find((el) => el.dataset && el.dataset.open !== undefined);
+      if (hit) openLightbox(Number(hit.dataset.open));
+    }
+  };
+  board.addEventListener('pointerup', end);
+  board.addEventListener('pointercancel', () => { board.classList.remove('dragging'); drag = null; });
+  board.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = board.getBoundingClientRect();
+    if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > Math.abs(e.deltaX) * 2 && !e.shiftKey) zoomAt(view.k * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+    else { view.x -= e.deltaX; view.y -= e.deltaY; applyView(); }
+  }, { passive: false });
+  const center = () => { const r = board.getBoundingClientRect(); return [r.width / 2, r.height / 2]; };
+  $('z-in').onclick = () => zoomAt(view.k * 1.25, ...center());
+  $('z-out').onclick = () => zoomAt(view.k / 1.25, ...center());
+  $('z-fit').onclick = fit;
+})();
+
+/* ---------- Review list ---------- */
+let filter = 'all';
+function verdictHtml(s, prefix) {
+  const v = statusOf(s.id);
+  return `<div class="verdict" role="group" aria-label="Kết quả">
+      <button type="button" data-v="ok" data-id="${s.id}" aria-pressed="${v === 'ok'}">✓ Đạt</button>
+      <button type="button" data-v="fix" data-id="${s.id}" aria-pressed="${v === 'fix'}">✕ Cần sửa</button></div>
+    <label class="sr" for="${prefix}-${s.id}">Ghi chú cho ${esc(s.title)}</label>
+    <textarea class="note" id="${prefix}-${s.id}" data-id="${s.id}" placeholder="Ghi chú: cần sửa gì?">${esc(state[s.id]?.note || '')}</textarea>`;
+}
+function renderReview() {
+  $('flows').innerHTML = FLOWS.map((f) => {
+    const list = f.screens.filter((s) => filter === 'all' || statusOf(s.id) === filter);
+    if (!list.length) return '';
+    return `<section class="flow"><h2>${esc(f.title)}</h2><p>${esc(f.desc)}</p><div class="cards">${list.map((s) => {
+      const n = indexOf(s.id);
+      return `<article class="card" data-s="${statusOf(s.id)}">
+        <button class="shot" type="button" data-open="${n}" aria-label="Xem lớn: ${esc(s.title)}"><img src="img/${s.id}.webp" alt="${esc(s.title)}" loading="lazy" width="1440" height="900"></button>
+        <div class="cbody"><div class="head"><span class="num">${pad(n)}</span><h3>${esc(s.title)}</h3></div>
+          <ul class="checks">${s.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>${verdictHtml(s, 'n')}</div></article>`;
+    }).join('')}</div></section>`;
+  }).join('') || '<p style="color:var(--muted)">Không có màn nào ở trạng thái này.</p>';
+}
+function renderAll() {
+  counts(); renderReview();
+  document.querySelectorAll('.artboard').forEach((a) => {
+    const s = statusOf(a.dataset.id); a.dataset.s = s; a.querySelector('.dot').dataset.s = s;
+  });
+  if (lb >= 0) renderLightbox();
+}
+
+/* ---------- Lightbox ---------- */
+let lb = -1;
+function renderLightbox() {
+  const s = SCREENS[lb];
+  $('lb-title').innerHTML = `<span class="num">${pad(lb)} / ${SCREENS.length}</span> ${esc(s.title)}`;
+  $('lb-img').src = `img/${s.id}.webp`; $('lb-img').alt = s.title;
+  $('lb-side').innerHTML = `<div class="cap-flow">${esc(s.flow.title)}</div><ul class="checks">${s.checks.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>${verdictHtml(s, 'lb')}
+    <button class="btn" type="button" data-present="${lb}">▶ Trình chiếu từ màn này</button>`;
+}
+function openLightbox(i) { lb = (i + SCREENS.length) % SCREENS.length; $('lb').hidden = false; renderLightbox(); }
+function closeLightbox() { lb = -1; $('lb').hidden = true; }
+$('lb-prev').onclick = () => openLightbox(lb - 1);
+$('lb-next').onclick = () => openLightbox(lb + 1);
+$('lb-close').onclick = closeLightbox;
+$('lb').addEventListener('click', (e) => { if (e.target.id === 'lb') closeLightbox(); });
+
+/* ---------- Present ---------- */
+let pr = { i: -1, playing: true, start: 0, raf: 0, elapsed: 0 };
+const slideMs = () => Number($('pr-speed').value) * 1000;
+function showSlide(i) {
+  pr.i = (i + SCREENS.length) % SCREENS.length;
+  const s = SCREENS[pr.i], img = $('pr-img');
+  img.classList.add('fading');
+  const next = new Image();
+  next.onload = next.onerror = () => { img.src = next.src; img.alt = s.title; requestAnimationFrame(() => img.classList.remove('fading')); };
+  next.src = `img/${s.id}.webp`;
+  $('pr-pager').textContent = `${pad(pr.i)} / ${SCREENS.length}`;
+  $('pr-flow').textContent = s.flow.title;
+  $('pr-title').textContent = s.title;
+  $('pr-checks').innerHTML = s.checks.map((c) => `<li>${esc(c)}</li>`).join('');
+  pr.elapsed = 0; pr.start = performance.now();
+  for (let k = 1; k <= 2; k++) { const pre = new Image(); pre.src = `img/${SCREENS[(pr.i + k) % SCREENS.length].id}.webp`; }
+}
+function tick(now) {
+  if (pr.i < 0) return;
+  const done = pr.playing ? pr.elapsed + (now - pr.start) : pr.elapsed;
+  $('pr-timer').style.width = `${Math.min(100, (done / slideMs()) * 100)}%`;
+  if (pr.playing && done >= slideMs()) showSlide(pr.i + 1);
+  pr.raf = requestAnimationFrame(tick);
+}
+function setPlaying(on) {
+  if (on && !pr.playing) pr.start = performance.now();
+  if (!on && pr.playing) pr.elapsed += performance.now() - pr.start;
+  pr.playing = on;
+  $('pr-toggle').textContent = on ? '❚❚ Tạm dừng' : '▶ Tiếp tục';
+}
+function startPresent(i = 0) {
+  closeLightbox();
+  $('pr').hidden = false;
+  pr.playing = true; $('pr-toggle').textContent = '❚❚ Tạm dừng';
+  showSlide(i);
+  cancelAnimationFrame(pr.raf); pr.raf = requestAnimationFrame(tick);
+  $('pr').requestFullscreen?.().catch(() => {});
+}
+function stopPresent() {
+  pr.i = -1; cancelAnimationFrame(pr.raf); $('pr').hidden = true;
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+}
+$('present').onclick = () => startPresent(0);
+$('pr-prev').onclick = () => showSlide(pr.i - 1);
+$('pr-next').onclick = () => showSlide(pr.i + 1);
+$('pr-toggle').onclick = () => setPlaying(!pr.playing);
+$('pr-close').onclick = stopPresent;
+$('pr-speed').onchange = () => { pr.elapsed = 0; pr.start = performance.now(); };
+$('pr-img').onclick = () => setPlaying(!pr.playing);
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && pr.i >= 0) { /* stay in the overlay */ } });
+
+/* ---------- Tabs, clicks, keys ---------- */
+function setTab(name) {
+  const board = name === 'board';
+  $('tab-board').setAttribute('aria-selected', String(board)); $('tab-review').setAttribute('aria-selected', String(!board));
+  $('board').hidden = !board; $('review').hidden = board;
+  if (board) requestAnimationFrame(fit);
+  try { localStorage.setItem('tg-ui-review-tab', name); } catch { /* not remembered */ }
+}
+$('tab-board').onclick = () => setTab('board');
+$('tab-review').onclick = () => setTab('review');
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.present !== undefined) startPresent(Number(t.dataset.present));
+  else if (t.dataset.open !== undefined && !t.closest('.board')) openLightbox(Number(t.dataset.open));
+  else if (t.dataset.v) setVerdict(t.dataset.id, t.dataset.v);
+  else if (t.dataset.f) { filter = t.dataset.f; document.querySelectorAll('.chip[data-f]').forEach((c) => c.setAttribute('aria-pressed', String(c === t))); renderReview(); }
+});
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t.matches('textarea.note')) return;
+  state[t.dataset.id] = { ...(state[t.dataset.id] || {}), note: t.value }; save();
+  document.querySelectorAll(`textarea.note[data-id="${t.dataset.id}"]`).forEach((o) => { if (o !== t) o.value = t.value; });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('textarea, select')) return;
+  if (pr.i >= 0) {
+    if (e.key === 'Escape') stopPresent();
+    else if (e.key === 'ArrowRight') showSlide(pr.i + 1);
+    else if (e.key === 'ArrowLeft') showSlide(pr.i - 1);
+    else if (e.key === ' ') { e.preventDefault(); setPlaying(!pr.playing); }
+    return;
+  }
+  if (lb >= 0) {
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowRight') openLightbox(lb + 1);
+    else if (e.key === 'ArrowLeft') openLightbox(lb - 1);
+    else if (e.key === '1') setVerdict(SCREENS[lb].id, 'ok');
+    else if (e.key === '2') setVerdict(SCREENS[lb].id, 'fix');
+  }
+});
+$('reset').onclick = () => { state = {}; save(); renderAll(); toast('Đã xoá mọi đánh dấu'); };
+function toast(text) { const t = $('toast'); t.textContent = text; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 1800); }
+$('export').onclick = async () => {
+  const label = { ok: 'Đạt', fix: 'Cần sửa', todo: 'Chưa xem' };
+  const lines = ['# Kết quả review UI TG Studio', ''];
+  for (const f of FLOWS) {
+    lines.push(`## ${f.title}`);
+    for (const s of f.screens) lines.push(`- ${pad(indexOf(s.id))} ${s.title}: **${label[statusOf(s.id)]}**${state[s.id]?.note ? ` — ${state[s.id].note.trim()}` : ''}`);
+    lines.push('');
+  }
+  const text = lines.join('\n');
+  try { await navigator.clipboard.writeText(text); toast('Đã chép, dán vào chat cho Claude'); }
+  catch { const a = document.createElement('textarea'); a.value = text; document.body.append(a); a.select(); toast('Không chép tự động được: đã chọn sẵn, bấm Ctrl+C'); }
+};
+
+buildBoard(); renderAll();
+let saved = 'board';
+try { saved = localStorage.getItem('tg-ui-review-tab') || 'board'; } catch { /* default */ }
+setTab(saved);
+window.addEventListener('resize', () => { if (!$('board').hidden) fit(); });
+</script>
+
+</body>
+</html>
