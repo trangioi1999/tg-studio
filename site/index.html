@@ -51,6 +51,9 @@ header.nav .wrap { display: flex; align-items: center; gap: 12px; padding-block:
 .shot { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 40px 100px rgba(0,0,0,.55); background: #000; }
 .shot img, .shot video { display: block; width: 100%; height: auto; }
 .vid-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
+.link-btn { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+.link-btn:hover { color: #fff; }
+.gallery a { display: block; cursor: zoom-in; }
 
 section { padding-block: 44px; border-top: 1px solid var(--line); }
 section h2 { margin: 0 0 6px; font: 600 26px/1.25 var(--body); letter-spacing: -0.015em; text-wrap: balance; }
@@ -122,8 +125,8 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
       <div class="meta" id="dl-meta"><span id="m-os">Windows 10/11 · macOS 11+ (Intel và Apple Silicon)</span><span>tệp .zip chứa bộ cài</span></div>
     </div>
     <div class="hero-media">
-      <div class="shot"><video id="demo" src="media/tg-studio-demo.webm" poster="media/tg-studio-demo.jpg" width="1440" height="900" autoplay muted loop playsinline preload="metadata" aria-label="Video 1 phút: hỏi về dự án, giao việc sửa code, duyệt từng đoạn thay đổi, chuyển việc cho Codex, giao cho nhiều agent, xem chi phí"></video></div>
-      <p class="vid-note">Video 1 phút ở chế độ mẫu: hỏi, sửa code, duyệt thay đổi, chuyển việc giữa các agent, xem chi phí.</p>
+      <div class="shot"><video id="demo" src="media/tg-studio-demo.webm" poster="media/tg-studio-demo.jpg" width="1440" height="900" autoplay muted loop playsinline controls controlslist="nodownload noremoteplayback" preload="metadata" aria-label="Video 1 phút: hỏi về dự án, giao việc sửa code, duyệt từng đoạn thay đổi, chuyển việc cho Codex, giao cho nhiều agent, xem chi phí"></video></div>
+      <p class="vid-note">Video 1 phút ở chế độ mẫu, không có tiếng: hỏi, sửa code, duyệt thay đổi, chuyển việc giữa các agent, xem chi phí. <button type="button" class="link-btn" id="demo-full">Xem toàn màn hình</button></p>
     </div>
   </div>
 
@@ -149,9 +152,9 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
       <h2>Giao diện</h2>
       <p class="sub">Ảnh chụp ở chế độ mẫu. Xem đủ 16 màn hình và chế độ trình chiếu ở <a href="ui-review/">trang toàn cảnh</a>.</p>
       <div class="gallery">
-        <figure><img src="ui-review/img/03-agent-model.webp" alt="Chọn agent, model và mức suy nghĩ" loading="lazy" width="1440" height="900"><figcaption>Chọn agent, model và mức suy nghĩ</figcaption></figure>
-        <figure><img src="ui-review/img/07-approval-status.webp" alt="Agent xin phép chạy lệnh" loading="lazy" width="1440" height="900"><figcaption>Agent xin phép, bạn duyệt ngay trên ô chat</figcaption></figure>
-        <figure><img src="ui-review/img/11-question-copy.webp" alt="Câu trả lời có nút Chép" loading="lazy" width="1440" height="900"><figcaption>Câu trả lời Markdown, chép một chạm</figcaption></figure>
+        <figure><a href="ui-review/img/03-agent-model.webp" target="_blank" rel="noopener" title="Xem ảnh lớn"><img src="ui-review/img/03-agent-model.webp" alt="Chọn agent, model và mức suy nghĩ" loading="lazy" width="1440" height="900"></a><figcaption>Chọn agent, model và mức suy nghĩ</figcaption></figure>
+        <figure><a href="ui-review/img/07-approval-status.webp" target="_blank" rel="noopener" title="Xem ảnh lớn"><img src="ui-review/img/07-approval-status.webp" alt="Agent xin phép chạy lệnh" loading="lazy" width="1440" height="900"></a><figcaption>Agent xin phép, bạn duyệt ngay trên ô chat</figcaption></figure>
+        <figure><a href="ui-review/img/11-question-copy.webp" target="_blank" rel="noopener" title="Xem ảnh lớn"><img src="ui-review/img/11-question-copy.webp" alt="Câu trả lời có nút Chép" loading="lazy" width="1440" height="900"></a><figcaption>Câu trả lời Markdown, chép một chạm</figcaption></figure>
       </div>
     </div>
   </section>
@@ -233,10 +236,17 @@ document.addEventListener('click', async (e) => {
   setTimeout(() => (b.textContent = 'Chép'), 1500);
 });
 
-// The demo video loops silently; people who asked for less motion get the poster and controls.
+// The demo video has no sound track; it loops muted with native controls. People who asked for less motion get the poster.
 (() => {
   const v = document.getElementById('demo');
-  if (v && matchMedia('(prefers-reduced-motion: reduce)').matches) { v.removeAttribute('autoplay'); v.pause(); v.controls = true; }
+  if (!v) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { v.removeAttribute('autoplay'); v.pause(); }
+  // Fullscreen; iOS Safari only has the video-specific API.
+  document.getElementById('demo-full').addEventListener('click', () => {
+    if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+    else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+    v.play().catch(() => {});
+  });
 })();
 </script>
 </body>
