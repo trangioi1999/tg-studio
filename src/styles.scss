@@ -80,7 +80,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .act { position: relative; }
 .act-badge { position: absolute; top: 3px; right: 3px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--warn); color: var(--bg); font: 700 9.5px/14px var(--font); text-align: center; }
 
-.sidebar { flex: 0 0 272px; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+.sidebar { flex: 0 0 var(--w-sidebar, 272px); display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); overflow: hidden; }
 .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #0c0c0e; }
 .inspector { flex: 0 0 360px; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); overflow: auto; }
 
@@ -308,7 +308,7 @@ tg-workbench { display: flex; flex-direction: column; }
 .hunk-zone-label { min-width: 0; }
 .hunk-zone .plus { color: var(--ok); }
 .hunk-zone .minus { color: var(--err); }
-.term { flex: none; height: 200px; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--panel); }
+.term { flex: none; position: relative; height: var(--h-term, 200px); display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--panel); }
 .term.collapsed { height: 34px; }
 .term-tabs { height: 33px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; overflow-x: auto; }
 .term-tab { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -874,13 +874,13 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .agent-line strong { font-weight: 500; }
 
 /* Side panel */
-.side { flex: 1 1 0; min-width: 420px; display: flex; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
+.side { flex: 0 1 var(--w-side, 48%); min-width: 380px; position: relative; display: flex; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
 .side.closed { display: none; }
-.side-files { flex: 0 0 220px; display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
+.side-files { flex: 0 0 var(--w-files, 220px); display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
 .side-work { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .side-files .segmented button { white-space: nowrap; }
 @media (max-width: 1200px) {
-  .side { position: absolute; top: 40px; right: 0; bottom: 24px; z-index: 5; width: min(86vw, 900px); flex: none; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4); }
+  .side { position: absolute; top: 40px; right: 0; bottom: 24px; z-index: 5; width: var(--w-side, min(86vw, 900px)); max-width: 94vw; flex: none; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4); }
 }
 .tree-dir { display: flex; align-items: center; }
 .tree-dir .tree-row { flex: 1; min-width: 0; }
@@ -996,3 +996,42 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
   .conn-bridge-switch { margin-left: 0; }
   .conn-legend span:last-child { margin-left: 0; }
 }
+
+/* Drag handles between panes (tg-splitter) */
+.splitter { flex: none; position: relative; z-index: 4; outline: none; touch-action: none; }
+.splitter.x { width: 7px; margin: 0 -3px; cursor: col-resize; }
+.splitter.y { height: 7px; margin: -3px 0; cursor: row-resize; }
+.splitter::after { content: ''; position: absolute; background: transparent; transition: background 0.12s ease 0.08s; }
+.splitter.x::after { top: 0; bottom: 0; left: 2px; width: 3px; }
+.splitter.y::after { left: 0; right: 0; top: 2px; height: 3px; }
+.splitter:hover::after, .splitter.dragging::after, .splitter:focus-visible::after { background: var(--run); }
+body.resizing-x, body.resizing-x * { cursor: col-resize !important; user-select: none; }
+body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
+
+/* File-type badge (tg-file-icon) */
+.file-icon { flex: none; width: 16px; text-align: center; font: 700 8.5px/1 var(--mono); letter-spacing: -0.02em; }
+
+/* Quick open (⌘P) */
+.qo-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.35); }
+.qo { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 41; width: min(620px, calc(100vw - 32px)); display: flex; flex-direction: column; border: 1px solid var(--line-strong, #2a2a31); border-radius: 10px; background: var(--panel); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55); overflow: hidden; }
+.qo-input { height: 42px; padding: 0 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 14px; outline: none; }
+.qo-list { max-height: min(420px, 60vh); overflow: auto; padding: 4px; }
+.qo-row { width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer; }
+.qo-row.active { background: var(--run-bg); color: var(--text); }
+.qo-name { flex: none; }
+.qo-dir { min-width: 0; font-size: 12px; }
+.qo-foot { display: flex; gap: 12px; padding: 6px 12px; border-top: 1px solid var(--line); font-size: 11px; }
+
+/* Explorer filter */
+.tree-filter { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px 6px; }
+.tree-filter input { flex: 1; min-width: 0; height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--input, #121216); color: var(--text); font: inherit; font-size: 12px; outline: none; }
+.tree-filter input:focus { border-color: var(--line-strong); }
+.tree-filter .kbd { flex: none; }
+.side-files .icon-btn { width: 24px; padding: 0; justify-content: center; }
+.tab.preview .tab-open .ellipsis { font-style: italic; }
+
+/* Status line under an editor (tg-editor-status) */
+.editor-status { flex: none; height: 22px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-top: 1px solid var(--line-soft); background: var(--panel); color: var(--text-2); font-size: 11px; white-space: nowrap; overflow: hidden; }
+.es-btn { height: 18px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.es-btn:hover { background: var(--hover); color: var(--text); }
+.es-btn.on { color: var(--text); background: var(--hover); }

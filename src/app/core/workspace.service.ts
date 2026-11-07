@@ -38,6 +38,8 @@ export class WorkspaceService {
   private filesTicket = 0;
   readonly tabs = signal<Tab[]>([]);
   readonly activeKey = signal<string | null>(null);
+  /** The one tab that the next preview replaces; shown in italics. */
+  readonly previewKey = signal<string | null>(null);
   readonly active = computed(() => this.tabs().find((t) => tabKey(t) === this.activeKey()) ?? null);
   /** While the agent runs, open the file it is working on. */
   readonly follow = signal(true);
@@ -137,19 +139,39 @@ export class WorkspaceService {
     );
   }
 
-  openSource(path: string): void {
-    this.open({ kind: 'source', root: this.folder(), path });
+  openSource(path: string, preview = false): void {
+    this.open({ kind: 'source', root: this.folder(), path }, { preview });
   }
 
-  open(tab: Tab): void {
+  /**
+   * Opens or activates a tab. A preview tab (a file glanced at from the tree, or followed while
+   * the agent works) is replaced by the next preview, like an editor's single click; opening
+   * it again without `preview` keeps it.
+   */
+  open(tab: Tab, opts: { preview?: boolean } = {}): void {
     const key = tabKey(tab);
-    if (!this.tabs().some((t) => tabKey(t) === key)) this.tabs.update((list) => [...list, tab]);
+    const list = this.tabs();
+    const preview = this.previewKey();
+    if (list.some((t) => tabKey(t) === key)) {
+      if (!opts.preview && preview === key) this.previewKey.set(null);
+    } else if (opts.preview && preview && list.some((t) => tabKey(t) === preview)) {
+      this.tabs.set(list.map((t) => (tabKey(t) === preview ? tab : t)));
+      this.previewKey.set(key);
+    } else {
+      this.tabs.set([...list, tab]);
+      if (opts.preview) this.previewKey.set(key);
+    }
     this.activeKey.set(key);
     if ((tab.kind === 'file' || tab.kind === 'changes') && this.runs.selectedId() !== tab.runId) this.runs.selectedId.set(tab.runId);
   }
 
-  openFile(runId: string, path: string): void {
-    this.open({ kind: 'file', runId, path });
+  openFile(runId: string, path: string, preview = false): void {
+    this.open({ kind: 'file', runId, path }, { preview });
+  }
+
+  /** Keeps a preview tab open, say once the user double-clicks or edits it. */
+  pin(key: string): void {
+    if (this.previewKey() === key) this.previewKey.set(null);
   }
 
   close(key: string): void {
@@ -158,6 +180,7 @@ export class WorkspaceService {
     if (i < 0) return;
     const next = list.filter((_, j) => j !== i);
     this.tabs.set(next);
+    if (this.previewKey() === key) this.previewKey.set(null);
     if (this.activeKey() === key) {
       const neighbour = next[Math.min(i, next.length - 1)];
       this.activeKey.set(neighbour ? tabKey(neighbour) : null);

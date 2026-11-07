@@ -168,3 +168,44 @@ describe('MockBackend.openProject', () => {
     expect((await backend.openProject('/x/demo')).git).toBe('ready');
   });
 });
+
+describe('WorkspaceService preview tabs', () => {
+  afterEach(() => localStorage.removeItem(KEY));
+
+  it('replaces the preview tab with the next preview and keeps pinned tabs', async () => {
+    const { service } = await setup('/repo');
+    const keys = () => service.tabs().map((t) => (t.kind === 'source' ? t.path : t.kind));
+    service.openSource('a.ts', true);
+    service.openSource('b.ts', true);
+    expect(keys()).toEqual(['b.ts']);
+    expect(service.previewKey()).toBe('source:/repo:b.ts');
+
+    service.openSource('b.ts');
+    expect(service.previewKey()).toBeNull();
+    service.openSource('c.ts', true);
+    service.openSource('d.ts', true);
+    expect(keys()).toEqual(['b.ts', 'd.ts']);
+    expect(service.activeKey()).toBe('source:/repo:d.ts');
+  });
+
+  it('activates an open tab instead of previewing it again', async () => {
+    const { service } = await setup('/repo');
+    service.openSource('a.ts');
+    service.openSource('b.ts', true);
+    service.openSource('a.ts', true);
+    expect(service.tabs()).toHaveLength(2);
+    expect(service.activeKey()).toBe('source:/repo:a.ts');
+    expect(service.previewKey()).toBe('source:/repo:b.ts');
+  });
+
+  it('forgets the preview when it is closed or pinned', async () => {
+    const { service } = await setup('/repo');
+    service.openSource('a.ts');
+    service.openSource('b.ts', true);
+    service.pin('source:/repo:b.ts');
+    service.openSource('c.ts', true);
+    expect(service.tabs()).toHaveLength(3);
+    service.close('source:/repo:c.ts');
+    expect(service.previewKey()).toBeNull();
+  });
+});

@@ -16,11 +16,18 @@ export class DiagnosticsService {
 
   constructor() {
     if (typeof window === 'undefined') return;
+    // The browser reports a ResizeObserver that could not deliver every notice in one frame as an
+    // error. Monaco's automatic layout does this while a pane is dragged; it is harmless, so stop it
+    // before Angular's global listener logs it and keep it out of the report.
+    window.addEventListener('error', (e) => {
+      if (isResizeNoise(e.message)) e.stopImmediatePropagation();
+    }, { capture: true });
     window.addEventListener('error', (e) => this.record(e.message || String(e.error)));
     window.addEventListener('unhandledrejection', (e) => this.record(e.reason instanceof Error ? e.reason.message : String(e.reason)));
   }
 
   record(message: string): void {
+    if (isResizeNoise(message)) return;
     this.errors.push({ at: Date.now(), message: message.slice(0, 500) });
     if (this.errors.length > MAX_ERRORS) this.errors.shift();
   }
@@ -39,4 +46,8 @@ export class DiagnosticsService {
       return null;
     }
   }
+}
+
+export function isResizeNoise(message: string | undefined): boolean {
+  return !!message && message.startsWith('ResizeObserver loop');
 }

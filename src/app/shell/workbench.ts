@@ -5,6 +5,7 @@ import { Tab, WorkspaceService, tabKey } from '../core/workspace.service';
 import { CodeEditor } from './code-editor';
 import { Compare } from './compare';
 import { DiffViewer } from './diff-viewer';
+import { FileIcon } from './file-icon';
 import { SourceViewer } from './source-viewer';
 import { Terminal } from './terminal';
 
@@ -14,13 +15,15 @@ const REFRESH_BATCH_MS = 1500;
 
 @Component({
   selector: 'tg-workbench',
-  imports: [CodeEditor, Compare, DiffViewer, SourceViewer, Terminal],
+  imports: [CodeEditor, Compare, DiffViewer, FileIcon, SourceViewer, Terminal],
   template: `
     <div class="tabs" role="tablist" aria-label="Tab đang mở">
       @for (t of workspace.tabs(); track key(t)) {
-        <div class="tab" role="tab" [class.active]="key(t) === workspace.activeKey()" [attr.aria-selected]="key(t) === workspace.activeKey()" [style.--agent]="colorOf(t)">
-          <button class="tab-open" [title]="tooltip(t)" (click)="workspace.activeKey.set(key(t)); selectRunOf(t)">
+        <div class="tab" role="tab" [class.active]="key(t) === workspace.activeKey()" [class.preview]="key(t) === workspace.previewKey()"
+          [attr.aria-selected]="key(t) === workspace.activeKey()" [style.--agent]="colorOf(t)" (auxclick)="$event.button === 1 && workspace.close(key(t))">
+          <button class="tab-open" [title]="tooltip(t)" (click)="workspace.activeKey.set(key(t)); selectRunOf(t)" (dblclick)="workspace.pin(key(t))">
             @if (t.kind === 'changes' || t.kind === 'compare') { <span class="tab-kind">{{ t.kind === 'changes' ? 'Thay đổi' : 'So sánh' }}</span> }
+            @else { <tg-file-icon [name]="$any(t).path" /> }
             <span class="ellipsis">{{ title(t) }}</span>
             @if (pendingIn(t)) { <span class="agent-dot" aria-label="Có thay đổi chờ duyệt"></span> }
           </button>
@@ -111,7 +114,7 @@ export class Workbench {
       if (!r || !a || r.status !== 'running' || !this.workspace.follow()) return;
       untracked(() => {
         const rel = this.workspace.relative(r.id, a.path);
-        if (rel) this.workspace.openFile(r.id, rel);
+        if (rel) this.workspace.openFile(r.id, rel, true);
       });
     });
     // A task that finished with changes opens its first changed file once.
@@ -141,9 +144,10 @@ export class Workbench {
   }
 
   protected tooltip(t: Tab): string {
-    if (t.kind === 'source') return `${t.path}\nChỉ đọc`;
+    const preview = tabKey(t) === this.workspace.previewKey() ? '\nXem trước: bấm đúp để giữ tab' : '';
+    if (t.kind === 'source') return `${t.path}\nChỉ đọc${preview}`;
     const prompt = t.kind === 'compare' ? this.runs.groupRuns(t.group)[0]?.prompt : this.runs.runs().find((r) => r.id === t.runId)?.prompt;
-    return [t.kind === 'file' ? t.path : null, prompt ? `Task: ${prompt}` : null].filter(Boolean).join('\n');
+    return [t.kind === 'file' ? t.path : null, prompt ? `Task: ${prompt}` : null].filter(Boolean).join('\n') + preview;
   }
 
   protected colorOf(t: Tab): string | null {

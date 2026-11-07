@@ -1,12 +1,15 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { AGENT_META } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
+import { Splitter } from './splitter';
 
 /** Bottom panel: one log tab per run of this session, following the selected run. */
 @Component({
   selector: 'tg-terminal',
+  imports: [Splitter],
   template: `
     <div class="term" [class.collapsed]="collapsed()">
+      @if (!collapsed()) { <tg-splitter class="split-edge" pane="term" axis="y" target="parent" [grow]="-1" /> }
       <div class="term-tabs" role="tablist" aria-label="Log theo agent">
         @for (r of tabs(); track r.id) {
           <button role="tab" class="term-tab" [class.active]="r.id === shown()?.id" [attr.aria-selected]="r.id === shown()?.id" (click)="runs.selectedId.set(r.id); collapsed.set(false)">

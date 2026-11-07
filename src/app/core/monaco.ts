@@ -1,6 +1,66 @@
 /** The editor core only; the full `monaco-editor` entry also bundles language services. */
 export type MonacoApi = typeof import('monaco-editor/editor/editor.api.js');
 
+import type * as Monaco from 'monaco-editor/editor/editor.api.js';
+
+/** What the status line under an editor shows. */
+export interface EditorStatus {
+  line: number;
+  column: number;
+  selected: number;
+  lines: number;
+  language: string;
+}
+
+/** Options shared by the project viewer and the draft editor, so both feel like one editor. */
+export const EDITOR_OPTIONS: Monaco.editor.IStandaloneEditorConstructionOptions = {
+  theme: 'tg-dark',
+  automaticLayout: true,
+  fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontSize: 12.5,
+  lineHeight: 19,
+  minimap: { enabled: true, renderCharacters: false, maxColumn: 80, showSlider: 'mouseover', scale: 1 },
+  stickyScroll: { enabled: true, maxLineCount: 4 },
+  bracketPairColorization: { enabled: true },
+  guides: { bracketPairs: 'active', indentation: true },
+  smoothScrolling: true,
+  cursorSmoothCaretAnimation: 'on',
+  mouseWheelZoom: true,
+  scrollBeyondLastLine: false,
+  renderLineHighlight: 'line',
+  renderWhitespace: 'selection',
+  padding: { top: 6 },
+};
+
+/** Keeps `set` up to date with the cursor, selection and model of `editor`. */
+export function trackStatus(monaco: MonacoApi, editor: Monaco.editor.IStandaloneCodeEditor, set: (s: EditorStatus | null) => void): void {
+  const update = () => {
+    const model = editor.getModel();
+    const pos = editor.getPosition();
+    if (!model || !pos) return set(null);
+    const sel = editor.getSelection();
+    const id = model.getLanguageId();
+    const language = monaco.languages.getLanguages().find((l) => l.id === id)?.aliases?.[0] ?? id;
+    set({ line: pos.lineNumber, column: pos.column, selected: sel ? model.getValueInRange(sel).length : 0, lines: model.getLineCount(), language: id === 'plaintext' ? 'Văn bản' : language });
+  };
+  editor.onDidChangeCursorSelection(update);
+  editor.onDidChangeModel(update);
+  editor.onDidChangeModelContent(update);
+  update();
+}
+
+/** Alt+Z toggles word wrap, as in most editors. Returns a function that toggles it too. */
+export function addWrapToggle(monaco: MonacoApi, editor: Monaco.editor.IStandaloneCodeEditor, changed: (on: boolean) => void): () => void {
+  let on = false;
+  const toggle = () => {
+    on = !on;
+    editor.updateOptions({ wordWrap: on ? 'on' : 'off' });
+    changed(on);
+  };
+  editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyZ, toggle);
+  return toggle;
+}
+
 let loading: Promise<MonacoApi> | null = null;
 
 /**

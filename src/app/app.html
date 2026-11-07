@@ -1,7 +1,8 @@
-<div class="shell">
+<div class="shell" [style]="layout.style()">
   <tg-title-bar />
   <div class="body">
     <tg-thread-list class="sidebar" />
+    <tg-splitter pane="sidebar" />
     @switch (ui.screen()) {
       @case ('mission') { <tg-mission-control class="center" /> }
       @case ('usage') { <tg-usage-screen class="center" /> }
@@ -15,5 +16,6 @@
     <tg-side-panel class="side" [class.closed]="ui.screen() !== 'chat' || !ui.sideOpen()" />
   </div>
   <tg-status-bar />
+  <tg-quick-open />
   @if (ui.onboarding()) { <tg-onboarding (done)="ui.onboarding.set(false)" /> }
 </div>
