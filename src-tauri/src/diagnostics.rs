@@ -42,6 +42,15 @@ pub async fn diagnostics(app: AppHandle, store: State<'_, Store>) -> Result<Valu
     report["generatedAt"] = json!(crate::runner::now_ms());
     report["dataDir"] = json!(app.path().app_data_dir().ok().map(|p| p.to_string_lossy().into_owned()));
     report["agents"] = serde_json::to_value(detect::detect_agents().await).map_err(|e| e.to_string())?;
+    // Why an agent is not found is almost always the PATH. The home folder is shortened to ~.
+    let home = detect::home_dir().unwrap_or_default();
+    let tilde = |p: &str| if !home.is_empty() && p.starts_with(&home) { format!("~{}", &p[home.len()..]) } else { p.to_string() };
+    let source = crate::env::path_source();
+    report["path"] = json!({
+        "shell": source.shell, "outcome": source.outcome, "millis": source.millis,
+        "added": source.added.iter().map(|p| tilde(p)).collect::<Vec<_>>(),
+        "entries": std::env::split_paths(&crate::env::login_path()).map(|p| tilde(&p.to_string_lossy())).collect::<Vec<_>>(),
+    });
     Ok(report)
 }
 

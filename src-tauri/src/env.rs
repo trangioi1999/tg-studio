@@ -5,15 +5,76 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-static LOGIN_PATH: OnceLock<String> = OnceLock::new();
+static LOGIN_PATH: OnceLock<(String, PathSource)> = OnceLock::new();
 
-pub fn login_path() -> String {
-    LOGIN_PATH.get_or_init(read_login_path).clone()
+/// How the PATH was found, for the diagnostics report: a slow shell startup file used to
+/// leave the app with macOS's minimal PATH and no agent at all.
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathSource {
+    pub shell: Option<String>,
+    /// "shell", "timeout" (the shell did not answer in time), "failed", or "inherited" (Windows).
+    pub outcome: &'static str,
+    pub millis: u64,
+    /// Folders beyond `$SHELL`'s own PATH: from the other shells, or well-known install folders.
+    pub added: Vec<String>,
 }
 
-/// A shell startup file can wait on something forever, and then nothing could ever be detected.
+pub fn login_path() -> String {
+    LOGIN_PATH.get_or_init(resolve_path).0.clone()
+}
+
+pub fn path_source() -> PathSource {
+    LOGIN_PATH.get_or_init(resolve_path).1.clone()
+}
+
+fn resolve_path() -> (String, PathSource) {
+    let started = std::time::Instant::now();
+    let (path, shell, outcome, own) = read_login_path();
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+    let (path, _) = with_known_dirs(&path, home.as_deref());
+    // Everything beyond `$SHELL`'s own PATH: other shells' folders and well-known ones.
+    let own: Vec<PathBuf> = own.map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let added = std::env::split_paths(&path).filter(|d| !own.contains(d)).map(|d| d.to_string_lossy().into_owned()).collect();
+    (path, PathSource { shell, outcome, millis: started.elapsed().as_millis() as u64, added })
+}
+
+/// Folders where agent CLIs and Node usually live, appended (when they exist and are
+/// missing) after the shell's own PATH, so its order still wins.
+fn known_dirs(home: Option<&std::path::Path>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(home) = home {
+        // nvm: every installed Node, newest first by name.
+        let mut nvm: Vec<PathBuf> = std::fs::read_dir(home.join(".nvm/versions/node")).map(|r| r.flatten().map(|e| e.path().join("bin")).collect()).unwrap_or_default();
+        nvm.sort();
+        nvm.reverse();
+        dirs.extend(nvm);
+        for rel in [".local/bin", ".npm-global/bin", ".volta/bin", ".bun/bin", ".fnm/aliases/default/bin", ".local/share/fnm/aliases/default/bin",
+            "Library/pnpm", ".asdf/shims", ".claude/local", ".cargo/bin", "AppData/Roaming/npm"] {
+            dirs.push(home.join(rel));
+        }
+    }
+    #[cfg(unix)]
+    dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+    dirs
+}
+
+fn with_known_dirs(path: &str, home: Option<&std::path::Path>) -> (String, Vec<PathBuf>) {
+    let mut entries: Vec<PathBuf> = std::env::split_paths(path).filter(|p| !p.as_os_str().is_empty()).collect();
+    let mut added = Vec::new();
+    for dir in known_dirs(home) {
+        if dir.is_dir() && !entries.contains(&dir) {
+            entries.push(dir.clone());
+            added.push(dir);
+        }
+    }
+    (std::env::join_paths(&entries).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| path.to_string()), added)
+}
+
+/// A shell startup file can wait on something forever, and then nothing could ever be
+/// detected. Heavy setups (oh-my-zsh, nvm, conda) on older Macs take several seconds.
 #[cfg(unix)]
-const SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 /// Stdout up to `marker`, or None if it has not appeared in time. Does not wait for the
 /// process to end, since something it left in the background can hold the pipe open.
@@ -39,27 +100,50 @@ fn output_until(mut command: std::process::Command, marker: &str, timeout: std::
     text
 }
 
+/// The PATH one shell reports for a login + interactive session, or why it did not.
 #[cfg(unix)]
-fn read_login_path() -> String {
+fn shell_path(shell: &str) -> Result<String, &'static str> {
     const START: &str = "__TG_PATH__";
     const END: &str = "__END__";
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let mut command = std::process::Command::new(&shell);
+    let mut command = std::process::Command::new(shell);
     command.args(["-ilc", "printf '__TG_PATH__%s__END__' \"$PATH\""]);
-    if let Some(text) = output_until(command, END, SHELL_TIMEOUT) {
-        if let Some(start) = text.find(START) {
-            let rest = &text[start + START.len()..];
-            if let Some(end) = rest.find(END) {
-                return rest[..end].to_string();
-            }
-        }
+    let text = output_until(command, END, SHELL_TIMEOUT).ok_or("timeout")?;
+    let rest = &text[text.find(START).ok_or("failed")? + START.len()..];
+    Ok(rest[..rest.find(END).ok_or("failed")?].to_string())
+}
+
+/// The user's shell first, then zsh and bash too: `$SHELL` can be zsh while the folders
+/// are added in `~/.bash_profile` (seen on a Mac whose Terminal runs bash), and the other
+/// way round. All are asked at once, so a second shell costs no time.
+#[cfg(unix)]
+fn read_login_path() -> (String, Option<String>, &'static str, Option<String>) {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let mut shells = vec![shell.clone()];
+    for other in ["/bin/zsh", "/bin/bash"] {
+        if !shells.iter().any(|s| s == other) && std::path::Path::new(other).exists() { shells.push(other.into()); }
     }
-    std::env::var("PATH").unwrap_or_default()
+    let asked: Vec<_> = shells.iter().cloned().map(|s| std::thread::spawn(move || shell_path(&s))).collect();
+    let answers: Vec<Result<String, &'static str>> = asked.into_iter().map(|h| h.join().unwrap_or(Err("failed"))).collect();
+    let outcome: &'static str = match &answers[0] { Ok(_) => "shell", Err(e) => *e };
+    let own = answers[0].clone().ok();
+    let mut paths: Vec<String> = answers.into_iter().flatten().collect();
+    if own.is_none() { paths.insert(0, std::env::var("PATH").unwrap_or_default()); }
+    (merge_paths(&paths), Some(shell), outcome, own)
+}
+
+/// Joins PATH lists in order, keeping the first place of each folder.
+fn merge_paths(paths: &[String]) -> String {
+    let mut entries: Vec<PathBuf> = Vec::new();
+    for dir in paths.iter().flat_map(|p| std::env::split_paths(p).collect::<Vec<_>>()) {
+        if !dir.as_os_str().is_empty() && !entries.contains(&dir) { entries.push(dir); }
+    }
+    std::env::join_paths(&entries).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 #[cfg(windows)]
-fn read_login_path() -> String {
-    std::env::var("PATH").unwrap_or_default()
+fn read_login_path() -> (String, Option<String>, &'static str, Option<String>) {
+    let path = std::env::var("PATH").unwrap_or_default();
+    (path.clone(), None, "inherited", Some(path))
 }
 
 /// Hides the console Windows would otherwise open for each child of this GUI app.
@@ -157,6 +241,32 @@ pub fn which(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[test]
+    fn paths_of_several_shells_merge_in_order_without_repeats() {
+        let zsh = std::env::join_paths(["/usr/bin", "/bin"]).unwrap().to_string_lossy().into_owned();
+        let bash = std::env::join_paths(["/bin", "/Users/a/Desktop/DATA/Software/node/bin"]).unwrap().to_string_lossy().into_owned();
+        let merged = super::merge_paths(&[zsh, bash]);
+        assert_eq!(std::env::split_paths(&merged).collect::<Vec<_>>(),
+            ["/usr/bin", "/bin", "/Users/a/Desktop/DATA/Software/node/bin"].map(std::path::PathBuf::from));
+    }
+
+    #[test]
+    fn known_install_folders_are_added_after_the_shell_path() {
+        let home = std::env::temp_dir().join(format!("tg-home-{}", uuid::Uuid::new_v4()));
+        for dir in [".nvm/versions/node/v20.11.0/bin", ".nvm/versions/node/v22.3.0/bin", ".local/bin"] { fs::create_dir_all(home.join(dir)).unwrap(); }
+        let local = home.join(".local/bin");
+        let shell = std::env::join_paths([Path::new("/usr/bin"), local.as_path()]).unwrap();
+        let (path, added) = super::with_known_dirs(&shell.to_string_lossy(), Some(&home));
+        let entries: Vec<_> = std::env::split_paths(&path).collect();
+        assert_eq!(entries[0], Path::new("/usr/bin"));
+        assert_eq!(entries[1], local, "the shell's order wins and nothing is added twice");
+        assert_eq!(added[0], home.join(".nvm/versions/node/v22.3.0/bin"), "newest Node first");
+        assert_eq!(added[1], home.join(".nvm/versions/node/v20.11.0/bin"));
+        assert!(!added.contains(&local));
+        assert!(added.iter().all(|d| d.is_dir()), "folders that do not exist are left out");
+        fs::remove_dir_all(home).unwrap();
+    }
 
     #[test]
     fn a_scope_stays_inside_its_project() {
