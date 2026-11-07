@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -70,6 +70,10 @@ export abstract class AgentBackend {
   abstract listRuns(): Promise<StoredRun[]>;
   /** Latest plan limits each CLI reported, kept across restarts. */
   abstract accountLimits(): Promise<AccountLimits[]>;
+  /** Memory and CPU of the app and of each agent's process tree. */
+  abstract resourceUsage(): Promise<ResourceReport>;
+  /** Stops a leftover child process that belongs to no live conversation. */
+  abstract killProcess(pid: number): Promise<void>;
   /** Asks Claude Code's local `/usage` (no tokens); null when it reports none. At most once a minute. */
   abstract refreshClaudeLimits(): Promise<AccountLimits | null>;
   /** Runs started since `since` (epoch ms), newest first, with final usage. */
@@ -216,6 +220,12 @@ export class TauriBackend extends AgentBackend {
   }
   accountLimits() {
     return invoke<AccountLimits[]>('account_limits');
+  }
+  resourceUsage() {
+    return invoke<ResourceReport>('resource_usage');
+  }
+  killProcess(pid: number) {
+    return invoke<void>('kill_process', { pid });
   }
   refreshClaudeLimits() {
     return invoke<AccountLimits | null>('refresh_claude_limits');

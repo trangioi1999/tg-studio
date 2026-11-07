@@ -1,5 +1,6 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { AgentAvatar } from './agent-avatar';
+import { ResourceMeter } from './resource-meter';
 import { AgentsService } from '../core/agents.service';
 import { limitView, limitsTitle } from '../core/limits';
 import { AGENT_IDS, AgentId } from '../core/protocol';
@@ -14,7 +15,7 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
 
 @Component({
   selector: 'tg-status-bar',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, ResourceMeter],
   template: `
     @if (budget.notices().length) {
       <div class="notices" role="status">
@@ -41,6 +42,7 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
       @if (diag.failed()) { <span class="err" role="alert">{{ diag.failed() }}</span> }
       <button class="status-btn" (click)="diag.export()" title="Lưu một tệp chẩn đoán (không gồm khóa hay mật khẩu) vào Downloads để gửi khi báo lỗi. App không tự gửi gì.">Chẩn đoán</button>
       @if (backend.mode === 'mock') { <span class="mock">Mock mode — mở bằng <code>npm run dev</code> để chạy agent thật</span> }
+      <tg-resource-meter />
       <span>{{ tok(runs.totals().tokens) }} tok</span>
       <span [attr.data-level]="budget.dailyLevel()" class="today">
         Hôm nay {{ usd(budget.todayCost()) }}@if (budget.budgets().daily; as d) { / {{ usd(d) }} }

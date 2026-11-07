@@ -58,6 +58,37 @@ export interface AgentCommand {
   insert: string;
 }
 
+/** One process, as `resources::ProcStat`. */
+export interface ProcStat {
+  pid: number;
+  parent: number | null;
+  name: string;
+  /** Percent of one core. */
+  cpu: number;
+  /** Bytes (resident). */
+  memory: number;
+}
+
+/** Processes counted together, as `resources::UsageGroup`. */
+export interface UsageGroup {
+  kind: 'app' | 'run' | 'warm' | 'other';
+  runId: string | null;
+  cpu: number;
+  memory: number;
+  processes: ProcStat[];
+}
+
+/** What the app and its agents use right now, as `resources::ResourceReport`. */
+export interface ResourceReport {
+  at: number;
+  cpu: number;
+  memory: number;
+  cores: number;
+  groups: UsageGroup[];
+  /** The WebView is counted in the app group (not on macOS, where it is not a child of the app). */
+  webview: boolean;
+}
+
 export interface Usage {
   /** Uncached input tokens. */
   inputTokens: number;

@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup } from './protocol';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -534,6 +534,29 @@ export class MockBackend extends AgentBackend {
   async accountLimits(): Promise<AccountLimits[]> {
     return [];
   }
+
+  /** Plausible numbers: the app, one process tree per live run, and a stray probe. */
+  async resourceUsage(): Promise<ResourceReport> {
+    const mb = 1024 * 1024;
+    const wobble = () => 0.9 + Math.random() * 0.2;
+    const proc = (pid: number, parent: number | null, name: string, memory: number, cpu: number): ProcStat =>
+      ({ pid, parent, name, memory: Math.round(memory * mb * wobble()), cpu: Math.round(cpu * wobble() * 10) / 10 });
+    const group = (kind: UsageGroup['kind'], runId: string | null, processes: ProcStat[]): UsageGroup =>
+      ({ kind, runId, processes, memory: processes.reduce((s, p) => s + p.memory, 0), cpu: processes.reduce((s, p) => s + p.cpu, 0) });
+    const groups: UsageGroup[] = [group('app', null, [proc(100, null, 'tg-studio', 104, 0.3)])];
+    let pid = 200;
+    for (const [id, run] of this.runs) {
+      if (!run.active && !run.open) continue;
+      const root = pid++;
+      const cli = run.agent === 'codex' ? 'codex-acp' : run.agent === 'claude' ? 'claude' : `${run.agent}-cli`;
+      groups.push(group('run', id, [proc(root, 100, cli, 240, run.active ? 6 : 0.2), proc(pid++, root, 'node (MCP)', 88, 0)]));
+    }
+    groups.push(group('other', null, [proc(900, 100, 'claude-agent-acp', 70, 0)]));
+    return { at: Date.now(), cores: 8, webview: false, groups,
+      memory: groups.reduce((s, g) => s + g.memory, 0), cpu: groups.reduce((s, g) => s + g.cpu, 0) };
+  }
+
+  async killProcess(_pid: number): Promise<void> {}
 
   async refreshClaudeLimits(): Promise<AccountLimits | null> {
     const hour = 3_600_000;
