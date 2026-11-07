@@ -5,6 +5,8 @@ interface MockRun {
   /** Its session waits for more messages after a turn. */
   open?: boolean;
   agent: AgentId;
+  /** Shown in the usage table, as the core stores it. */
+  prompt: string;
   timers: ReturnType<typeof setTimeout>[];
   active: boolean;
 }
@@ -242,7 +244,7 @@ export class MockBackend extends AgentBackend {
   async start(agent: AgentId, prompt: string, _cwd?: string, _thread: string | null = null, _resumeFrom: string | null = null, _scope: string | null = null): Promise<string> {
     const runId = crypto.randomUUID();
     // Claude keeps one process for a whole Chỉ hỏi conversation, as the core does.
-    const run: MockRun = { agent, timers: [], active: true, open: agent === 'claude' };
+    const run: MockRun = { agent, prompt, timers: [], active: true, open: agent === 'claude' };
     this.runs.set(runId, run);
     const emit = (partial: Partial<AgentEvent>, delay: number) => {
       run.timers.push(setTimeout(() => {
@@ -276,7 +278,7 @@ export class MockBackend extends AgentBackend {
     const previous = reuse ? this.task(reuse) : null;
     if (reuse && this.runs.get(reuse)?.active) throw new Error('Bước trước vẫn đang chạy.');
     const runId = crypto.randomUUID();
-    const run: MockRun = { agent, timers: [], active: true, open: !singleTurn };
+    const run: MockRun = { agent, prompt, timers: [], active: true, open: !singleTurn };
     this.runs.set(runId, run);
     this.tasks.set(runId, previous
       ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, staged: previous.staged, pending: true }
@@ -668,7 +670,7 @@ export class MockBackend extends AgentBackend {
   }
 
   private emit(e: AgentEvent) {
-    const row = this.ledger.get(e.runId) ?? { id: e.runId, agent: e.agent, prompt: '', startedAt: e.atMs, endedAt: null, status: 'running' as const, group: null, usage: null };
+    const row = this.ledger.get(e.runId) ?? { id: e.runId, agent: e.agent, prompt: this.runs.get(e.runId)?.prompt ?? '', startedAt: e.atMs, endedAt: null, status: 'running' as const, group: null, usage: null };
     if (e.kind === 'usage' && e.usage) row.usage = e.usage;
     if (e.kind === 'exit') {
       row.endedAt = e.atMs;

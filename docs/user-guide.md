@@ -58,15 +58,21 @@ Dưới ô chat có hai nút:
 
 Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện; agent mới nhận tóm tắt những gì đã nói.
 
+![Danh sách skill khi gõ /](images/skills.png)
+
 Gọi skill: gõ `/` ở đầu ô chat để mở danh sách skill và lệnh của agent đang chọn, chia nhóm **Skill của dự án**, **Skill trên máy**, **Plugin**, **Lệnh**. Gõ tiếp để lọc, ↑/↓ để chọn, Enter hoặc Tab để chèn, Esc để đóng. Với Codex, skill gọi bằng `$` ở bất kỳ đâu trong câu. App đọc danh sách từ chính agent (mở phiên không gửi prompt, không tốn token), nên skill trong `.claude/skills/` (Claude) hay `.agents/skills/` (Codex) của dự án đều hiện ra. Màn **Kết nối** có mục *Skill agent đang thấy* liệt kê đủ cho dự án đang mở.
 
 Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm biểu tượng thùng rác rồi **Xoá**. Lịch sử chat và bản nháp của nó bị xoá; thay đổi đã nằm trong code của bạn vẫn giữ nguyên, số liệu Chi phí không đổi. Không xoá được khi agent đang chạy.
+
+![Xác nhận xoá ngay tại dòng](images/delete.png)
 
 Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) gom vào một dòng **Nhật ký làm việc**: mở ra khi agent đang làm, tự thu gọn khi xong. Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
 
 Sửa code cần thư mục là repo Git có ít nhất một commit; nếu chưa có, app có nút **Khởi tạo Git** hoặc **Tạo commit đầu tiên**, xem trước rồi mới làm. Tệp chưa commit không có trong bản nháp, app sẽ cảnh báo trước.
 
 ## 5. Duyệt lệnh
+
+![Thẻ duyệt lệnh ghim trên ô chat](images/approval.png)
 
 Khi agent muốn chạy lệnh hoặc sửa tệp, thẻ **Cần bạn duyệt** hiện ra:
 - **Cho phép lần này**.
@@ -79,15 +85,19 @@ Phiên do app mở luôn xin duyệt, kể cả khi Claude Code trên máy đặ
 
 ## 6. Review và commit
 
-- Trong editor, dưới mỗi thay đổi có thanh **Nhận / Bỏ** (Ctrl+Enter / Ctrl+Backspace khi con trỏ ở trong thay đổi).
+![Kết quả, thẻ thay đổi và panel Giữ/Hoàn tác](images/chat-review.png)
+
+- Trong editor, dưới mỗi thay đổi có thanh **Giữ / Hoàn tác** khi agent làm thẳng trong thư mục, hoặc **Nhận / Bỏ** khi agent làm trong bản nháp (Ctrl+Enter / Ctrl+Backspace khi con trỏ ở trong thay đổi).
 - Tab **Thay đổi** liệt kê mọi đoạn thay đổi; Nhận áp vào code thật, Bỏ xoá nó khỏi bản nháp.
-- Sửa tay trong editor rồi **Lưu** (Ctrl+S): chỉ ghi vào worktree, nên chính sửa đổi của bạn cũng vào hàng chờ duyệt. Không lưu được khi agent đang chạy.
+- Sửa tay trong editor rồi **Lưu** (Ctrl+S): chỉ ghi vào bản nháp, nên chính sửa đổi của bạn cũng vào hàng chờ duyệt. Không lưu được khi agent đang chạy.
 - Khi đã Nhận, ô **Commit** hiện ra và liệt kê mọi tệp đang staged với nội dung do agent đề xuất; sửa rồi Commit.
-- **Bỏ worktree** khi không cần nữa.
+- **Bỏ bản nháp** khi không cần nữa, hoặc xoá cả cuộc trò chuyện ở cột trái.
 
 ## 7. Song song: so sánh và ghép
 
-- Tab **So sánh**: mỗi agent một thẻ (tệp, dòng, token, chi phí, thời gian). **Dùng bản này** áp nguyên một bản (tất cả hoặc không gì), rồi Commit và **Dọn worktree của nhóm**.
+![So sánh hai bản](images/compare.png)
+
+- Tab **So sánh**: mỗi agent một thẻ (tệp, dòng, token, chi phí, thời gian). **Dùng bản này** áp nguyên một bản (tất cả hoặc không gì), rồi Commit và **Dọn bản nháp của nhóm**.
 - **Ghép thủ công**: chọn từng thay đổi từ các bản khác nhau → **Tạo bản ghép** → nhập lệnh kiểm tra (ví dụ `npm test`) → **Chạy kiểm tra** → **Dùng bản ghép**. Hai thay đổi trùng chỗ sửa không ghép được.
 
 ## 8. Giám sát
@@ -102,7 +112,7 @@ KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timelin
 - **Ngân sách**: mỗi task và mỗi ngày. Vượt mức task thì run đó dừng; chạm mức ngày thì mọi run dừng và không giao việc mới được. Nhiều agent chỉ báo chi phí khi xong, nên việc dừng chỉ xảy ra khi đã có số.
 - **Hạn mức gói** (5 giờ, 7 ngày) ở thanh dưới cùng: Claude đọc bằng lệnh `/usage` của Claude Code (không tốn token) lúc mở app và mỗi 5 phút; Codex đọc từ nhật ký phiên của Codex, cả khi bạn chạy Codex ngoài app. Bấm vào số để cập nhật ngay. Với gói Pro/Max, "chi phí" chỉ là giá API quy đổi; phần bị trừ thật là hạn mức gói.
 
-## 10. Integrations: MCP và Skills
+## 10. Kết nối: MCP và Skills
 
 - **MCP servers**: thêm server (stdio: lệnh + tham số + biến môi trường; http: URL + header), tick agent nào được dùng. App đưa server vào từng phiên của agent, không sửa tệp cấu hình của agent. Server http chỉ gửi cho agent báo hỗ trợ. Biến môi trường và header lưu trong máy, không mã hóa.
 - **Skills**: thư viện `SKILL.md`. Cài vào Claude Code ở mức repo (`.claude/skills`) hoặc mức máy (`~/.claude/skills`); bản khác sẵn có được sao lưu trước khi ghi.
@@ -112,15 +122,15 @@ KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timelin
 Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cung cấp. Agent dùng nó để:
 - **báo tiến độ**: hiện thành thanh tiến độ ở cuộc trò chuyện và cột agent trong Giám sát;
 - **ghi chú chung**: agent cùng task (nhóm song song, các bước pipeline) đọc được; xem ở tab **Plan**;
-- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở cuộc trò chuyện và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng worktree nếu task trước đã xong);
+- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở cuộc trò chuyện và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng bản nháp nếu task trước đã xong);
 - **xin duyệt** việc ngoài phạm vi: hiện thẻ duyệt như lệnh thường.
 
-tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở màn **Integrations** nếu không cần.
+tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở màn **Kết nối** nếu không cần.
 
 ## 12. Dữ liệu và quyền riêng tư
 
 - Lịch sử, giá, ngân sách, MCP nằm trong `tg-studio.db` ở thư mục dữ liệu của app. Thư viện skill ở `skills/` cạnh đó.
-- Worktree của task nằm trong `<repo>/.tg/worktrees/` (đã thêm vào `.git/info/exclude`).
+- Bản nháp (git worktree) của task nằm trong `<repo>/.tg/worktrees/` (đã thêm vào `.git/info/exclude`).
 - App không gửi dữ liệu đi đâu ngoài chính các CLI bạn đã cài.
 
 ## 13. Báo lỗi
@@ -135,4 +145,4 @@ Bấm **Chẩn đoán** ở thanh trạng thái: app lưu một tệp JSON vào 
 | Agent "chưa cài" dù đã cài | Mở lại app sau khi cài; bấm **Dò lại**. App lấy PATH từ login shell, nên CLI cài qua nvm/Homebrew vẫn thấy được |
 | Sửa code báo không tìm thấy adapter | Cần `npx` (Node.js) để tải `claude-agent-acp` / `codex-acp` lần đầu |
 | Kiro không chạy | Đăng nhập Kiro trong terminal trước (`kiro-cli login`; kiểm tra bằng `kiro-cli whoami`). Kiro chỉ dùng được với quyền **Sửa code**; chọn Kiro khi đang ở Chỉ hỏi thì app tự chuyển sang Sửa code |
-| Chi phí hiện "—" | Agent không tự báo chi phí: nhập bảng giá ở màn Usage |
+| Chi phí hiện "—" | Agent không tự báo chi phí: nhập bảng giá ở màn Chi phí |
