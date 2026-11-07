@@ -97,6 +97,8 @@ export interface AgentUsage {
 
 const MAX_LINES = 2000;
 
+const CLAUDE_LIMITS_EVERY = 5 * 60_000;
+
 @Injectable({ providedIn: 'root' })
 export class RunsService {
   private readonly backend = inject(AgentBackend);
@@ -165,20 +167,44 @@ export class RunsService {
     });
     void this.backend.onEvent((e) => this.apply(e));
     void this.hydrate();
-    void this.loadLimits();
+    void this.refreshLimits();
   }
 
   async loadLimits(): Promise<void> {
     try {
-      const saved = await this.backend.accountLimits();
-      // A live report may already have arrived; keep whichever is newer.
-      this.limits.update((now) => {
-        const next = { ...now };
-        for (const l of saved) if (!next[l.agent] || next[l.agent]!.at < l.at) next[l.agent] = l;
-        return next;
-      });
+      this.mergeLimits(await this.backend.accountLimits());
     } catch (e) {
       console.warn('Không đọc được hạn mức đã lưu', e);
+    }
+  }
+
+  /** A live report may already have arrived; keep whichever is newer. */
+  private mergeLimits(saved: AccountLimits[]): void {
+    this.limits.update((now) => {
+      const next = { ...now };
+      for (const l of saved) if (!next[l.agent] || next[l.agent]!.at < l.at) next[l.agent] = l;
+      return next;
+    });
+  }
+
+  private claudeLimitsAt = 0;
+  readonly refreshingLimits = signal(false);
+  /**
+   * Saved limits (Codex's are re-read from its own logs), plus Claude's from its local
+   * `/usage`, which spawns the CLI: at most every 5 minutes unless the user asks.
+   */
+  async refreshLimits(force = false): Promise<void> {
+    await this.loadLimits();
+    if (!force && Date.now() - this.claudeLimitsAt < CLAUDE_LIMITS_EVERY) return;
+    this.claudeLimitsAt = Date.now();
+    this.refreshingLimits.set(true);
+    try {
+      const claude = await this.backend.refreshClaudeLimits();
+      if (claude) this.mergeLimits([claude]);
+    } catch (e) {
+      console.warn('Không đọc được hạn mức Claude', e);
+    } finally {
+      this.refreshingLimits.set(false);
     }
   }
 

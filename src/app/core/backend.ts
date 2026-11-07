@@ -68,6 +68,8 @@ export abstract class AgentBackend {
   abstract listRuns(): Promise<StoredRun[]>;
   /** Latest plan limits each CLI reported, kept across restarts. */
   abstract accountLimits(): Promise<AccountLimits[]>;
+  /** Asks Claude Code's local `/usage` (no tokens); null when it reports none. At most once a minute. */
+  abstract refreshClaudeLimits(): Promise<AccountLimits | null>;
   /** Runs started since `since` (epoch ms), newest first, with final usage. */
   abstract usageReport(since: number): Promise<UsageRow[]>;
   abstract listPrices(): Promise<PriceRow[]>;
@@ -209,6 +211,9 @@ export class TauriBackend extends AgentBackend {
   }
   accountLimits() {
     return invoke<AccountLimits[]>('account_limits');
+  }
+  refreshClaudeLimits() {
+    return invoke<AccountLimits | null>('refresh_claude_limits');
   }
   usageReport(since: number) {
     return invoke<UsageRow[]>('usage_report', { since: Math.max(0, Math.floor(since)) });
