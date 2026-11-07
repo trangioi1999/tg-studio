@@ -215,6 +215,7 @@ tg-diff-viewer, tg-code-editor, tg-source-viewer, tg-compare { flex: 1; min-heig
 
 /* Mixer (hand-picked composite) */
 .mixer { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.mixer .block-head .label { flex: none; white-space: nowrap; }
 .mix-body { display: flex; flex-direction: column; }
 .mix-file { padding: 8px 12px 4px; color: var(--text); font-size: 12px; border-top: 1px solid var(--line-soft); }
 .mix-hunk { display: flex; align-items: center; gap: 8px; padding: 2px 12px 2px 20px; }

@@ -4,6 +4,15 @@
 
 ## [Chưa phát hành]
 
+### Chat mượt hơn (2026-11-07)
+- Bấm gửi là tin nhắn hiện ngay kèm "Đang khởi động …", không còn đứng màn hình vài giây trong lúc agent mở phiên; không gửi được thì chữ trở lại ô chat.
+- Xoá cuộc trò chuyện ở cột trái (xác nhận ngay tại dòng): xoá lịch sử chat và bản nháp, giữ nguyên code của bạn và số liệu Chi phí.
+- Hạn mức gói Claude đọc bằng `/usage` của Claude Code (không tốn token) lúc mở app và mỗi 5 phút; Codex đọc từ nhật ký phiên của nó. Bấm vào số ở thanh dưới để cập nhật.
+- Chỉ hỏi → Làm luôn: khi Claude lên kế hoạch sửa code mà đang ở Chỉ hỏi, thẻ **Làm luôn** chuyển cuộc trò chuyện sang Hỏi trước và làm theo kế hoạch đó.
+- Gõ `/` ở đầu ô chat (Codex: `$`) để chọn skill của dự án, của máy, của plugin hoặc lệnh của agent; màn Kết nối có mục *Skill agent đang thấy*.
+- Codex nhiều câu trong một phiên đã kiểm chứng với Codex thật.
+- GitHub Actions chỉ chạy khi chủ repo bảo (CI, Release, Download site).
+
 ### Quyền và nơi làm việc
 - Mọi agent có đủ 3 quyền: **Chỉ hỏi**, **Sửa code · hỏi trước**, **Tự động** (agent tự chạy, không hiện thẻ duyệt; `git push`/`merge` vẫn bị chặn). Kiro và Gemini trả lời câu hỏi trong một bản nháp tạm và bị từ chối mọi thao tác ghi.
 - Sửa code mặc định làm thẳng trong **thư mục hiện tại**: panel Thay đổi chỉ hiện phần agent sửa (không lẫn phần bạn đang sửa dở), **Giữ** đưa vào commit, **Hoàn tác** trả từng đoạn về như cũ. Chọn **Bản nháp** để agent làm trong bản sao riêng, tạo từ nhánh bạn chọn.

@@ -3,7 +3,7 @@
 Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
 Giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **Giai đoạn 4** (đóng gói). Đã có: task sửa code qua ACP trong worktree riêng, duyệt lệnh, review/accept từng hunk ngay trong editor, chạy song song + so sánh + ghép, pipeline Plan → Build → Review, Mission control, màn Usage (giá, ngân sách, CSV, hạn mức Claude), MCP + Skills, onboarding. Lõi đã chạy với Claude thật; Codex, Gemini, Kiro qua ACP chưa thử. Còn lại: ký số, tự cập nhật, beta. Xem `docs/02-roadmap.md`; cách dùng: `docs/user-guide.md`.
+> Trạng thái: **làm lại trải nghiệm chính (chat-first), mốc M5**. Đã có: chat nhiều câu trong một phiên agent, sửa code thẳng trong thư mục hoặc trong bản nháp, duyệt lệnh, Giữ/Hoàn tác từng đoạn, chạy song song + so sánh + ghép, Theo các bước, Giám sát, Chi phí (giá, ngân sách, CSV, hạn mức gói Claude và Codex không cần chat), MCP, gọi skill của agent bằng `/`, xoá cuộc trò chuyện. Đã kiểm chứng với Claude và Codex thật; Gemini, Kiro chưa. Còn lại: nghiệm thu trên Windows, ký số, tự cập nhật, beta. Xem `docs/02-roadmap.md`; cách dùng: `docs/user-guide.md`.
 
 ## Giao diện
 
@@ -15,6 +15,10 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 ![Thẻ duyệt lệnh](docs/images/approval.png)
 
+**Gọi skill:** gõ `/` ở đầu ô chat (Codex: `$`) để chọn skill của dự án, của máy, của plugin hoặc lệnh của agent. Danh sách đọc từ chính agent, không tốn token.
+
+![Danh sách skill khi gõ /](docs/images/skills.png)
+
 **Chọn agent và model:** danh sách model và mức suy nghĩ đọc từ chính CLI. Cuối menu là Giao cho nhiều agent và Theo các bước.
 
 ![Menu chọn agent, model và mức suy nghĩ](docs/images/agent-menu.png)
@@ -23,15 +27,15 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 ![So sánh và ghép kết quả của nhiều agent](docs/images/compare.png)
 
-**Mission control:** hàng chờ việc của bạn, timeline có đoạn chờ duyệt, một cột cho mỗi agent.
+**Giám sát:** hàng chờ việc của bạn, timeline có đoạn chờ duyệt, một cột cho mỗi agent.
 
-![Mission control](docs/images/mission-control.png)
+![Màn Giám sát](docs/images/mission-control.png)
 
-**Usage:** chi phí và token theo ngày theo agent, bảng giá, ngân sách, hạn mức gói, xuất CSV.
+**Chi phí:** chi phí và token theo ngày theo agent, bảng giá, ngân sách, xuất CSV. Hạn mức gói 5 giờ / 7 ngày nằm ở thanh dưới cùng, bấm để cập nhật.
 
-![Màn Usage](docs/images/usage.png)
+![Màn Chi phí](docs/images/usage.png)
 
-<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu.</sub>
+<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu. Chụp lại: `npm start -- --port 4321` rồi chạy `scripts/capture-screens.js` bằng Playwright.</sub>
 
 **Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt. **Toàn cảnh** xếp 16 màn hình theo luồng trên một bảng kéo/phóng to được, **▶ Trình chiếu** tự chạy lần lượt từng màn kèm chú thích, **Review** để đánh dấu Đạt / Cần sửa và chép kết quả.
 
