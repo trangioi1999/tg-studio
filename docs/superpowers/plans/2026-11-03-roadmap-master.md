@@ -20,6 +20,10 @@ Quy tắc chung:
 
 ## Cách giao một task cho Codex
 
+**Đang chạy bên trong TG Studio** (có tool `handoff_to` của MCP server `tg-bridge`): giao việc bằng `handoff_to` (agent `codex`, mô tả task, danh sách tệp), đừng tự chạy `codex exec`. Người dùng thấy thẻ đề xuất, bấm nhận thì Codex chạy thành một cuộc trò chuyện riêng trong app, có log, thay đổi và chi phí. `codex exec` chạy ngầm là tiến trình con của bạn, app không thấy nó.
+
+Cách dưới đây chỉ dùng khi làm ngoài TG Studio (terminal):
+
 ```bash
 # Từ thư mục gốc repo. Sandbox Codex không có mạng và không ghi được .git,
 # nên phải tải dependency trước và người review sẽ commit.

@@ -22,4 +22,16 @@ describe('DiagnosticsService', () => {
     expect(report.ui.errors.at(-1).message).toBe('lỗi 59');
     expect(diag.saved()).toBe(path);
   });
+
+  it('leaves the harmless ResizeObserver notice out of the report', async () => {
+    const backend = new MockBackend();
+    let saved = '';
+    backend.saveExport = async (name, content) => ((saved = content), name);
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const diag = TestBed.inject(DiagnosticsService);
+    diag.record('ResizeObserver loop completed with undelivered notifications.');
+    diag.record('lỗi thật');
+    await diag.export();
+    expect(JSON.parse(saved).ui.errors.map((e: { message: string }) => e.message)).toEqual(['lỗi thật']);
+  });
 });

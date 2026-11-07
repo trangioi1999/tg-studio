@@ -1,11 +1,13 @@
 import { Component, ElementRef, OnDestroy, afterNextRender, computed, effect, inject, input, signal, untracked, viewChild } from '@angular/core';
 import type * as Monaco from 'monaco-editor/editor/editor.api.js';
 import { AgentBackend } from '../core/backend';
-import { MonacoApi, loadMonaco } from '../core/monaco';
+import { EDITOR_OPTIONS, EditorStatus, MonacoApi, addWrapToggle, loadMonaco, trackStatus } from '../core/monaco';
+import { EditorStatusBar } from './editor-status';
 
 /** Read-only Monaco on a file of the opened project. Changes go through an agent's draft. */
 @Component({
   selector: 'tg-source-viewer',
+  imports: [EditorStatusBar],
   template: `
     <div class="editor-main">
       <div class="editor-bar">
@@ -16,10 +18,11 @@ import { MonacoApi, loadMonaco } from '../core/monaco';
           }
         </nav>
         <span class="spacer"></span>
-        <span class="dim">Chỉ đọc. Giao cho agent để sửa.</span>
+        <button class="btn ghost sm" title="Chép đường dẫn tương đối" (click)="copyPath()">{{ copied() ? 'Đã chép' : 'Chép đường dẫn' }}</button>
       </div>
       @if (error()) { <p class="error-text pad" role="alert">{{ error() }}</p> }
       <div #host class="editor-host" [class.hidden]="error()"></div>
+      <tg-editor-status [status]="status()" [wrap]="wrap()" note="Chỉ đọc · giao cho agent để sửa" (toggleWrap)="toggleWrap?.()" />
     </div>
   `,
 })
@@ -31,6 +34,10 @@ export class SourceViewer implements OnDestroy {
   private readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
   protected readonly error = signal<string | null>(null);
   protected readonly crumbs = computed(() => this.path().split('/'));
+  protected readonly status = signal<EditorStatus | null>(null);
+  protected readonly wrap = signal(false);
+  protected readonly copied = signal(false);
+  protected toggleWrap: (() => void) | null = null;
   private monaco: MonacoApi | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   private model: Monaco.editor.ITextModel | null = null;
@@ -55,14 +62,20 @@ export class SourceViewer implements OnDestroy {
   private async mount(): Promise<void> {
     try {
       this.monaco = await loadMonaco();
-      this.editor = this.monaco.editor.create(this.host().nativeElement, {
-        readOnly: true, automaticLayout: true, minimap: { enabled: false }, theme: 'tg-dark',
-        fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 12.5, scrollBeyondLastLine: false,
-      });
+      this.editor = this.monaco.editor.create(this.host().nativeElement, { ...EDITOR_OPTIONS, readOnly: true, domReadOnly: true });
+      trackStatus(this.monaco, this.editor, (s) => this.status.set(s));
+      this.toggleWrap = addWrapToggle(this.monaco, this.editor, (on) => this.wrap.set(on));
       await this.show();
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  protected copyPath(): void {
+    void navigator.clipboard?.writeText(this.path()).then(() => {
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 1200);
+    });
   }
 
   private async show(): Promise<void> {

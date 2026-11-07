@@ -32,6 +32,13 @@ Số hạn mức do CLI báo: Codex đọc từ log phiên của nó, Claude có
 
 Tệp mở từ **Dự án** chỉ đọc; muốn sửa thì giao cho agent. Tệp trong **Bản nháp** sửa được.
 
+Khung tệp dùng như một editor:
+- **Đổi cỡ khung:** kéo đường viền giữa các khung (cột trái, khung chat với khung code, cây tệp, khung log). Bấm đúp vào đường viền để về cỡ mặc định. App nhớ cỡ cho lần sau.
+- **Mở nhanh tệp:** ⌘P (Windows: Ctrl+P), gõ vài chữ trong tên tệp rồi Enter.
+- **Cây tệp:** thư mục dự án mở dần khi cần; ô **Lọc tệp** chỉ hiện các tệp có chữ đã gõ; nút ⊟ thu gọn mọi thư mục. Tệp đang mở luôn được hiện ra trong cây.
+- **Tab xem trước:** bấm một lần vào tệp thì mở tab xem trước (tên in nghiêng), tệp bấm tiếp theo sẽ thay chỗ nó. Bấm đúp vào tệp hoặc vào tab để giữ tab lại. Bấm chuột giữa vào tab để đóng.
+- **Trong editor:** bản đồ thu nhỏ bên phải, dòng hàm/khối đang đọc ghim ở trên, ⌘F để tìm, Alt+Z bật/tắt xuống dòng. Dòng dưới cùng hiện vị trí con trỏ, số ký tự đã chọn và ngôn ngữ.
+
 Phím tắt hiện cạnh nút: trên Windows là Ctrl, trên macOS là ⌘.
 
 ## 4. Chat với agent

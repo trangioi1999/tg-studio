@@ -4,6 +4,12 @@
 
 ## [Chưa phát hành]
 
+### Thêm
+- Kéo để đổi cỡ các khung: cột trái, khung chat với khung code, cây tệp, khung log. Bấm đúp đường viền để về mặc định; app nhớ cỡ cho lần sau.
+- Mở nhanh tệp bằng ⌘P / Ctrl+P.
+- Khung code giống editor hơn: tab xem trước (bấm một lần để xem, bấm đúp để giữ), biểu tượng loại tệp, ô lọc tệp, cây thư mục dự án mở dần và tự hiện tệp đang mở, bản đồ thu nhỏ, dòng ghim ngữ cảnh, màu cặp ngoặc, dòng trạng thái (dòng/cột, ngôn ngữ, Alt+Z xuống dòng), nút chép đường dẫn.
+- Agent chạy trong TG Studio giao việc cho Codex qua `handoff_to` để Codex hiện thành cuộc trò chuyện riêng, thay vì chạy `codex exec` ngầm mà app không thấy.
+
 ### Sửa lỗi
 - Khi nối lại cuộc trò chuyện, các dòng `[session/load] … phase=…` (adapter Claude ghi thời gian đọc lại phiên, không tốn token) không còn hiện như lỗi trong khung chat.
 

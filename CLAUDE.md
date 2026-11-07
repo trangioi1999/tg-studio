@@ -75,13 +75,15 @@ Tauri 2: UI Angular gọi lõi Rust, lõi Rust chạy các agent CLI (`claude`, 
 - **Thanh tiêu đề:** Windows/Linux tắt decorations trong `setup` (`lib.rs`), nút cửa sổ gọi `AgentBackend.windowAction`; macOS giữ traffic lights. Tên class CSS dùng chung toàn cục, nên đặt tên riêng (từng bị trùng `.hero`, `.seg`, `.stack`).
 - **Layout:** `ThreadList` (trái: dự án → cuộc trò chuyện, các màn khác) · `AgentPanel` (giữa: chat, tối đa 760px; thẻ duyệt ghim trên ô chat) · `SidePanel` (phải: `Explorer` + `Workbench`). `SidePanel` luôn được render, chỉ ẩn bằng class, vì nó giữ tệp và diff luôn mới. `WorkspaceService` giữ thư mục/repo, các tab và bộ đệm tệp + diff của từng run (`refresh(runId)`); component nào Accept/Reject hay lưu tệp thì gọi `refresh` để các nơi khác cập nhật. `UiService` giữ màn hình và `sideOpen`; mở một run từ chỗ khác bằng `ui.openRun(id, view)`.
 - **Cuộc trò chuyện:** `ThreadsService` gom run theo `Run.thread` (cột `thread_id`; run cũ dùng group hoặc id của nó), chia theo `Run.project`. Trạng thái là dẫn xuất, không lưu. Phạm vi thư mục con là `Run.scope`: nơi agent bắt đầu làm việc, không phải rào chắn (`env::scoped_dir`). Chưa có bảng `threads` như spec, vì chưa có gì cần lưu ngoài run.
+- **Cỡ khung:** `LayoutService` (`core/layout.ts`) giữ cỡ cột trái, khung code, cây tệp, khung log (localStorage `tg.layout`) và đặt biến CSS `--w-sidebar`/`--w-side`/`--w-files`/`--h-term` trên `.shell`; chưa kéo thì dùng mặc định trong CSS. Tay kéo là `tg-splitter` (`target` = phần tử anh liền trước hoặc phần tử cha, `grow` = hướng kéo làm to), bấm đúp để về mặc định.
+- **Tab xem trước:** bấm một lần ở cây tệp, hoặc Theo agent, mở tab xem trước (chữ nghiêng, `WorkspaceService.previewKey`), tab xem trước tiếp theo thay chỗ nó; bấm đúp hoặc sửa tệp thì giữ tab (`pin`). ⌘P là `QuickOpen` (`core/fuzzy.ts`) trên tệp của dự án. Hai editor dùng chung `EDITOR_OPTIONS` và dòng trạng thái `tg-editor-status` (`core/monaco.ts`).
 - **Thanh hunk trong editor:** view zone chỉ để giữ chỗ, thanh nút là content widget, vì lớp chữ của Monaco nằm trên view zone và nuốt click.
 - **Phím tắt:** nhãn lấy từ `core/keys.ts` (⌘ trên macOS, Ctrl nơi khác); handler nhận cả `meta` và `control`.
 - **Editor:** Monaco tải lazy qua `core/monaco.ts`; worker là `core/editor.worker.ts` (cần `webWorkerTsConfig` và loader `.ttf` trong `angular.json`). Import Monaco qua `monaco-editor/editor/editor.api.js`, không import `monaco-editor` (kéo theo language service).
 
 **Thêm agent mới:** làm theo `docs/ARCHITECTURE.md`.
 
-**Giao việc cho Codex:** phân công và cách chạy `codex exec` trong worktree nằm ở `docs/superpowers/plans/2026-11-03-roadmap-master.md`.
+**Giao việc cho Codex:** nếu đang chạy trong TG Studio (có tool `handoff_to` của tg-bridge) thì giao bằng `handoff_to` để Codex hiện thành cuộc trò chuyện riêng; đừng chạy `codex exec` ngầm (app không thấy nó). Ngoài app: phân công và cách chạy `codex exec` trong worktree nằm ở `docs/superpowers/plans/2026-11-03-roadmap-master.md`.
 
 **Giao diện:** component trong `src/app/shell/` không có style riêng; toàn bộ CSS nằm trong `src/styles.scss`. Chuỗi hiển thị cho người dùng, kể cả lỗi trả về từ Rust, viết bằng tiếng Việt.
 

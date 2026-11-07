@@ -2,10 +2,11 @@ import { Component, ElementRef, OnDestroy, afterNextRender, computed, effect, in
 import type * as Monaco from 'monaco-editor/editor/editor.api.js';
 import { KEYS } from '../core/keys';
 import { lineMarks } from '../core/line-marks';
-import { MonacoApi, loadMonaco } from '../core/monaco';
+import { EDITOR_OPTIONS, EditorStatus, MonacoApi, addWrapToggle, loadMonaco, trackStatus } from '../core/monaco';
 import { AGENT_META, AgentId, Hunk } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
-import { WorkspaceService } from '../core/workspace.service';
+import { WorkspaceService, tabKey } from '../core/workspace.service';
+import { EditorStatusBar } from './editor-status';
 
 interface Buffer {
   model: Monaco.editor.ITextModel;
@@ -20,6 +21,7 @@ interface Buffer {
  */
 @Component({
   selector: 'tg-code-editor',
+  imports: [EditorStatusBar],
   template: `
     <div class="editor-main" [style.--agent]="color()">
       <div class="editor-bar">
@@ -35,12 +37,12 @@ interface Buffer {
           <span class="live-dot" aria-hidden="true"></span><span class="dim">{{ meta[agent()].name }} {{ hereLabel() }}</span>
         }
         @if (hunks().length) { <span class="dim">· {{ hunks().length }} thay đổi chờ duyệt</span> }
-        @if (running()) { <span class="dim">· chỉ đọc khi agent chạy</span> }
         @if (dirty()) { <button class="btn ghost sm" [disabled]="busy()" (click)="revert()">Hoàn tác</button> }
         <button class="btn primary sm" [disabled]="busy() || running() || !dirty()" (click)="save()">Lưu<span class="kbd">{{ keys.save }}</span></button>
       </div>
       @if (error()) { <p class="error-text pad" role="alert">{{ error() }}</p> }
       <div #host class="editor-host"></div>
+      <tg-editor-status [status]="status()" [wrap]="wrap()" [note]="running() ? 'Chỉ đọc khi agent chạy' : null" (toggleWrap)="toggleWrap?.()" />
     </div>
   `,
 })
@@ -62,6 +64,9 @@ export class CodeEditor implements OnDestroy {
   protected readonly dirty = signal(false);
   protected readonly color = computed(() => AGENT_META[this.agent()].color);
   protected readonly crumbs = computed(() => this.path().split('/'));
+  protected readonly status = signal<EditorStatus | null>(null);
+  protected readonly wrap = signal(false);
+  protected toggleWrap: (() => void) | null = null;
   private readonly file = computed(() => (this.workspace.diffs()[this.runId()] ?? []).find((f) => f.path === this.path()));
   protected readonly hunks = computed<Hunk[]>(() => this.file()?.hunks ?? []);
   private readonly marks = computed(() => lineMarks(this.file()));
@@ -149,14 +154,7 @@ export class CodeEditor implements OnDestroy {
     if (this.editor) return;
     const monaco = this.monaco;
     this.editor = monaco.editor.create(this.host().nativeElement, {
-      theme: 'tg-dark',
-      automaticLayout: true,
-      fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
-      fontSize: 12.5,
-      lineHeight: 19,
-      minimap: { enabled: false },
-      scrollBeyondLastLine: false,
-      renderLineHighlight: 'line',
+      ...EDITOR_OPTIONS,
       lineDecorationsWidth: 6,
       readOnly: this.running(),
     });
@@ -164,10 +162,14 @@ export class CodeEditor implements OnDestroy {
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void this.save());
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => void this.actAtCursor('accept'));
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backspace, () => void this.actAtCursor('reject'));
+    trackStatus(monaco, this.editor, (st) => this.status.set(st));
+    this.toggleWrap = addWrapToggle(monaco, this.editor, (on) => this.wrap.set(on));
     this.editor.onDidLayoutChange(() => this.paint());
     this.editor.onDidChangeModelContent(() => {
       const b = this.buffers.get(this.key);
       this.dirty.set(!!b && b.model.getValue() !== b.saved);
+      // Editing a previewed file keeps its tab, as in an editor.
+      if (this.dirty()) this.workspace.pin(tabKey({ kind: 'file', runId: this.runId(), path: this.path() }));
     });
     await this.show(this.key);
   }

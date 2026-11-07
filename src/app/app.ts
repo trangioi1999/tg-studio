@@ -15,14 +15,18 @@ import { StatusBar } from './shell/status-bar';
 import { ThreadList } from './shell/thread-list';
 import { TitleBar } from './shell/title-bar';
 import { UsageScreen } from './shell/usage-screen';
+import { Splitter } from './shell/splitter';
+import { QuickOpen } from './shell/quick-open';
+import { LayoutService } from './core/layout';
 
 @Component({
   selector: 'app-root',
-  imports: [TitleBar, ThreadList, AgentsPanel, SidePanel, AgentPanel, MissionControl, UsageScreen, Integrations, Onboarding, StatusBar],
+  imports: [TitleBar, ThreadList, AgentsPanel, SidePanel, AgentPanel, MissionControl, UsageScreen, Integrations, Onboarding, StatusBar, Splitter, QuickOpen],
   templateUrl: './app.html',
 })
 export class App {
   protected readonly ui = inject(UiService);
+  protected readonly layout = inject(LayoutService);
 
   constructor() {
     // Detect CLIs at startup: the composer needs them whatever screen is open.
