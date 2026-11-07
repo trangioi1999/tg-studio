@@ -123,6 +123,7 @@ pub fn run() {
             acp_tasks::read_worktree_file,
             acp_tasks::write_worktree_file,
             acp_tasks::discard_worktree,
+            acp_tasks::delete_runs,
             compose::compose_runs,
             compose::check_composite,
             compose::apply_composite,
