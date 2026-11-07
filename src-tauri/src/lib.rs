@@ -4,6 +4,7 @@
 mod acp;
 mod acp_runner;
 mod adapters;
+mod claude_usage;
 pub mod bridge;
 mod compose;
 mod acp_tasks;
@@ -86,6 +87,7 @@ pub fn run() {
             runner::stop_agent,
             store::list_runs,
             store::account_limits,
+            claude_usage::refresh_claude_limits,
             ledger::usage_report,
             ledger::bridge_notes,
             ledger::list_prices,
@@ -123,6 +125,7 @@ pub fn run() {
             acp_tasks::read_worktree_file,
             acp_tasks::write_worktree_file,
             acp_tasks::discard_worktree,
+            acp_tasks::delete_runs,
             compose::compose_runs,
             compose::check_composite,
             compose::apply_composite,

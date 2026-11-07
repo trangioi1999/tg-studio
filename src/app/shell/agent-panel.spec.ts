@@ -42,6 +42,7 @@ interface Composer {
   gitPlan(): { ignore: string[] } | null;
   planGit(): Promise<void>;
   prepareGit(): Promise<void>;
+  pending(): { text: string } | null;
 }
 
 async function setup() {
@@ -238,6 +239,23 @@ describe('AgentPanel composer', () => {
     expect(runs.selected()?.thread).toBe(question.thread);
   });
 
+  it('carries out a Chỉ hỏi plan in the same conversation once the user says yes', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { setPerm(p: string): void; perm(): string; actOnProposal(r: unknown): Promise<void> };
+    const runs = TestBed.inject(RunsService);
+    p.setPerm('read');
+    p.prompt.set('đổi a.txt thành xin chào');
+    await p.send();
+    const question = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
+    runs.runs.update((list) => list.map((r) => (r.id === question.id ? { ...r, proposal: '# Đổi a.txt\n- Ghi đè thành xin chào' } : r)));
+    await p.actOnProposal(runs.runs().find((r) => r.id === question.id));
+    expect(p.perm()).toBe('ask');
+    expect(backend.lastStart?.approval).toBe('ask');
+    expect(backend.lastStart?.thread).toBe(question.thread);
+    expect(backend.lastStart?.prompt).toContain('Ghi đè thành xin chào');
+  });
+
   it('continues a Codex question in its conversation, resuming the CLI session', async () => {
     const { backend, panel } = await setup();
     const calls: { thread: string | null | undefined; resumeFrom: string | null | undefined }[] = [];
@@ -307,5 +325,28 @@ describe('AgentPanel composer', () => {
     await panel.send();
     expect(panel.error()).toContain('không tạo được worktree');
     expect(panel.prompt()).toBe('việc lớn');
+  });
+
+  it('shows the message and clears the box before the agent has started', async () => {
+    const { backend, panel } = await setup();
+    let finish!: (id: string) => void;
+    backend.startResult = () => new Promise((resolve) => (finish = resolve));
+    panel.prompt.set('sửa lỗi đăng nhập');
+    const sending = panel.send();
+    await vi.waitFor(() => expect(backend.starts).toBe(1));
+    expect(panel.prompt()).toBe('');
+    expect(panel.pending()?.text).toBe('sửa lỗi đăng nhập');
+    finish('run');
+    await sending;
+  });
+
+  it('gives the words back when the agent cannot start', async () => {
+    const { backend, panel } = await setup();
+    backend.startResult = () => Promise.reject(new Error('adapter không chạy'));
+    panel.prompt.set('sửa lỗi đăng nhập');
+    await panel.send();
+    expect(panel.error()).toContain('adapter không chạy');
+    expect(panel.prompt()).toBe('sửa lỗi đăng nhập');
+    expect(panel.pending()).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { planProposal } from './proposal';
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
@@ -47,6 +48,8 @@ export interface Run {
   perm?: 'read' | 'ask' | 'auto';
   /** Code tasks: the user's folder or a draft. Live runs only. */
   place?: Place;
+  /** Chỉ hỏi: the plan the agent wrote instead of editing, until the next question. Live runs only. */
+  proposal?: string | null;
 }
 
 /** A tg-bridge `handoff_to` proposal waiting for the user. */
@@ -96,6 +99,8 @@ export interface AgentUsage {
 }
 
 const MAX_LINES = 2000;
+
+const CLAUDE_LIMITS_EVERY = 5 * 60_000;
 
 @Injectable({ providedIn: 'root' })
 export class RunsService {
@@ -165,20 +170,44 @@ export class RunsService {
     });
     void this.backend.onEvent((e) => this.apply(e));
     void this.hydrate();
-    void this.loadLimits();
+    void this.refreshLimits();
   }
 
   async loadLimits(): Promise<void> {
     try {
-      const saved = await this.backend.accountLimits();
-      // A live report may already have arrived; keep whichever is newer.
-      this.limits.update((now) => {
-        const next = { ...now };
-        for (const l of saved) if (!next[l.agent] || next[l.agent]!.at < l.at) next[l.agent] = l;
-        return next;
-      });
+      this.mergeLimits(await this.backend.accountLimits());
     } catch (e) {
       console.warn('Không đọc được hạn mức đã lưu', e);
+    }
+  }
+
+  /** A live report may already have arrived; keep whichever is newer. */
+  private mergeLimits(saved: AccountLimits[]): void {
+    this.limits.update((now) => {
+      const next = { ...now };
+      for (const l of saved) if (!next[l.agent] || next[l.agent]!.at < l.at) next[l.agent] = l;
+      return next;
+    });
+  }
+
+  private claudeLimitsAt = 0;
+  readonly refreshingLimits = signal(false);
+  /**
+   * Saved limits (Codex's are re-read from its own logs), plus Claude's from its local
+   * `/usage`, which spawns the CLI: at most every 5 minutes unless the user asks.
+   */
+  async refreshLimits(force = false): Promise<void> {
+    await this.loadLimits();
+    if (!force && Date.now() - this.claudeLimitsAt < CLAUDE_LIMITS_EVERY) return;
+    this.claudeLimitsAt = Date.now();
+    this.refreshingLimits.set(true);
+    try {
+      const claude = await this.backend.refreshClaudeLimits();
+      if (claude) this.mergeLimits([claude]);
+    } catch (e) {
+      console.warn('Không đọc được hạn mức Claude', e);
+    } finally {
+      this.refreshingLimits.set(false);
     }
   }
 
@@ -392,12 +421,46 @@ export class RunsService {
     this.runs.update((list) => list.map((r) => (r.id === runId ? { ...r, task: false } : r)));
   }
 
+  /** Runs the user deleted: a late `exit` from their closing session must not bring them back. */
+  private readonly deleted = new Set<string>();
+
+  /** Deletes these runs from history and drops them from the screen. */
+  async deleteRuns(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    for (const id of ids) this.deleted.add(id);
+    try {
+      await this.backend.deleteRuns(ids);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // A failed cleanup still hid the history; anything else changed nothing.
+      if (!message.startsWith('Đã xoá cuộc trò chuyện')) {
+        for (const id of ids) this.deleted.delete(id);
+        throw e;
+      }
+      this.drop(ids);
+      throw e;
+    }
+    this.drop(ids);
+  }
+
+  private drop(ids: string[]): void {
+    const gone = new Set(ids);
+    this.runs.update((list) => list.filter((r) => !gone.has(r.id)));
+    if (gone.has(this.selectedId() ?? '')) this.selectedId.set(null);
+  }
+
+  /** The user turned down a Chỉ hỏi plan: stop offering it. */
+  dismissProposal(id: string): void {
+    this.runs.update((list) => list.map((r) => (r.id === id ? { ...r, proposal: null } : r)));
+  }
+
   async stop(id: string): Promise<void> {
     this.stopping.add(id);
     await this.backend.stop(id);
   }
 
   private apply(e: AgentEvent): void {
+    if (this.deleted.has(e.runId)) return;
     this.lastEvent.update((all) => ({ ...all, [e.runId]: e.atMs }));
     if (e.kind === 'limits') {
       const windows = dataOf(e)['windows'];
@@ -441,7 +504,9 @@ export class RunsService {
         case 'log':
         case 'stderr': {
           const line = toConsoleLine(run.agent, e.kind, e.line);
-          return line ? { ...run, lines: addLine(run.lines, line).slice(-MAX_LINES) } : run;
+          const proposal = e.kind === 'log' && run.perm === 'read' ? planProposal(run.agent, e.line) : null;
+          const next = proposal ? { ...run, proposal } : run;
+          return line ? { ...next, lines: addLine(run.lines, line).slice(-MAX_LINES) } : next;
         }
         case 'usage':
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
@@ -462,7 +527,7 @@ export class RunsService {
           return { ...run, lines };
         }
         case 'user':
-          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
+          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, proposal: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
         case 'turn_end': {
           this.stopping.delete(run.id);
           this.forget(run.id);

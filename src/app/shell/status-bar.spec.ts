@@ -10,18 +10,26 @@ class FakeBackend extends MockBackend {
   override async accountLimits() {
     return this.saved;
   }
+  claude: AccountLimits | null = null;
+  claudeCalls = 0;
+  override async refreshClaudeLimits() {
+    this.claudeCalls += 1;
+    return this.claude;
+  }
 }
 
-async function render(saved: AccountLimits[]) {
+async function render(saved: AccountLimits[], claude: AccountLimits | null = null) {
   const backend = new FakeBackend();
   backend.saved = saved;
+  backend.claude = claude;
   TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
   await TestBed.inject(AgentsService).refresh();
   const fixture = TestBed.createComponent(StatusBar);
   await new Promise((resolve) => setTimeout(resolve));
   fixture.detectChanges();
   await fixture.whenStable();
-  return (fixture.nativeElement as HTMLElement).querySelector('.statusbar') as HTMLElement;
+  const bar = (fixture.nativeElement as HTMLElement).querySelector('.statusbar') as HTMLElement;
+  return Object.assign(bar, { backend, fixture });
 }
 
 describe('StatusBar plan limits', () => {
@@ -39,5 +47,19 @@ describe('StatusBar plan limits', () => {
   it('says a known source has no number yet, rather than hiding it', async () => {
     const bar = await render([]);
     expect(bar.textContent).toContain('chưa có số');
+  });
+
+  it('reads Claude limits without a chat, and again only when asked within 5 minutes', async () => {
+    const bar = await render([], { agent: 'claude', at: Date.now(), windows: [
+      { id: 'five_hour', utilization: 0.14, resetsAt: Date.now() + 3600000, status: null },
+    ] });
+    expect(bar.textContent).toContain('5 giờ 14%');
+    expect(bar.backend.claudeCalls).toBe(1);
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(bar.backend.claudeCalls).toBe(1);
+    (bar.querySelector('button.limit') as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(bar.backend.claudeCalls).toBe(2);
   });
 });

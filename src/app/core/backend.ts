@@ -49,6 +49,8 @@ export abstract class AgentBackend {
   abstract stagedFiles(runId: string): Promise<string[]>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
+  /** Hides a conversation's runs from history and removes their drafts; usage stays counted. */
+  abstract deleteRuns(runIds: string[]): Promise<void>;
   /** Builds a composite worktree from hunks picked across runs of one group. */
   abstract composeRuns(picks: Pick[]): Promise<Composite>;
   /** Runs the user's command (e.g. npm test) in the composite. */
@@ -66,6 +68,8 @@ export abstract class AgentBackend {
   abstract listRuns(): Promise<StoredRun[]>;
   /** Latest plan limits each CLI reported, kept across restarts. */
   abstract accountLimits(): Promise<AccountLimits[]>;
+  /** Asks Claude Code's local `/usage` (no tokens); null when it reports none. At most once a minute. */
+  abstract refreshClaudeLimits(): Promise<AccountLimits | null>;
   /** Runs started since `since` (epoch ms), newest first, with final usage. */
   abstract usageReport(since: number): Promise<UsageRow[]>;
   abstract listPrices(): Promise<PriceRow[]>;
@@ -172,6 +176,9 @@ export class TauriBackend extends AgentBackend {
   discardWorktree(runId: string) {
     return invoke<void>('discard_worktree', { runId });
   }
+  deleteRuns(runIds: string[]) {
+    return invoke<void>('delete_runs', { runIds });
+  }
   composeRuns(picks: Pick[]) {
     return invoke<Composite>('compose_runs', { picks });
   }
@@ -204,6 +211,9 @@ export class TauriBackend extends AgentBackend {
   }
   accountLimits() {
     return invoke<AccountLimits[]>('account_limits');
+  }
+  refreshClaudeLimits() {
+    return invoke<AccountLimits | null>('refresh_claude_limits');
   }
   usageReport(since: number) {
     return invoke<UsageRow[]>('usage_report', { since: Math.max(0, Math.floor(since)) });

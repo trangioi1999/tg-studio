@@ -394,6 +394,15 @@ export class MockBackend extends AgentBackend {
     this.runs.delete(runId);
   }
 
+  async deleteRuns(runIds: string[]): Promise<void> {
+    if (runIds.some((id) => this.runs.get(id)?.active)) throw new Error('Hãy dừng agent trước khi xoá cuộc trò chuyện.');
+    for (const id of runIds) {
+      if (this.runs.has(id)) await this.stop(id);
+      this.tasks.delete(id);
+      this.runs.delete(id);
+    }
+  }
+
   async listFiles(runId: string): Promise<string[]> {
     return [...this.task(runId).contents.keys()].sort();
   }
@@ -502,6 +511,18 @@ export class MockBackend extends AgentBackend {
 
   async accountLimits(): Promise<AccountLimits[]> {
     return [];
+  }
+
+  async refreshClaudeLimits(): Promise<AccountLimits | null> {
+    const hour = 3_600_000;
+    return {
+      agent: 'claude',
+      at: Date.now(),
+      windows: [
+        { id: 'five_hour', utilization: 0.08, resetsAt: Date.now() + 3 * hour, status: null },
+        { id: 'seven_day', utilization: 0.18, resetsAt: Date.now() + 40 * hour, status: null },
+      ],
+    };
   }
 
   /** Two weeks of plausible history plus this session's runs. */

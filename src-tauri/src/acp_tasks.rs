@@ -624,10 +624,166 @@ pub async fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns
     store.clear_run_worktree(&run_id).map_err(|e| format!("Đã xóa bản nháp nhưng không cập nhật được lịch sử: {e}"))
 }
 
+#[tauri::command]
+pub async fn delete_runs(store: State<'_, Store>, tasks: State<'_, TaskRuns>, runs: State<'_, Runs>, run_ids: Vec<String>) -> Result<(), String> {
+    delete_runs_inner(&store, &tasks, &runs, &run_ids).await
+}
+
+async fn delete_runs_inner(store: &Store, tasks: &TaskRuns, runs: &Runs, run_ids: &[String]) -> Result<(), String> {
+    for id in run_ids {
+        if tasks.busy(id)? {
+            return Err("Hãy dừng agent trước khi xoá cuộc trò chuyện.".into());
+        }
+    }
+    // Also stop read-only sessions, which are not present in TaskRuns.
+    {
+        let mut live = runs.0.lock().map_err(|_| "Không đọc được phiên agent.")?;
+        for id in run_ids {
+            if let Some(stop) = live.remove(id) { let _ = stop.send(()); }
+        }
+    }
+    for _ in 0..50 {
+        let open = {
+            let live = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?;
+            run_ids.iter().any(|id| live.contains_key(id))
+        };
+        if !open { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut errors = Vec::new();
+    for id in run_ids {
+        let (repo, wt) = match store.run_worktree(id) {
+            Ok(wt) => wt,
+            Err(rusqlite::Error::QueryReturnedNoRows) => continue,
+            Err(e) => return Err(format!("Không đọc được lịch sử: {e}")),
+        };
+        if !seen.insert(wt.path.clone()) { continue; }
+        let sharing = store.runs_sharing_worktree(id).map_err(|e| format!("Không đọc được lịch sử: {e}"))?;
+        if sharing.iter().any(|other| !run_ids.contains(other)) { continue; }
+        if let Err(e) = worktree::remove(&repo, &wt, true) { errors.push(e); }
+    }
+    store.delete_runs(run_ids, runner::now_ms()).map_err(|e| format!("Không xoá được cuộc trò chuyện: {e}"))?;
+    if errors.is_empty() { Ok(()) }
+    else { Err(format!("Đã xoá cuộc trò chuyện, nhưng chưa dọn được bản nháp: {}", errors.join("; "))) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::worktree::tests::Repo;
+
+    fn save_draft(store: &Store, repo: &Repo, wt: &Worktree, id: &str) {
+        store.insert_run_with_worktree(&NewRun { id, agent: AgentKind::Codex, prompt: "p", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), wt, None).unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_draft_removes_branch_without_changing_repo() {
+        let repo = Repo::new();
+        let wt = repo.wt();
+        let store = Store::open_in_memory().unwrap();
+        save_draft(&store, &repo, &wt, &wt.run_id);
+        let original = std::fs::read(repo.0.join("file.txt")).unwrap();
+        let head = worktree::git(&repo.0, &["rev-parse", "HEAD"], None).unwrap();
+        std::fs::write(wt.path.join("file.txt"), "draft").unwrap();
+        delete_runs_inner(&store, &TaskRuns::default(), &Runs::default(), &[wt.run_id.clone(), wt.run_id.clone()]).await.unwrap();
+        assert!(!wt.path.exists());
+        assert!(worktree::git(&repo.0, &["show-ref", "--verify", &format!("refs/heads/{}", wt.branch)], None).is_err());
+        assert_eq!(std::fs::read(repo.0.join("file.txt")).unwrap(), original);
+        assert_eq!(worktree::git(&repo.0, &["rev-parse", "HEAD"], None).unwrap(), head);
+        assert!(store.list_runs(10).unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_direct_keeps_user_files_and_stops_read_only_session() {
+        let repo = Repo::new();
+        let wt = worktree::direct(&repo.0, "direct").unwrap();
+        let store = Store::open_in_memory().unwrap();
+        save_draft(&store, &repo, &wt, &wt.run_id);
+        repo.write("file.txt", "user changes");
+        repo.write("untracked.txt", "keep");
+        let runs = Runs::default();
+        let (tx, rx) = oneshot::channel();
+        runs.0.lock().unwrap().insert(wt.run_id.clone(), tx);
+        delete_runs_inner(&store, &TaskRuns::default(), &runs, &[wt.run_id.clone()]).await.unwrap();
+        rx.await.unwrap();
+        assert_eq!(std::fs::read_to_string(repo.0.join("file.txt")).unwrap(), "user changes");
+        assert_eq!(std::fs::read_to_string(repo.0.join("untracked.txt")).unwrap(), "keep");
+        for path in [worktree::direct_files(&wt).unwrap().0, worktree::direct_files(&wt).unwrap().1] { assert!(!path.exists()); }
+    }
+
+    #[tokio::test]
+    async fn delete_busy_batch_changes_nothing() {
+        let repo = Repo::new();
+        let wt = repo.wt();
+        let store = Store::open_in_memory().unwrap();
+        save_draft(&store, &repo, &wt, &wt.run_id);
+        save_draft(&store, &repo, &wt, "busy");
+        let tasks = TaskRuns::default();
+        let session = Arc::new(TaskSession::new("busy", AgentKind::Codex, &wt.path, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+        session.set_busy(true);
+        tasks.0.lock().unwrap().insert("busy".into(), session);
+        let runs = Runs::default();
+        let (tx, mut rx) = oneshot::channel();
+        runs.0.lock().unwrap().insert(wt.run_id.clone(), tx);
+        let before = store.list_runs(10).unwrap();
+        assert_eq!(delete_runs_inner(&store, &tasks, &runs, &[wt.run_id.clone(), "busy".into()]).await.unwrap_err(), "Hãy dừng agent trước khi xoá cuộc trò chuyện.");
+        assert_eq!(store.list_runs(10).unwrap(), before);
+        assert!(wt.path.exists());
+        assert_eq!(rx.try_recv(), Err(oneshot::error::TryRecvError::Empty));
+    }
+
+    #[tokio::test]
+    async fn delete_waits_for_idle_acp_session_to_close() {
+        let repo = Repo::new();
+        let wt = repo.wt();
+        let store = Store::open_in_memory().unwrap();
+        save_draft(&store, &repo, &wt, &wt.run_id);
+        let tasks = TaskRuns::default();
+        let session = Arc::new(TaskSession::new(&wt.run_id, AgentKind::Codex, &wt.path, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+        session.set_busy(false);
+        tasks.0.lock().unwrap().insert(wt.run_id.clone(), session);
+        let runs = Runs::default();
+        let (tx, rx) = oneshot::channel();
+        runs.0.lock().unwrap().insert(wt.run_id.clone(), tx);
+        let ids = [wt.run_id.clone()];
+        let close = async {
+            rx.await.unwrap();
+            assert!(wt.path.exists());
+            assert_eq!(store.list_runs(10).unwrap().len(), 1);
+            tasks.0.lock().unwrap().remove(&wt.run_id);
+        };
+        let (result, ()) = tokio::join!(delete_runs_inner(&store, &tasks, &runs, &ids), close);
+        result.unwrap();
+        assert!(!wt.path.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_shared_draft_waits_until_last_run_is_deleted() {
+        let repo = Repo::new();
+        let wt = repo.wt();
+        let store = Store::open_in_memory().unwrap();
+        save_draft(&store, &repo, &wt, &wt.run_id);
+        save_draft(&store, &repo, &wt, "other");
+        delete_runs_inner(&store, &TaskRuns::default(), &Runs::default(), &[wt.run_id.clone()]).await.unwrap();
+        assert!(wt.path.exists());
+        assert_eq!(store.list_runs(10).unwrap()[0].id, "other");
+        delete_runs_inner(&store, &TaskRuns::default(), &Runs::default(), &["other".into()]).await.unwrap();
+        assert!(!wt.path.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_cleanup_failure_still_hides_history() {
+        let repo = Repo::new();
+        let mut wt = repo.wt();
+        wt.base = "invalid".into();
+        let store = Store::open_in_memory().unwrap();
+        save_draft(&store, &repo, &wt, &wt.run_id);
+        let error = delete_runs_inner(&store, &TaskRuns::default(), &Runs::default(), &[wt.run_id.clone()]).await.unwrap_err();
+        assert!(error.starts_with("Đã xoá cuộc trò chuyện, nhưng chưa dọn được bản nháp: "));
+        assert!(store.list_runs(10).unwrap().is_empty());
+        assert!(store.run_worktree(&wt.run_id).is_err());
+    }
 
     #[derive(Default)]
     struct Recorder(Mutex<Vec<AgentEvent>>);
