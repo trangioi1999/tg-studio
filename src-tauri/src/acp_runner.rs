@@ -111,6 +111,13 @@ impl TaskSession {
         drop(permissions);
         self.flush_events();
     }
+    /// A stopped turn closes the session to cards and updates; the next turn of a session
+    /// that is still alive opens it again. Without this, every later permission request was
+    /// answered "cancelled" (the agent saw "Tool use aborted") and its replies were dropped.
+    pub fn reopen(&self) {
+        if let Ok(gate) = self.operation_gate.try_lock() { if *gate { return; } }
+        self.permissions.lock().unwrap().closed = false;
+    }
     pub fn set_muted(&self, muted:bool) { self.muted.store(muted,Ordering::SeqCst); }
     pub fn set_cost_base(&self, base:f64) { *self.cost_base.lock().unwrap()=base; }
     pub fn is_busy(&self) -> bool { self.busy.load(Ordering::SeqCst) }
@@ -315,6 +322,29 @@ mod tests {
         let answer = session.ask("a".into(), "b".into());
         session.cancel_pending();
         assert!(!answer.await);
+    }
+
+    #[tokio::test]
+    async fn a_new_turn_after_a_stop_shows_cards_and_replies_again() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.cancel_pending(); // the user pressed Dừng mid-turn
+        assert_eq!(session.on_request("session/request_permission".into(), permission("npm test")).await.unwrap(), cancelled());
+        session.reopen(); // the next message starts a new turn in the same session
+        let response = session.on_request("session/request_permission".into(), permission("npm test"));
+        let id = sink.0.lock().unwrap().iter().find(|e| e.kind == "permission").expect("a card").data.as_ref().unwrap()["requestId"].as_str().unwrap().to_string();
+        session.respond_permission(&id, "yes", false).unwrap();
+        assert_eq!(response.await.unwrap(), selected("yes"));
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"đã sửa"}}}));
+        assert!(sink.0.lock().unwrap().iter().any(|e| e.kind == "message"));
+    }
+
+    #[tokio::test]
+    async fn a_finished_session_stays_closed() {
+        let session = TaskSession::new("run", AgentKind::Claude, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Memory::default())).unwrap();
+        session.finish().await;
+        session.reopen();
+        assert_eq!(session.on_request("session/request_permission".into(), permission("npm test")).await.unwrap(), cancelled());
     }
 
     #[tokio::test]
