@@ -3,9 +3,9 @@ name: Release
 # Tag vX.Y.Z (matching package.json) → draft GitHub release with installers.
 # Run manually (Actions → Release → Run workflow) → installers as run artifacts, no release.
 # Builds are unsigned until the signing secrets in docs/07-release.md are added.
+# By hand only (Actions → Release → Run workflow, or `gh workflow run Release`):
+# building installers on macOS and Windows is the most expensive use of Actions minutes.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:

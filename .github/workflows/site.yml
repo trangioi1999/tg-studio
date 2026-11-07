@@ -4,10 +4,9 @@ name: Download site
 # publishes it to the site-dist branch. Cloudflare (a Worker or a Pages project connected
 # to this repository in its dashboard) deploys that branch (docs/07-release.md §8). Only
 # the built page, screenshots, installers and wrangler.jsonc are on site-dist.
+# By hand only (`gh workflow run "Download site"`): it builds installers on macOS and Windows.
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 permissions:
   contents: read

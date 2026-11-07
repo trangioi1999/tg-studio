@@ -1,15 +1,26 @@
 name: CI
 
+# Runs only by hand (Actions → CI → Run workflow, or `gh workflow run CI`): Actions minutes
+# are limited and the owner decides when to spend them. build + npm test + cargo test run
+# on the development Mac before every merge (AGENTS.md); this adds Windows (and macOS).
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: 'Chạy cả macOS (tốn gấp 10 lần phút)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: ${{ fromJSON(inputs.macos && '["windows-latest","macos-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

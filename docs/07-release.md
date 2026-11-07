@@ -53,11 +53,13 @@ Installer: dùng **NSIS** (`.exe`) làm mặc định cho người dùng cuối;
 
 ## 6. CI/CD (GitHub Actions) — đã có
 
-- `.github/workflows/ci.yml`: mỗi push/PR chạy `version:check`, build, `npm test`, `cargo test` trên macOS và Windows.
+- **Không workflow nào tự chạy** (Actions có hạn phút; chủ repo quyết khi nào tốn). Ba lệnh kiểm tra luôn chạy trên máy Mac phát triển trước khi merge (AGENTS.md).
+- `.github/workflows/ci.yml`: chạy tay (Actions → CI → Run workflow, hoặc `gh workflow run CI`): `version:check`, build, `npm test`, `cargo test` trên Windows; tick *Chạy cả macOS* (`-f macos=true`) để thêm macOS.
+- **Download site** và **Release** build bộ cài trên cả macOS và Windows nên tốn nhiều phút nhất.
 - `.github/workflows/release.yml`:
-  - **Đẩy tag `vX.Y.Z`** (khớp `package.json`, kiểm tra tự động): test rồi `tauri-action` build macOS (universal) + Windows và tạo **bản nháp** release kèm installer. Tag có dấu `-` (ví dụ `v0.2.0-beta.1`) thành prerelease.
-  - **Chạy tay** (Actions → Release → Run workflow; cần workflow đã có trên nhánh mặc định): build và để installer ở mục *Artifacts* của lần chạy, không tạo release.
-- Phát hành một bản: sửa `version` trong `package.json` → `npm run version:sync` → cập nhật `CHANGELOG.md` → commit → `git tag v0.2.0 && git push --tags` → kiểm tra bản nháp rồi Publish.
+  - **Chạy tay trên một tag** `vX.Y.Z` (Actions → Release → Run workflow, ô *Use workflow from* chọn tag; hoặc `gh workflow run Release --ref vX.Y.Z`): test rồi `tauri-action` build macOS (universal) + Windows và tạo **bản nháp** release kèm installer. Tag có dấu `-` (ví dụ `v0.2.0-beta.1`) thành prerelease. Đẩy tag không tự chạy gì.
+  - **Chạy tay trên một nhánh**: build và để installer ở mục *Artifacts* của lần chạy, không tạo release.
+- Phát hành một bản: sửa `version` trong `package.json` → `npm run version:sync` → cập nhật `CHANGELOG.md` → commit → `git tag v0.2.0 && git push --tags` → `gh workflow run Release --ref v0.2.0` → kiểm tra bản nháp rồi Publish.
 
 ### Việc của chủ repo (agent không làm thay được)
 
@@ -94,7 +96,7 @@ Repo riêng tư nên không dùng GitHub Pages hay link Release được: ngư�
 
 Cả hai kiểu chỉ publish `site/`: source không có trên `site-dist`, và nếu lỡ build nhánh `main` thì `wrangler deploy` dừng vì `main` không có `wrangler.jsonc`. Chạy workflow (bước dưới) trước để nhánh `site-dist` có sẵn khi Cloudflare build lần đầu.
 
-**Mỗi lần có bản mới:** GitHub → Actions → **Download site** → Run workflow (hoặc đẩy tag `vX.Y.Z`). Workflow cập nhật `site-dist`, Cloudflare tự deploy. Trang ở `https://<tên-project>.<subdomain>.workers.dev` (kiểu Worker; subdomain xem ở Workers & Pages → Settings) hoặc `https://<tên-project>.pages.dev` (kiểu Pages). Muốn tên miền riêng: Worker → Settings → Domains & Routes → Add → Custom domain.
+**Mỗi lần có bản mới:** GitHub → Actions → **Download site** → Run workflow (hoặc `gh workflow run "Download site"`). Workflow cập nhật `site-dist`, Cloudflare tự deploy. Trang ở `https://<tên-project>.<subdomain>.workers.dev` (kiểu Worker; subdomain xem ở Workers & Pages → Settings) hoặc `https://<tên-project>.pages.dev` (kiểu Pages). Muốn tên miền riêng: Worker → Settings → Domains & Routes → Add → Custom domain.
 
 Trang tự nhận ra máy Windows hay Mac và đưa bản tương ứng lên trước. Bộ cài được nén thành `.zip` (trình duyệt và bộ lọc mail hay chặn bộ cài chưa ký số); link cố định `downloads/TG-Studio-latest-windows-x64-setup.zip` và `downloads/TG-Studio-latest-macos-universal.zip` luôn trỏ bản mới nhất, trang đọc phiên bản và dung lượng từ `version.json`.
 
