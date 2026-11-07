@@ -49,6 +49,8 @@ export abstract class AgentBackend {
   abstract stagedFiles(runId: string): Promise<string[]>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
+  /** Hides a conversation's runs from history and removes their drafts; usage stays counted. */
+  abstract deleteRuns(runIds: string[]): Promise<void>;
   /** Builds a composite worktree from hunks picked across runs of one group. */
   abstract composeRuns(picks: Pick[]): Promise<Composite>;
   /** Runs the user's command (e.g. npm test) in the composite. */
@@ -171,6 +173,9 @@ export class TauriBackend extends AgentBackend {
   }
   discardWorktree(runId: string) {
     return invoke<void>('discard_worktree', { runId });
+  }
+  deleteRuns(runIds: string[]) {
+    return invoke<void>('delete_runs', { runIds });
   }
   composeRuns(picks: Pick[]) {
     return invoke<Composite>('compose_runs', { picks });

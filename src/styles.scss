@@ -578,6 +578,18 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .tl-thread { width: 100%; height: 36px; display: flex; align-items: center; gap: 9px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); text-align: left; cursor: pointer; }
 .tl-thread.active { background: #1c1c22; color: var(--text); }
 .tl-title { flex: 1; }
+.tl-item, .tl-confirm { width: 100%; }
+.tl-item { position: relative; }
+/* Shown on hover over the pill's place, so a long title keeps its width. */
+.tl-del { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; display: none; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: #1c1c22; color: var(--muted); cursor: pointer; }
+.tl-del .ic { width: 14px; height: 14px; }
+.tl-del:hover:not(:disabled) { color: var(--fail); background: var(--fail-bg); }
+.tl-del:disabled { opacity: 0.45; cursor: default; }
+.tl-item:hover .tl-del, .tl-del:focus-visible { display: inline-flex; }
+.tl-item:hover .tl-thread .pill { visibility: hidden; }
+.tl-confirm { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 8px; border: 1px solid #4a2a26; border-radius: 8px; background: #1a100f; font-size: 12px; color: var(--text-2); }
+.btn.danger { background: var(--fail); border-color: var(--fail); color: var(--bg); font-weight: 600; }
+.tl-err { margin: 2px 8px 6px; font-size: 12px; }
 .tl-agents { flex: none; display: inline-flex; }
 .tl-agents .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--panel); }
 .tl-thread.active .tl-agents .avatar + .avatar { box-shadow: 0 0 0 2px #1c1c22; }
