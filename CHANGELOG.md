@@ -4,6 +4,10 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Sau khi bấm Dừng giữa chừng, gửi câu tiếp trong cùng cuộc trò chuyện thì agent không được duyệt sửa tệp nào (agent thấy "Tool use aborted") và câu trả lời của nó không hiện. Mỗi lượt mới giờ mở lại phiên.
+- Bấm Giữ trên thay đổi mà agent đã tự `git add` hoặc commit báo "already exists in index"; giờ được ghi nhận là đã giữ.
+
 ## [0.3.1] - 2026-11-07
 
 ### Sửa lỗi

@@ -211,6 +211,7 @@ const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
 struct TurnEnd { status: &'static str, error: Option<String>, alive: bool }
 
 async fn run_turn(client: &AcpClient, session: &TaskSession, id: &str, prompt: &str, stop: &mut oneshot::Receiver<()>, dead: &mut std::pin::Pin<&mut impl std::future::Future<Output = ()>>) -> TurnEnd {
+    session.reopen();
     let turn = client.prompt_turn(id, prompt);
     tokio::pin!(turn);
     tokio::select! {

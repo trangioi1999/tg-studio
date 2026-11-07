@@ -174,8 +174,12 @@ pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Res
     if wt.is_direct() {
         // The change is already in the folder: keeping it stages it for the commit box.
         run_git(wt, &["apply", "--check", "--cached", "--recount"], Some(patch.as_bytes()))?;
-        git(repo, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))
-            .map_err(|e| format!("Không đưa được đoạn này vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
+        // The agent may have staged or committed it itself (`git add`, `git commit`): then
+        // the user's index already holds it and keeping only records that.
+        if !already_staged(repo, &patch, &["--recount"]) {
+            git(repo, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))
+                .map_err(|e| format!("Không đưa được đoạn này vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
+        }
         run_git(wt, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))?;
         return save_accepted(wt);
     }
@@ -193,6 +197,13 @@ pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Res
     save_accepted(wt)
 }
 
+/// The user's index already has this change (it reverses cleanly there).
+fn already_staged(repo: &Path, patch: &str, extra: &[&str]) -> bool {
+    let mut args = vec!["apply", "--check", "--cached", "--reverse"];
+    args.extend_from_slice(extra);
+    git(repo, &args, Some(patch.as_bytes())).is_ok()
+}
+
 /// "Use this" in the compare view: every pending change of the run, binary files
 /// included, applied to the user's repo in one go. Nothing is applied if any part fails.
 pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
@@ -200,9 +211,11 @@ pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
     if files.is_empty() { return Err("Không còn thay đổi nào để áp dụng.".into()); }
     let patch = run_git(wt, &["diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"], None)?;
     if wt.is_direct() {
-        git(repo, &["apply", "--check", "--cached"], Some(patch.as_bytes()))
-            .map_err(|e| format!("Không đưa được các thay đổi vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
-        git(repo, &["apply", "--cached"], Some(patch.as_bytes()))?;
+        if !already_staged(repo, &patch, &[]) {
+            git(repo, &["apply", "--check", "--cached"], Some(patch.as_bytes()))
+                .map_err(|e| format!("Không đưa được các thay đổi vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
+            git(repo, &["apply", "--cached"], Some(patch.as_bytes()))?;
+        }
         run_git(wt, &["apply", "--cached"], Some(patch.as_bytes()))?;
         save_accepted(wt)?;
         return Ok(files.len());
@@ -305,6 +318,26 @@ mod tests {
         assert_eq!(accept_all(&r.0, &w).unwrap(), 2);
         assert!(pending(&w).unwrap().is_empty());
         assert_eq!(staged(&r.0).unwrap(), ["file.txt", "new.txt"]);
+    }
+
+    #[test] fn direct_keep_accepts_a_change_the_agent_already_committed() {
+        let r = Repo::new();
+        let w = crate::worktree::direct(&r.0, "direct-run-3").unwrap();
+        // The agent writes a file, then stages and commits it on its own.
+        r.write("docs/mock.html", "<html></html>\n");
+        git(&r.0, &["add", "docs/mock.html"], None).unwrap();
+        git(&r.0, &["commit", "-qm", "mockup"], None).unwrap();
+        let files = pending(&w).unwrap();
+        assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["docs/mock.html"]);
+        let hunk = files[0].hunks[0].id.clone();
+        accept_hunk(&r.0, &w, "docs/mock.html", &hunk).unwrap();
+        assert!(pending(&w).unwrap().is_empty());
+        // Keep all works the same way.
+        let w = crate::worktree::direct(&r.0, "direct-run-4").unwrap();
+        r.write("b.txt", "b\n");
+        git(&r.0, &["add", "b.txt"], None).unwrap();
+        assert_eq!(accept_all(&r.0, &w).unwrap(), 1);
+        assert!(pending(&w).unwrap().is_empty());
     }
 
     #[test] fn branches_leave_out_the_apps_own() {
