@@ -59,7 +59,13 @@ Installer: dùng **NSIS** (`.exe`) làm mặc định cho người dùng cuối;
 - `.github/workflows/release.yml`:
   - **Chạy tay trên một tag** `vX.Y.Z` (Actions → Release → Run workflow, ô *Use workflow from* chọn tag; hoặc `gh workflow run Release --ref vX.Y.Z`): test rồi `tauri-action` build macOS (universal) + Windows và tạo **bản nháp** release kèm installer. Tag có dấu `-` (ví dụ `v0.2.0-beta.1`) thành prerelease. Đẩy tag không tự chạy gì.
   - **Chạy tay trên một nhánh**: build và để installer ở mục *Artifacts* của lần chạy, không tạo release.
-- Phát hành một bản: sửa `version` trong `package.json` → `npm run version:sync` → cập nhật `CHANGELOG.md` → commit → `git tag v0.2.0 && git push --tags` → `gh workflow run Release --ref v0.2.0` → kiểm tra bản nháp rồi Publish.
+- **Mỗi bản phát hành phải nâng phiên bản**, kể cả bản chỉ gửi tay cho người khác: số phiên bản là cách duy nhất để biết người dùng đang chạy bản nào.
+- Phát hành một bản:
+  1. Ghi các thay đổi vào mục `## [Chưa phát hành]` của `CHANGELOG.md` (làm dần theo từng PR).
+  2. `npm run release -- patch` (sửa lỗi), `minor` (tính năng mới) hoặc `major`. Lệnh nâng `version` ở `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`; đổi mục Chưa phát hành thành `## [x.y.z] - ngày`; commit `chore(release): vx.y.z` và gắn tag `vx.y.z`. Cần cây làm việc sạch.
+  3. Build: `npm run build:mac` cho bộ cài macOS chạy mọi chip (`src-tauri/target/universal-apple-darwin/release/bundle/dmg/TG Studio_x.y.z_universal.dmg`); `npm run build:app` chỉ cho chip của máy đang build.
+  4. `git push --follow-tags`, rồi nếu cần bộ cài Windows hoặc bản nháp release trên GitHub: `gh workflow run Release --ref vx.y.z` → kiểm tra bản nháp rồi Publish.
+- Nếu bước tạo `.dmg` báo `hdiutil: couldn't unmount … Resource busy` (Finder/Spotlight giữ ổ đĩa tạm), app đã build xong: gỡ ổ bằng `hdiutil detach /dev/diskN -force` rồi chạy lại, hoặc đóng gói tay: chép `TG Studio.app` và một liên kết tới `/Applications` vào một thư mục, `hdiutil create -volname "TG Studio" -srcfolder <thư mục> -format UDZO <tên>.dmg`.
 
 ### Việc của chủ repo (agent không làm thay được)
 
