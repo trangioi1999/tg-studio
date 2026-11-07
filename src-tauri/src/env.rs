@@ -5,15 +5,74 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-static LOGIN_PATH: OnceLock<String> = OnceLock::new();
+static LOGIN_PATH: OnceLock<(String, PathSource)> = OnceLock::new();
 
-pub fn login_path() -> String {
-    LOGIN_PATH.get_or_init(read_login_path).clone()
+/// How the PATH was found, for the diagnostics report: a slow shell startup file used to
+/// leave the app with macOS's minimal PATH and no agent at all.
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathSource {
+    pub shell: Option<String>,
+    /// "shell", "timeout" (the shell did not answer in time), "failed", or "inherited" (Windows).
+    pub outcome: &'static str,
+    pub millis: u64,
+    /// Well-known install folders added because the shell PATH lacked them.
+    pub added: Vec<String>,
 }
 
-/// A shell startup file can wait on something forever, and then nothing could ever be detected.
+pub fn login_path() -> String {
+    LOGIN_PATH.get_or_init(resolve_path).0.clone()
+}
+
+pub fn path_source() -> PathSource {
+    LOGIN_PATH.get_or_init(resolve_path).1.clone()
+}
+
+fn resolve_path() -> (String, PathSource) {
+    let started = std::time::Instant::now();
+    let (path, shell, outcome) = read_login_path();
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+    let (path, added) = with_known_dirs(&path, home.as_deref());
+    let added = added.iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    (path, PathSource { shell, outcome, millis: started.elapsed().as_millis() as u64, added })
+}
+
+/// Folders where agent CLIs and Node usually live, appended (when they exist and are
+/// missing) after the shell's own PATH, so its order still wins.
+fn known_dirs(home: Option<&std::path::Path>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(home) = home {
+        // nvm: every installed Node, newest first by name.
+        let mut nvm: Vec<PathBuf> = std::fs::read_dir(home.join(".nvm/versions/node")).map(|r| r.flatten().map(|e| e.path().join("bin")).collect()).unwrap_or_default();
+        nvm.sort();
+        nvm.reverse();
+        dirs.extend(nvm);
+        for rel in [".local/bin", ".npm-global/bin", ".volta/bin", ".bun/bin", ".fnm/aliases/default/bin", ".local/share/fnm/aliases/default/bin",
+            "Library/pnpm", ".asdf/shims", ".claude/local", ".cargo/bin", "AppData/Roaming/npm"] {
+            dirs.push(home.join(rel));
+        }
+    }
+    #[cfg(unix)]
+    dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+    dirs
+}
+
+fn with_known_dirs(path: &str, home: Option<&std::path::Path>) -> (String, Vec<PathBuf>) {
+    let mut entries: Vec<PathBuf> = std::env::split_paths(path).filter(|p| !p.as_os_str().is_empty()).collect();
+    let mut added = Vec::new();
+    for dir in known_dirs(home) {
+        if dir.is_dir() && !entries.contains(&dir) {
+            entries.push(dir.clone());
+            added.push(dir);
+        }
+    }
+    (std::env::join_paths(&entries).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| path.to_string()), added)
+}
+
+/// A shell startup file can wait on something forever, and then nothing could ever be
+/// detected. Heavy setups (oh-my-zsh, nvm, conda) on older Macs take several seconds.
 #[cfg(unix)]
-const SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const SHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 /// Stdout up to `marker`, or None if it has not appeared in time. Does not wait for the
 /// process to end, since something it left in the background can hold the pipe open.
@@ -40,26 +99,26 @@ fn output_until(mut command: std::process::Command, marker: &str, timeout: std::
 }
 
 #[cfg(unix)]
-fn read_login_path() -> String {
+fn read_login_path() -> (String, Option<String>, &'static str) {
     const START: &str = "__TG_PATH__";
     const END: &str = "__END__";
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
     let mut command = std::process::Command::new(&shell);
     command.args(["-ilc", "printf '__TG_PATH__%s__END__' \"$PATH\""]);
-    if let Some(text) = output_until(command, END, SHELL_TIMEOUT) {
-        if let Some(start) = text.find(START) {
-            let rest = &text[start + START.len()..];
-            if let Some(end) = rest.find(END) {
-                return rest[..end].to_string();
-            }
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let Some(text) = output_until(command, END, SHELL_TIMEOUT) else { return (inherited, Some(shell), "timeout") };
+    if let Some(start) = text.find(START) {
+        let rest = &text[start + START.len()..];
+        if let Some(end) = rest.find(END) {
+            return (rest[..end].to_string(), Some(shell), "shell");
         }
     }
-    std::env::var("PATH").unwrap_or_default()
+    (inherited, Some(shell), "failed")
 }
 
 #[cfg(windows)]
-fn read_login_path() -> String {
-    std::env::var("PATH").unwrap_or_default()
+fn read_login_path() -> (String, Option<String>, &'static str) {
+    (std::env::var("PATH").unwrap_or_default(), None, "inherited")
 }
 
 /// Hides the console Windows would otherwise open for each child of this GUI app.
@@ -157,6 +216,23 @@ pub fn which(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[test]
+    fn known_install_folders_are_added_after_the_shell_path() {
+        let home = std::env::temp_dir().join(format!("tg-home-{}", uuid::Uuid::new_v4()));
+        for dir in [".nvm/versions/node/v20.11.0/bin", ".nvm/versions/node/v22.3.0/bin", ".local/bin"] { fs::create_dir_all(home.join(dir)).unwrap(); }
+        let local = home.join(".local/bin");
+        let shell = std::env::join_paths([Path::new("/usr/bin"), local.as_path()]).unwrap();
+        let (path, added) = super::with_known_dirs(&shell.to_string_lossy(), Some(&home));
+        let entries: Vec<_> = std::env::split_paths(&path).collect();
+        assert_eq!(entries[0], Path::new("/usr/bin"));
+        assert_eq!(entries[1], local, "the shell's order wins and nothing is added twice");
+        assert_eq!(added[0], home.join(".nvm/versions/node/v22.3.0/bin"), "newest Node first");
+        assert_eq!(added[1], home.join(".nvm/versions/node/v20.11.0/bin"));
+        assert!(!added.contains(&local));
+        assert!(added.iter().all(|d| d.is_dir()), "folders that do not exist are left out");
+        fs::remove_dir_all(home).unwrap();
+    }
 
     #[test]
     fn a_scope_stays_inside_its_project() {

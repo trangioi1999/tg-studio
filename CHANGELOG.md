@@ -4,6 +4,11 @@
 
 ## [Chưa phát hành]
 
+### Tài nguyên và dò agent
+- Thanh dưới hiện RAM và CPU mà TG Studio cùng các agent đang dùng; bấm để xem từng cuộc trò chuyện và **Dừng** agent không dùng nữa để giải phóng bộ nhớ.
+- Sửa lỗi không thấy agent nào khi shell khởi động chậm (thường gặp trên Mac Intel có oh-my-zsh, nvm): chờ shell lâu hơn và luôn tìm thêm ở các thư mục cài quen thuộc (Homebrew, nvm, fnm, volta, bun, `~/.local/bin`).
+- Gói Chẩn đoán ghi PATH app đọc được và cách đọc, để biết vì sao một agent không hiện.
+
 ## [0.2.0] - 2026-11-07
 
 ### Chat mượt hơn (2026-11-07)

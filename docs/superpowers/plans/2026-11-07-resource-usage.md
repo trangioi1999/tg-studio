@@ -1,6 +1,6 @@
 # Hiện RAM và CPU mà app và các agent đang chiếm
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Người dùng thấy ngay TG Studio và từng agent đang chiếm bao nhiêu RAM/CPU, và dừng được agent không dùng nữa để giải phóng bộ nhớ. Phát hành ở **0.3.0**.
 
@@ -46,14 +46,14 @@ pub struct ResourceReport { pub at: u64, pub cpu: f32, pub memory: u64, pub core
 
 ## R1 — Lõi (Codex)
 
-- [ ] `resources.rs`: sổ PID toàn cục (`static REGISTRY: Mutex<HashMap<u32, Owner>>`, `Owner::Run(String) | Owner::Warm`), hàm `register(pid, owner)`, `unregister(pid)`. Gọi `register` ngay sau mỗi `spawn` có PID và `unregister` khi tiến trình kết thúc: `runner.rs` (Chỉ hỏi, khoảng dòng 247), `acp_tasks.rs` (Sửa code, nơi lấy `pid` từ warm hoặc `child.id()`), `warm.rs` (`Owner::Warm` lúc mở; khi được nhận cho một run thì chuyển sang `Owner::Run(id)`). Probe `options.rs` không đăng ký: sẽ rơi vào `other`.
-- [ ] Đo bằng `sysinfo` 0.40 (`System` giữ trong `static Mutex<Option<System>>` để CPU có mẫu trước; lần gọi đầu CPU = 0). Mỗi lần gọi: refresh processes (CPU + memory), lấy cây con cháu của `std::process::id()`. Nhóm `app` = chính app + con cháu không thuộc run/warm **và là WebView** (Windows: `msedgewebview2.exe`; Linux: `WebKitWebProcess`/`WebKitNetworkProcess`). macOS: WebView là dịch vụ XPC không phải con của app, nên `webview = false` (UI sẽ ghi chú). Mỗi PID trong sổ → nhóm `run`/`warm` gồm cả cây của nó. Con cháu còn lại → một nhóm `other`. `cpu`, `memory` của nhóm và của báo cáo là tổng.
-- [ ] Tách phần gom nhóm thành hàm thuần (đầu vào: danh sách `ProcStat` + sổ PID + PID app) để test không cần tiến trình thật.
-- [ ] Test: gom đúng cây theo run, warm, other; PID trong sổ đã chết thì bỏ qua; WebView trên Windows vào `app`; `kill_process` từ chối PID của app, của run đang sống, và PID không phải con cháu.
+- [x] `resources.rs`: sổ PID toàn cục (`static REGISTRY: Mutex<HashMap<u32, Owner>>`, `Owner::Run(String) | Owner::Warm`), hàm `register(pid, owner)`, `unregister(pid)`. Gọi `register` ngay sau mỗi `spawn` có PID và `unregister` khi tiến trình kết thúc: `runner.rs` (Chỉ hỏi, khoảng dòng 247), `acp_tasks.rs` (Sửa code, nơi lấy `pid` từ warm hoặc `child.id()`), `warm.rs` (`Owner::Warm` lúc mở; khi được nhận cho một run thì chuyển sang `Owner::Run(id)`). Probe `options.rs` không đăng ký: sẽ rơi vào `other`.
+- [x] Đo bằng `sysinfo` 0.40 (`System` giữ trong `static Mutex<Option<System>>` để CPU có mẫu trước; lần gọi đầu CPU = 0). Mỗi lần gọi: refresh processes (CPU + memory), lấy cây con cháu của `std::process::id()`. Nhóm `app` = chính app + con cháu không thuộc run/warm **và là WebView** (Windows: `msedgewebview2.exe`; Linux: `WebKitWebProcess`/`WebKitNetworkProcess`). macOS: WebView là dịch vụ XPC không phải con của app, nên `webview = false` (UI sẽ ghi chú). Mỗi PID trong sổ → nhóm `run`/`warm` gồm cả cây của nó. Con cháu còn lại → một nhóm `other`. `cpu`, `memory` của nhóm và của báo cáo là tổng.
+- [x] Tách phần gom nhóm thành hàm thuần (đầu vào: danh sách `ProcStat` + sổ PID + PID app) để test không cần tiến trình thật.
+- [x] Test: gom đúng cây theo run, warm, other; PID trong sổ đã chết thì bỏ qua; WebView trên Windows vào `app`; `kill_process` từ chối PID của app, của run đang sống, và PID không phải con cháu.
 
 ## R2 — UI (Claude)
 
-- [ ] `AgentBackend.resourceUsage()`, `killProcess(pid)` ở hai backend (mock: số giả hợp lý, đổi nhẹ mỗi lần).
-- [ ] `StatusBar`: ô `TG · 610 MB · 1%` (tổng), hỏi 3 s một lần khi cửa sổ đang hiện, 15 s khi ẩn. Bấm mở bảng: dòng **TG Studio** (lõi, WebView hoặc ghi chú "macOS không cho đo WebView của app"), mỗi run một dòng (logo agent, tên cuộc trò chuyện, RAM, CPU, số tiến trình con, nút **Dừng** khi run còn sống), dòng **Phiên mở sẵn**, nhóm **Khác** với nút **Dừng** từng tiến trình. RAM hiển thị MB/GB, CPU là % của một nhân.
-- [ ] Spec: định dạng số; bấm Dừng gọi `runs.stop`; nhóm Khác gọi `killProcess`.
-- [ ] Phát hành: `npm run release -- minor` (0.3.0), `npm run build:mac`.
+- [x] `AgentBackend.resourceUsage()`, `killProcess(pid)` ở hai backend (mock: số giả hợp lý, đổi nhẹ mỗi lần).
+- [x] `StatusBar`: ô `TG · 610 MB · 1%` (tổng), hỏi 3 s một lần khi cửa sổ đang hiện, 15 s khi ẩn. Bấm mở bảng: dòng **TG Studio** (lõi, WebView hoặc ghi chú "macOS không cho đo WebView của app"), mỗi run một dòng (logo agent, tên cuộc trò chuyện, RAM, CPU, số tiến trình con, nút **Dừng** khi run còn sống), dòng **Phiên mở sẵn**, nhóm **Khác** với nút **Dừng** từng tiến trình. RAM hiển thị MB/GB, CPU là % của một nhân.
+- [x] Spec: định dạng số; bấm Dừng gọi `runs.stop`; nhóm Khác gọi `killProcess`.
+- [x] Phát hành: `npm run release -- minor` (0.3.0), `npm run build:mac`.
