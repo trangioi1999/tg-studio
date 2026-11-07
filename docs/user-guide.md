@@ -44,8 +44,8 @@ Dưới ô chat có hai nút:
 
 - **Chip agent** (logo + tên, `Ctrl+Shift+M`): bên trái chọn agent, bên phải chọn **model** và **mức suy nghĩ**. Danh sách model đọc từ chính CLI nên luôn đúng với tài khoản của bạn; app nhớ lựa chọn cho từng agent. Cuối menu có **Giao cho nhiều agent…** và **Theo các bước…**.
 - **Chip quyền** (mọi agent đều có đủ 3 mức):
-  - **Chỉ hỏi**: agent đọc code rồi trả lời, không sửa tệp nào.
-  - **Sửa code · hỏi trước**: lệnh nhạy cảm hiện thẻ duyệt.
+  - **Chỉ hỏi**: agent đọc code rồi trả lời, không sửa tệp nào. Nếu Claude lên kế hoạch sửa code, trên ô chat hiện thẻ **Làm luôn**: bấm thì cuộc trò chuyện chuyển sang Hỏi trước và Claude làm theo kế hoạch đó.
+  - **Sửa code · hỏi trước** (mặc định): agent vẫn trả lời câu hỏi như thường; khi cần sửa hay chạy lệnh nhạy cảm thì hiện thẻ duyệt, bạn đồng ý là agent làm.
   - **Tự động**: agent tự sửa và chạy lệnh, không xin phép (`git push`, `merge` vẫn bị chặn).
 - **Chip nơi làm việc** (khi sửa code):
   - **Thư mục hiện tại** (mặc định): agent sửa thẳng code của bạn. Panel Thay đổi chỉ hiện phần agent sửa; **Giữ** đưa đoạn đó vào commit, **Hoàn tác** trả về như cũ.
@@ -57,6 +57,8 @@ Dưới ô chat có hai nút:
 | **Theo các bước** | Các bước nối tiếp, mặc định Plan → Build → Review; chọn agent cho từng bước, sửa mẫu prompt bằng **Sửa mẫu** |
 
 Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện; agent mới nhận tóm tắt những gì đã nói.
+
+Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm biểu tượng thùng rác rồi **Xoá**. Lịch sử chat và bản nháp của nó bị xoá; thay đổi đã nằm trong code của bạn vẫn giữ nguyên, số liệu Chi phí không đổi. Không xoá được khi agent đang chạy.
 
 Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) gom vào một dòng **Nhật ký làm việc**: mở ra khi agent đang làm, tự thu gọn khi xong. Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
 
@@ -96,7 +98,7 @@ KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timelin
 - **reported**: chi phí do CLI tự báo (Claude Code). **estimated**: token × bảng giá bạn nhập. **chưa có giá**: chỉ có token.
 - **Bảng giá** (USD / 1 triệu token): giá mới áp dụng từ lúc bấm, lượt cũ giữ giá cũ. Đánh dấu *Áp dụng cho cả các lượt trước* để định giá dữ liệu cũ chưa có giá.
 - **Ngân sách**: mỗi task và mỗi ngày. Vượt mức task thì run đó dừng; chạm mức ngày thì mọi run dừng và không giao việc mới được. Nhiều agent chỉ báo chi phí khi xong, nên việc dừng chỉ xảy ra khi đã có số.
-- **Hạn mức gói** Claude Pro/Max (5 giờ, 7 ngày): cập nhật sau mỗi lượt Claude ở chế độ Chỉ đọc. Với gói Pro/Max, "chi phí" chỉ là giá API quy đổi; phần bị trừ thật là hạn mức gói.
+- **Hạn mức gói** (5 giờ, 7 ngày) ở thanh dưới cùng: Claude đọc bằng lệnh `/usage` của Claude Code (không tốn token) lúc mở app và mỗi 5 phút; Codex đọc từ nhật ký phiên của Codex, cả khi bạn chạy Codex ngoài app. Bấm vào số để cập nhật ngay. Với gói Pro/Max, "chi phí" chỉ là giá API quy đổi; phần bị trừ thật là hạn mức gói.
 
 ## 10. Integrations: MCP và Skills
 
