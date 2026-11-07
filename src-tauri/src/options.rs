@@ -2,6 +2,7 @@
 //! `configOptions` (see claude-agent-acp's `session-config-ids.js`); the app reads the
 //! model and effort selects from there instead of keeping its own list.
 
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,6 +47,70 @@ pub struct ConfigSelect {
 pub struct AgentOptions {
     pub model: Option<ConfigSelect>,
     pub effort: Option<ConfigSelect>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCommand {
+    pub name: String,
+    pub description: String,
+    pub kind: String,
+    pub source: Option<String>,
+    pub plugin: Option<String>,
+    pub hint: Option<String>,
+    pub insert: String,
+}
+
+pub fn parse_commands(agent: AgentKind, update: &Value, cwd: Option<&Path>) -> Vec<AgentCommand> {
+    let Some(commands) = update["availableCommands"].as_array() else { return vec![]; };
+    commands.iter().filter_map(|command| {
+        let name = command["name"].as_str().filter(|name| !name.is_empty())?;
+        let mut description = command["description"].as_str().unwrap_or_default();
+        let mut source = None;
+        let mut plugin = None;
+        let mut kind = "command";
+        let mut insert = format!("/{name} ");
+        match agent {
+            AgentKind::Claude => {
+                if let Some(text) = description.strip_suffix(" (project)") {
+                    description = text;
+                    source = Some("project".into());
+                    kind = "skill";
+                } else if let Some(text) = description.strip_suffix(" (user)") {
+                    description = text;
+                    source = Some("user".into());
+                    kind = "skill";
+                } else if name.contains(':') {
+                    if let Some((prefix, text)) = description.strip_prefix('(').and_then(|d| d.split_once(") ")) {
+                        description = text;
+                        source = Some("plugin".into());
+                        plugin = Some(prefix.to_string());
+                        kind = "skill";
+                    }
+                }
+            }
+            AgentKind::Codex => {
+                if let Some(skill) = name.strip_prefix('$') {
+                    kind = "skill";
+                    insert = format!("{name} ");
+                    if let Some((prefix, _)) = skill.split_once(':') {
+                        source = Some("plugin".into());
+                        plugin = Some(prefix.to_string());
+                    } else {
+                        // Only a skill directory name can identify a project skill.
+                        let local = !skill.is_empty() && !skill.contains(['/', '\\']) && skill != "." && skill != ".."
+                            && cwd.is_some_and(|dir| dir.join(".agents/skills").join(skill).join("SKILL.md").is_file());
+                        source = Some(if local { "project" } else { "user" }.into());
+                    }
+                }
+            }
+            _ => {}
+        }
+        Some(AgentCommand {
+            name: name.into(), description: description.into(), kind: kind.into(), source, plugin,
+            hint: command["input"]["hint"].as_str().map(str::to_string), insert,
+        })
+    }).collect()
 }
 
 /// Finds a select by its ACP category, then by the ids agents are known to use.
@@ -131,6 +196,43 @@ impl ClientHandler for Silent {
 /// Opens a session without prompting (no tokens are spent) to read what the agent offers.
 #[tauri::command]
 pub async fn agent_options(agent: AgentKind, cwd: Option<String>) -> Result<AgentOptions, String> {
+    probe_session(agent, cwd, Arc::new(Silent), |client, _| async move {
+        parse(&client.config_options())
+    }).await
+}
+
+struct CommandsHandler(std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Value>>>);
+impl ClientHandler for CommandsHandler {
+    fn on_notification(&self, method: &str, params: Value) {
+        if method == "session/update" && params["update"]["sessionUpdate"] == "available_commands_update" {
+            if let Some(sender) = self.0.lock().unwrap().take() {
+                let _ = sender.send(params["update"].clone());
+            }
+        }
+    }
+    fn on_request(&self, method: String, _: Value) -> HandlerFuture { Box::pin(async move { Err(method_not_found(&method)) }) }
+    fn on_closed(&self) {}
+}
+
+#[tauri::command]
+pub async fn agent_commands(agent: AgentKind, cwd: Option<String>) -> Result<Vec<AgentCommand>, String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let handler = Arc::new(CommandsHandler(std::sync::Mutex::new(Some(sender))));
+    probe_session(agent, cwd, handler, move |_, dir| async move {
+        wait_commands(agent, &dir, receiver).await
+    }).await
+}
+
+async fn wait_commands(agent: AgentKind, dir: &Path, receiver: tokio::sync::oneshot::Receiver<Value>) -> Vec<AgentCommand> {
+    match tokio::time::timeout(Duration::from_secs(5), receiver).await {
+        Ok(Ok(update)) => parse_commands(agent, &update, Some(dir)),
+        _ => vec![],
+    }
+}
+
+/// Both probes share setup and cleanup, including failures; neither sends a prompt.
+async fn probe_session<T, F, Fut>(agent: AgentKind, cwd: Option<String>, handler: Arc<dyn ClientHandler>, read: F) -> Result<T, String>
+where F: FnOnce(Arc<AcpClient>, PathBuf) -> Fut, Fut: std::future::Future<Output = T> {
     let (program, args) = agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {}.", agent.display_name()))?;
     let dir = cwd.map(std::path::PathBuf::from).filter(|d| d.is_dir()).unwrap_or_else(std::env::temp_dir);
     let mut process = env::command(&program);
@@ -155,14 +257,18 @@ pub async fn agent_options(agent: AgentKind, cwd: Option<String>) -> Result<Agen
         })
     };
     let timeout = setup_timeout(&program);
-    let client = AcpClient::start_with_timeout(child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"), Arc::new(Silent), timeout);
+    let client = Arc::new(AcpClient::start_with_timeout(child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"), handler, timeout));
     let probe = async {
         client.initialize().await?;
         client.new_session(&dir, serde_json::json!([])).await?;
-        Ok::<_, String>(parse(&client.config_options()))
+        Ok::<_, String>(())
     };
     let result = tokio::time::timeout(timeout + Duration::from_secs(5), probe).await
         .unwrap_or_else(|_| Err(format!("{} không trả lời kịp.", agent.display_name())));
+    let result = match result {
+        Ok(()) => Ok(read(client.clone(), dir).await),
+        Err(error) => Err(error),
+    };
     client.close();
     if let Some(pid) = pid { env::kill_tree(pid).await; }
     let _ = child.kill().await;
@@ -186,6 +292,126 @@ mod tests {
     use super::*;
     use crate::acp::fake;
     use serde_json::json;
+
+    fn commands_fixture(agent: AgentKind) -> Value {
+        let raw = match agent {
+            AgentKind::Claude => include_str!("../tests/fixtures/claude-agent-acp/0.100.0/available-commands.json"),
+            _ => include_str!("../tests/fixtures/codex-acp/2.5.0/available-commands.json"),
+        };
+        serde_json::from_str::<Value>(raw).unwrap()["params"]["update"].clone()
+    }
+
+    struct TempRepo(PathBuf);
+    impl TempRepo {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("tg-commands-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+        fn skill(&self, path: &str) {
+            let path = self.0.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "---\nname: tg-live-skill\ndescription: Skill kiểm tra danh sách lệnh\n---\nChỉ trả lời khi được gọi.\n").unwrap();
+        }
+    }
+    impl Drop for TempRepo {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn claude_commands_fixture_classifies_sources_and_preserves_order_and_hint() {
+        let update = commands_fixture(AgentKind::Claude);
+        let commands = parse_commands(AgentKind::Claude, &update, None);
+        assert_eq!(commands.len(), 9);
+        for (command, raw) in commands.iter().zip(update["availableCommands"].as_array().unwrap()) {
+            assert_eq!(command.name, raw["name"].as_str().unwrap());
+            assert_eq!(command.insert, format!("/{} ", command.name));
+        }
+        for (index, source) in [(0, "project"), (1, "user"), (2, "plugin"), (3, "plugin")] {
+            let command = &commands[index];
+            assert_eq!(command.kind, "skill");
+            assert_eq!(command.source.as_deref(), Some(source));
+            assert!(!command.description.ends_with(&format!(" ({source})")));
+            if source == "plugin" {
+                assert_eq!(command.plugin.as_deref(), Some("superpowers"));
+                assert!(!command.description.starts_with("(superpowers) "));
+            } else { assert!(command.plugin.is_none()); }
+        }
+        for command in &commands[4..] {
+            assert_eq!(command.kind, "command");
+            assert!(command.source.is_none());
+            assert!(command.plugin.is_none());
+        }
+        assert_eq!(commands[5].hint.as_deref(), update["availableCommands"][5]["input"]["hint"].as_str());
+        assert!(commands[0].hint.is_none());
+    }
+
+    #[test]
+    fn codex_commands_fixture_uses_project_directory_and_plugin_name() {
+        let repo = TempRepo::new();
+        let update = commands_fixture(AgentKind::Codex);
+        assert_eq!(parse_commands(AgentKind::Codex, &update, None)[4].source.as_deref(), Some("user"));
+        repo.skill(".agents/skills/tg-codex-skill/SKILL.md");
+        let commands = parse_commands(AgentKind::Codex, &update, Some(&repo.0));
+        assert_eq!(commands.len(), 6);
+        assert_eq!(commands[0].name, "plan");
+        assert_eq!(commands[0].kind, "command");
+        assert_eq!(commands[0].insert, "/plan ");
+        assert!(commands[0].source.is_none());
+        assert_eq!(commands[4].kind, "skill");
+        assert_eq!(commands[4].source.as_deref(), Some("project"));
+        assert_eq!(commands[4].insert, "$tg-codex-skill ");
+        assert_eq!(commands[5].source.as_deref(), Some("plugin"));
+        assert_eq!(commands[5].plugin.as_deref(), Some("documents"));
+        assert_eq!(commands[5].insert, "$documents:documents ");
+    }
+
+    #[test]
+    fn commands_ignore_missing_names_and_other_agents_keep_commands() {
+        assert!(parse_commands(AgentKind::Claude, &Value::Null, None).is_empty());
+        let update = json!({"availableCommands":[{}, {"name":""}, {"name":"$skill", "description":"Test (project)"}]});
+        for agent in [AgentKind::Gemini, AgentKind::Kiro] {
+            let commands = parse_commands(agent, &update, None);
+            assert_eq!(commands.len(), 1);
+            assert_eq!(commands[0].kind, "command");
+            assert_eq!(commands[0].description, "Test (project)");
+            assert_eq!(commands[0].insert, "/$skill ");
+            assert!(commands[0].source.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn commands_handler_retains_only_first_matching_update_including_empty_list() {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let handler = CommandsHandler(std::sync::Mutex::new(Some(sender)));
+        handler.on_notification("other", json!({"update": commands_fixture(AgentKind::Claude)}));
+        handler.on_notification("session/update", json!({"update":{"sessionUpdate":"plan"}}));
+        let first = json!({"sessionUpdate":"available_commands_update", "availableCommands":[]});
+        handler.on_notification("session/update", json!({"update": first}));
+        handler.on_notification("session/update", json!({"update": commands_fixture(AgentKind::Claude)}));
+        assert_eq!(receiver.await.unwrap(), first);
+    }
+
+    #[tokio::test]
+    async fn commands_wait_accepts_delayed_update_and_times_out_when_none_arrives() {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            sender.send(commands_fixture(AgentKind::Claude)).unwrap();
+        });
+        assert_eq!(wait_commands(AgentKind::Claude, &std::env::temp_dir(), receiver).await.len(), 9);
+        let (_sender, receiver) = tokio::sync::oneshot::channel();
+        assert!(tokio::time::timeout(Duration::from_secs(6), wait_commands(AgentKind::Claude, &std::env::temp_dir(), receiver)).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_agent_commands_lists_project_skill() {
+        let repo = TempRepo::new();
+        repo.skill(".claude/skills/tg-live-skill/SKILL.md");
+        let commands = agent_commands(AgentKind::Claude, Some(repo.0.to_string_lossy().into_owned())).await.unwrap();
+        assert!(commands.iter().any(|command| command.name == "tg-live-skill" && command.source.as_deref() == Some("project")));
+    }
 
     fn claude_like() -> Value {
         json!([
