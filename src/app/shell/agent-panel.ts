@@ -266,6 +266,18 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
       @if (error()) { <p class="error-text cmp-hint">{{ error() }}</p> }
     </ng-template>
 
+    <!-- The message shows the moment it is sent; starting an agent takes seconds. -->
+    <ng-template #pendingMsg>
+      @if (pending(); as p) {
+        <div class="msg-user">{{ p.text }}</div>
+        <div class="boot-status" role="status">
+          @if (p.agent) { <tg-agent-avatar [agent]="p.agent" [size]="20" /> }
+          <span>Đang khởi động {{ p.agent ? meta[p.agent].name : 'các agent' }}</span>
+          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
+      }
+    </ng-template>
+
     @if (menu()) { <div class="pop-backdrop" (click)="menu.set(null)"></div> }
 
     @if (run(); as r) {
@@ -402,6 +414,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                   </div>
                 </section>
               }
+              <ng-container *ngTemplateOutlet="pendingMsg" />
             }
             @case ('plan') {
               @if (run()?.plan?.length) {
@@ -466,6 +479,9 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                 Mở thư mục dự án…
               </button>
             </div>
+          } @else if (pending()) {
+            <div class="pending-col"><ng-container *ngTemplateOutlet="pendingMsg" /></div>
+            <ng-container *ngTemplateOutlet="composer" />
           } @else {
             <div class="hero">
               <h1>Hôm nay làm gì với {{ projectName() }}?</h1>
@@ -484,7 +500,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
               }
             </div>
           }
-          <section class="agent-list" aria-label="Agent trên máy">
+          <section class="agent-list" aria-label="Agent trên máy" [hidden]="!!pending()">
             <div class="label">AGENT TRÊN MÁY</div>
             @for (a of agents.agents(); track a.id) {
               <div class="agent-line">
@@ -603,6 +619,17 @@ export class AgentPanel {
     untracked(() => this.runs.warm(agent, repo, scope ?? null));
   });
   protected readonly error = signal<string | null>(null);
+  /**
+   * The message being sent, shown until the run it starts (or the `user` event of the
+   * open session) reaches the conversation. Starting an agent takes seconds.
+   */
+  protected readonly pending = signal<{ text: string; agent: AgentId | null; at: number; before: string | null; sent: boolean } | null>(null);
+  private readonly settlePending = effect(() => {
+    const p = this.pending();
+    const r = this.run();
+    if (!p?.sent || !r) return;
+    if (r.id !== p.before || (r.turnAt ?? 0) >= p.at) untracked(() => this.pending.set(null));
+  });
   protected readonly picks = signal<AgentId[] | null>(null);
   /** Every installed agent takes every permission; questions to agents without a read-only
    * CLI flag run through ACP in a throwaway draft. */
@@ -1008,6 +1035,7 @@ export class AgentPanel {
     const cwd = this.workspace.folder();
     this.error.set(null);
     this.sending.set(true);
+    let typed: string | null = null;
     try {
       const current = this.run();
       const perm = this.perm();
@@ -1025,11 +1053,15 @@ export class AgentPanel {
         }
       }
       this.dirtyAccepted = false;
+      typed = this.prompt();
+      this.prompt.set('');
+      this.pending.set({ text, agent: this.team() === 'single' && agent ? agent : null, at: Date.now(), before: current?.id ?? null, sent: false });
       if (this.mode() === 'pipeline') {
         const started = await this.pipelines.start(text, cwd, this.steps(), { place, base, approval });
         // No run exists yet to show this in the thread, and the prompt must not be lost.
         if (started.status === 'failed') {
           this.error.set(started.error);
+          this.restore(typed);
           return;
         }
       } else if (this.mode() === 'parallel') {
@@ -1066,13 +1098,25 @@ export class AgentPanel {
           await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval });
         }
       }
-      this.prompt.set('');
       this.tab.set('thread');
+      const sent = this.pending();
+      if (sent) {
+        this.pending.set({ ...sent, sent: true });
+        // An agent that never reports the turn must not leave the message hanging.
+        setTimeout(() => { if (this.pending()?.at === sent.at) this.pending.set(null); }, 4000);
+      }
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
+      this.restore(typed);
     } finally {
       this.sending.set(false);
     }
+  }
+
+  /** A failed send gives the words back, unless the user already typed something new. */
+  private restore(typed: string | null): void {
+    this.pending.set(null);
+    if (typed !== null && !this.prompt().trim()) this.prompt.set(typed);
   }
 }
 
