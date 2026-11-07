@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Phác thảo · Chi phí &amp; Kết nối</title>
+<style>
+  :root {
+    --bg:#0b0b0d; --panel:#0e0e11; --raised:#131317; --hover:#18181d; --line:#1c1c21; --line-strong:#2a2a31;
+    --input:#121216; --text:#ececee; --text-2:#c4c4cc; --muted:#8e8e99; --faint:#6a6a74;
+    --run:#a3c0ff; --wait:#e8b672; --done:#7fddb4; --fail:#f6a999; --ok:#6fd3a8;
+    --c-claude:#C9663E; --c-codex:#2FAA7F; --c-gemini:#3C64B9; --c-kiro:#987CE9;
+    --font: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13.5px/1.5 var(--font); -webkit-font-smoothing:antialiased; }
+  .mono { font-family:var(--mono); font-size:12px; }
+  .dim { color:var(--muted); } .faint { color:var(--faint); }
+  .spacer { flex:1; }
+  .switcher { position:sticky; top:0; z-index:5; display:flex; gap:8px; padding:10px 24px; background:#08080a; border-bottom:1px solid var(--line); }
+  .switcher a { color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:6px; }
+  .switcher a:hover { background:var(--hover); color:var(--text); }
+  .screen { max-width:1180px; margin:0 auto; padding:28px 32px 56px; }
+  .screen + .screen { border-top:1px dashed var(--line-strong); }
+  .page-head { display:flex; align-items:flex-end; gap:16px; margin-bottom:22px; }
+  .page-head h1 { margin:0; font-size:22px; font-weight:650; letter-spacing:-0.01em; }
+  .page-head p { margin:2px 0 0; color:var(--muted); }
+  .btn { height:30px; padding:0 12px; border-radius:7px; border:1px solid var(--line-strong); background:transparent; color:var(--text); font:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+  .btn:hover { background:var(--hover); }
+  .btn.primary { background:var(--text); color:var(--bg); border-color:var(--text); font-weight:600; }
+  .btn.sm { height:24px; padding:0 8px; font-size:12px; }
+  .seg { display:inline-flex; padding:2px; border:1px solid var(--line-strong); border-radius:8px; background:var(--panel); }
+  .seg button { border:0; background:transparent; color:var(--muted); font:inherit; font-size:12.5px; padding:3px 10px; border-radius:6px; cursor:pointer; }
+  .seg button.on { background:var(--hover); color:var(--text); box-shadow:inset 0 0 0 1px var(--line-strong); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 0; }
+  .card-head h2 { margin:0; font-size:13.5px; font-weight:600; }
+  .av { width:18px; height:18px; border-radius:5px; background:#1c1c22; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .av img { width:12px; height:12px; }
+  .av.lg { width:26px; height:26px; border-radius:7px; } .av.lg img { width:16px; height:16px; }
+  .note { position:absolute; background:#2b2410; color:var(--wait); border:1px solid #4a3b16; font-size:11.5px; padding:3px 8px; border-radius:6px; white-space:nowrap; box-shadow:0 4px 14px #0008; }
+  .anno { position:relative; }
+
+  /* ---------- Chi phí ---------- */
+  .kpis { display:grid; grid-template-columns: 1.4fr 1fr 1fr 1.2fr; gap:12px; margin-bottom:12px; }
+  .kpi { padding:14px 16px; display:flex; flex-direction:column; gap:4px; min-height:112px; }
+  .kpi .k { font-size:12px; color:var(--muted); }
+  .kpi .v { font-size:26px; font-weight:650; letter-spacing:-0.02em; font-variant-numeric:tabular-nums; }
+  .kpi.hero .v { font-size:32px; }
+  .delta { font-size:12px; font-variant-numeric:tabular-nums; }
+  .delta.up { color:var(--fail); } .delta.down { color:var(--done); }
+  .spark { margin-top:auto; height:26px; width:100%; }
+  .ring-wrap { display:flex; align-items:center; gap:14px; }
+  .ring { width:64px; height:64px; flex:none; }
+  .grid2 { display:grid; grid-template-columns: 1fr 320px; gap:12px; }
+  .chart { position:relative; height:220px; margin:14px 16px 8px 52px; }
+  .gl { position:absolute; left:0; right:0; border-top:1px solid var(--line); }
+  .gl span { position:absolute; left:-46px; top:-8px; font:11px var(--mono); color:var(--faint); width:40px; text-align:right; }
+  .budget-line { position:absolute; left:0; right:0; border-top:1.5px dashed var(--wait); opacity:.75; }
+  .budget-line span { position:absolute; left:6px; top:-18px; font-size:11px; color:var(--wait); }
+  .bars { position:absolute; inset:0; display:flex; align-items:flex-end; gap:5px; }
+  .bar { flex:1; display:flex; flex-direction:column-reverse; border-radius:4px 4px 1px 1px; overflow:hidden; min-height:2px; background:#16161a; }
+  .bar i { display:block; }
+  .bar.today { outline:1.5px solid var(--text-2); outline-offset:2px; }
+  .bar.sel { outline:1.5px solid var(--run); outline-offset:2px; }
+  .xl { display:flex; gap:5px; margin:0 16px 14px 52px; font:10.5px var(--mono); color:var(--faint); }
+  .xl span { flex:1; text-align:center; }
+  .tip { position:absolute; bottom:110px; left:46%; width:190px; background:var(--raised); border:1px solid var(--line-strong); border-radius:9px; padding:9px 11px; font-size:12px; box-shadow:0 10px 30px #000a; }
+  .tip-row { display:flex; align-items:center; gap:7px; } .tip-row b { margin-left:auto; font:12px var(--mono); }
+  .dot { width:8px; height:8px; border-radius:2px; flex:none; }
+  .split { padding:12px 16px 16px; display:flex; flex-direction:column; gap:12px; }
+  .split-row { display:grid; grid-template-columns: 26px 1fr auto; gap:10px; align-items:center; padding:6px 8px; margin:0 -8px; border-radius:8px; cursor:pointer; }
+  .split-row:hover, .split-row.on { background:var(--hover); }
+  .split-row .name { display:flex; justify-content:space-between; font-size:13px; }
+  .track { height:6px; background:#1a1a1f; border-radius:3px; margin-top:5px; overflow:hidden; }
+  .track i { display:block; height:100%; border-radius:3px; }
+  .split-row .amt { text-align:right; font:12.5px var(--mono); }
+  .split-row .amt small { display:block; color:var(--faint); font-size:11px; }
+  .limits { padding:4px 16px 16px; display:flex; flex-direction:column; gap:10px; }
+  .lim .top { display:flex; font-size:12.5px; } .lim .top b { margin-left:auto; font:12px var(--mono); color:var(--text-2); font-weight:400; }
+  .lim .track { height:5px; }
+  .table-tools { display:flex; gap:8px; align-items:center; padding:12px 16px; }
+  .search { height:28px; width:240px; border-radius:7px; border:1px solid var(--line-strong); background:var(--input); padding:0 10px; color:var(--muted); display:flex; align-items:center; gap:6px; font-size:12.5px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 9px; border-radius:12px; border:1px solid var(--line-strong); font-size:12px; color:var(--text-2); }
+  .chip.on { background:var(--hover); border-color:#3a3a44; color:var(--text); }
+  .chip .x { color:var(--faint); }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; font-weight:500; color:var(--faint); padding:7px 16px; border-bottom:1px solid var(--line); font-size:11.5px; }
+  th.sorted { color:var(--text-2); }
+  td { padding:9px 16px; border-bottom:1px solid #141418; }
+  tr:hover td { background:#111115; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .src { display:inline-block; width:6px; height:6px; border-radius:50%; margin-left:6px; vertical-align:middle; }
+  .src.rep { background:var(--done); } .src.est { background:transparent; box-shadow:inset 0 0 0 1.5px var(--muted); }
+  .cost-hi { color:var(--wait); }
+  .open { color:var(--faint); opacity:0; } tr:hover .open { opacity:1; }
+  .settings-link { display:flex; align-items:center; gap:10px; padding:12px 16px; border-top:1px solid var(--line); font-size:12.5px; }
+  .drawer-hint { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px 14px; }
+  .mini { background:var(--raised); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12px; }
+  .mini .t { color:var(--faint); font-size:11px; }
+
+  /* ---------- Kết nối ---------- */
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:18px; }
+  .tabs a { padding:8px 12px; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; margin-bottom:-1px; display:flex; gap:7px; align-items:center; }
+  .tabs a.on { color:var(--text); border-color:var(--text); }
+  .count { font-size:11px; background:#1d1d23; color:var(--muted); padding:0 6px; border-radius:8px; }
+  .bridge { display:flex; gap:16px; align-items:center; padding:16px; margin-bottom:20px; background:linear-gradient(120deg, #11131a 0%, var(--panel) 60%); }
+  .logo-bridge { width:40px; height:40px; border-radius:10px; background:#1a1d27; display:flex; align-items:center; justify-content:center; box-shadow:inset 0 0 0 1px #2a2f3d; }
+  .bridge h2 { margin:0; font-size:14.5px; display:flex; gap:8px; align-items:center; }
+  .badge { font-size:10.5px; font-weight:500; padding:1px 7px; border-radius:4px; background:#1a1a1e; color:var(--muted); }
+  .badge.ok { background:rgba(63,182,139,.14); color:var(--ok); }
+  .badge.run { background:rgba(110,155,245,.16); color:var(--run); }
+  .tools { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .tool { font:11.5px var(--mono); padding:2px 8px; border-radius:5px; background:#15161c; border:1px solid #23252e; color:var(--text-2); }
+  .switch { width:36px; height:20px; border-radius:10px; background:var(--done); position:relative; flex:none; }
+  .switch::after { content:''; position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:50%; background:#0b0b0d; }
+  .switch.off { background:#2a2a31; } .switch.off::after { right:auto; left:2px; background:var(--muted); }
+  .sec-head { display:flex; align-items:center; gap:10px; margin:0 0 10px; }
+  .sec-head h3 { margin:0; font-size:13.5px; font-weight:600; }
+  .servers { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+  .srv { padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .srv-top { display:flex; align-items:center; gap:10px; }
+  .srv-ic { width:30px; height:30px; border-radius:8px; background:#1a1a20; display:flex; align-items:center; justify-content:center; font:600 13px var(--font); color:var(--text-2); box-shadow:inset 0 0 0 1px #26262d; }
+  .srv-name { font-weight:600; }
+  .srv-cmd { font:11.5px var(--mono); color:var(--muted); background:#0b0b0e; border:1px solid var(--line); border-radius:6px; padding:5px 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .agents-row { display:flex; gap:6px; align-items:center; }
+  .ag { display:inline-flex; align-items:center; gap:5px; height:24px; padding:0 8px 0 4px; border-radius:12px; border:1px solid var(--line-strong); font-size:11.5px; color:var(--faint); opacity:.55; }
+  .ag.on { opacity:1; color:var(--text-2); border-color:#3a3a44; background:#17171c; }
+  .ag .av { width:16px; height:16px; }
+  .more { margin-left:auto; color:var(--faint); padding:0 6px; border-radius:6px; }
+  .srv.add { border-style:dashed; align-items:center; justify-content:center; color:var(--muted); min-height:150px; gap:6px; background:transparent; }
+  .srv.add .plus { width:30px; height:30px; border-radius:50%; border:1px dashed var(--line-strong); display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .presets { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; }
+  .status { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted); }
+  .status i { width:6px; height:6px; border-radius:50%; background:var(--done); }
+  .status.warn i { background:var(--wait); }
+
+  .drawer-demo { display:grid; grid-template-columns:1fr 380px; gap:0; margin-top:28px; border:1px solid var(--line); border-radius:12px; overflow:hidden; min-height:430px; }
+  .drawer-bg { background:repeating-linear-gradient(135deg, #0c0c0f 0 10px, #0e0e12 10px 20px); display:flex; align-items:center; justify-content:center; color:var(--faint); font-size:12px; }
+  .drawer { background:var(--raised); border-left:1px solid var(--line-strong); padding:18px; display:flex; flex-direction:column; gap:12px; }
+  .drawer h3 { margin:0; font-size:15px; }
+  .field { display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); }
+  .inp { height:30px; border-radius:7px; border:1px solid var(--line-strong); background:var(--input); padding:0 10px; display:flex; align-items:center; font:12px var(--mono); color:var(--text-2); }
+  .inp.tall { height:auto; min-height:52px; padding:7px 10px; align-items:flex-start; white-space:pre; }
+  .kv { display:grid; grid-template-columns:1fr 1.4fr 22px; gap:6px; }
+  .kv .x { color:var(--faint); display:flex; align-items:center; justify-content:center; }
+  .row { display:flex; gap:8px; align-items:center; }
+
+  .skills { display:flex; flex-direction:column; }
+  .sk { display:grid; grid-template-columns: 1fr 200px 200px 70px; gap:12px; align-items:center; padding:11px 16px; border-bottom:1px solid #141418; }
+  .sk:last-child { border-bottom:0; }
+  .sk-name { font:12.5px var(--mono); }
+  .sk-desc { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .where { display:flex; gap:6px; align-items:center; font-size:12px; }
+  .pill { font-size:11px; padding:1px 7px; border-radius:10px; border:1px solid var(--line-strong); color:var(--muted); }
+  .pill.ok { color:var(--ok); border-color:#1f4a3a; background:rgba(63,182,139,.08); }
+  .pill.wait { color:var(--wait); border-color:#4a3b16; background:rgba(232,182,114,.08); }
+  .legend-box { display:flex; gap:14px; font-size:11.5px; color:var(--faint); padding:10px 16px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<nav class="switcher">
+  <strong style="margin-right:8px">Phác thảo</strong>
+  <a href="#cost">Chi phí</a><a href="#conn">Kết nối · MCP</a><a href="#drawer">Thêm server</a><a href="#skills">Kết nối · Skill</a>
+  <span class="spacer"></span><span class="faint">Số liệu giả · bảng màu lấy từ styles.scss</span>
+</nav>
+
+<!-- ======================= CHI PHÍ ======================= -->
+<section class="screen" id="cost">
+  <header class="page-head">
+    <div><h1>Chi phí</h1><p>Token và tiền đã dùng cho mọi agent, tính theo giá lúc lượt chạy bắt đầu.</p></div>
+    <span class="spacer"></span>
+    <div class="seg"><button>7 ngày</button><button class="on">30 ngày</button><button>90 ngày</button></div>
+    <button class="btn">⚙ Giá &amp; ngân sách</button>
+    <button class="btn">Xuất CSV</button>
+  </header>
+
+  <div class="kpis">
+    <div class="card kpi hero">
+      <span class="k">Tổng chi phí · 30 ngày</span>
+      <span class="v">$84.12</span>
+      <span class="delta up">▲ 23% so với 30 ngày trước <span class="faint">($68.40)</span></span>
+      <svg class="spark" viewBox="0 0 200 26" preserveAspectRatio="none"><path d="M0 22 L14 20 L28 21 L42 17 L56 18 L70 14 L84 16 L98 12 L112 15 L126 10 L140 11 L154 7 L168 9 L182 5 L200 6" fill="none" stroke="#c4c4cc" stroke-width="1.5"/><path d="M0 22 L14 20 L28 21 L42 17 L56 18 L70 14 L84 16 L98 12 L112 15 L126 10 L140 11 L154 7 L168 9 L182 5 L200 6 L200 26 L0 26Z" fill="#c4c4cc" opacity=".07"/></svg>
+    </div>
+    <div class="card kpi">
+      <span class="k">Token</span><span class="v">41.8M</span>
+      <span class="delta dim">72% đọc từ cache</span>
+      <div class="track" style="margin-top:auto"><i style="width:72%;background:#5d5d68"></i></div>
+    </div>
+    <div class="card kpi">
+      <span class="k">Lượt chạy</span><span class="v">312</span>
+      <span class="delta dim">TB $0.27 / lượt</span>
+      <svg class="spark" viewBox="0 0 200 26" preserveAspectRatio="none"><path d="M0 18 L20 15 L40 19 L60 12 L80 16 L100 10 L120 14 L140 9 L160 13 L180 8 L200 11" fill="none" stroke="#8e8e99" stroke-width="1.3"/></svg>
+    </div>
+    <div class="card kpi anno">
+      <span class="k">Hôm nay</span>
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15" fill="none" stroke="#1d1d22" stroke-width="4"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--wait)" stroke-width="4" stroke-dasharray="77 94.2" stroke-linecap="round" transform="rotate(-90 18 18)"/></svg>
+        <div><div class="v" style="font-size:24px">$8.20</div><div class="dim" style="font-size:12px">/ $10 ngân sách ngày</div><div style="font-size:12px;color:var(--wait)">còn $1.80 · 82%</div></div>
+      </div>
+      <span class="note" style="right:-6px;top:-12px">vàng khi ≥ 80%, đỏ khi vượt</span>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-bottom:12px">
+    <div class="card anno">
+      <div class="card-head"><h2>Theo ngày</h2><span class="spacer"></span><div class="seg"><button class="on">Chi phí</button><button>Token</button></div></div>
+      <div class="chart" id="chart">
+        <div class="gl" style="bottom:100%"><span>$10</span></div>
+        <div class="gl" style="bottom:50%"><span>$5</span></div>
+        <div class="gl" style="bottom:0"><span>$0</span></div>
+        <div class="budget-line" style="bottom:100%"><span>ngân sách ngày $10</span></div>
+        <div class="bars" id="bars"></div>
+        <div class="tip"><strong>04/11</strong> <span class="faint">· 14 lượt</span>
+          <div class="tip-row" style="margin-top:5px"><span class="dot" style="background:var(--c-claude)"></span>Claude Code<b>$4.10</b></div>
+          <div class="tip-row"><span class="dot" style="background:var(--c-codex)"></span>Codex<b>$2.05</b></div>
+          <div class="tip-row" style="border-top:1px solid var(--line);margin-top:5px;padding-top:5px">Tổng<b>$6.15</b></div>
+          <div class="faint" style="font-size:11px;margin-top:4px">Bấm để lọc bảng theo ngày này</div>
+        </div>
+      </div>
+      <div class="xl" id="xl"></div>
+      <span class="note" style="left:60px;bottom:8px">cột viền sáng = hôm nay · viền xanh = ngày đang lọc</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="card">
+        <div class="card-head"><h2>Theo agent</h2><span class="spacer"></span><span class="faint" style="font-size:12px">bấm để lọc</span></div>
+        <div class="split">
+          <div class="split-row on"><span class="av lg"><img src="../../public/agents/claude.svg"></span>
+            <div><div class="name">Claude Code <span class="dim">64%</span></div><div class="track"><i style="width:64%;background:var(--c-claude)"></i></div></div>
+            <div class="amt">$53.80<small>24.1M tok</small></div></div>
+          <div class="split-row"><span class="av lg"><img src="../../public/agents/codex.svg"></span>
+            <div><div class="name">Codex <span class="dim">29%</span></div><div class="track"><i style="width:29%;background:var(--c-codex)"></i></div></div>
+            <div class="amt">$24.40<small>14.9M tok</small></div></div>
+          <div class="split-row"><span class="av lg"><img src="../../public/agents/gemini.svg"></span>
+            <div><div class="name">Gemini CLI <span class="dim">7%</span></div><div class="track"><i style="width:7%;background:var(--c-gemini)"></i></div></div>
+            <div class="amt">$5.92<small>2.8M tok</small></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Hạn mức gói</h2><span class="spacer"></span><span class="faint" style="font-size:12px">cập nhật 2 phút trước ↻</span></div>
+        <div class="limits">
+          <div class="lim"><div class="top"><span class="av" style="margin-right:6px"><img src="../../public/agents/claude.svg"></span>Phiên 5 giờ<b>61% · đặt lại 15:40</b></div><div class="track"><i style="width:61%;background:var(--text-2)"></i></div></div>
+          <div class="lim"><div class="top"><span class="av" style="margin-right:6px"><img src="../../public/agents/claude.svg"></span>Tuần<b>34% · đặt lại T2</b></div><div class="track"><i style="width:34%;background:var(--text-2)"></i></div></div>
+          <div class="lim"><div class="top"><span class="av" style="margin-right:6px"><img src="../../public/agents/codex.svg"></span>Phiên 5 giờ<b style="color:var(--wait)">88% · đặt lại 14:10</b></div><div class="track"><i style="width:88%;background:var(--wait)"></i></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card anno">
+    <div class="table-tools">
+      <h2 style="margin:0;font-size:13.5px">Các lượt chạy</h2><span class="dim">48 / 312</span>
+      <span class="chip on"><span class="av" style="width:14px;height:14px"><img src="../../public/agents/claude.svg" style="width:10px"></span>Claude Code <span class="x">×</span></span>
+      <span class="chip on">04/11 <span class="x">×</span></span>
+      <span class="spacer"></span>
+      <div class="search">⌕ Tìm theo yêu cầu…</div>
+    </div>
+    <table>
+      <thead><tr><th>Thời gian</th><th>Agent</th><th>Yêu cầu</th><th class="num">Input</th><th class="num">Cache</th><th class="num">Output</th><th class="num sorted">Chi phí ↓</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono dim">04/11 14:22</td><td><span class="av"><img src="../../public/agents/claude.svg"></span></td><td>Refactor RunsService để tách phần usage ra service riêng</td><td class="num mono">412K</td><td class="num mono dim">2.1M</td><td class="num mono">38K</td><td class="num mono cost-hi">$1.84<span class="src rep" title="CLI báo"></span></td><td class="open">↗</td></tr>
+        <tr><td class="mono dim">04/11 10:05</td><td><span class="av"><img src="../../public/agents/claude.svg"></span></td><td>Viết test cho diff::pending khi index bị đổi</td><td class="num mono">188K</td><td class="num mono dim">960K</td><td class="num mono">21K</td><td class="num mono">$0.92<span class="src rep"></span></td><td class="open">↗</td></tr>
+        <tr><td class="mono dim">04/11 09:41</td><td><span class="av"><img src="../../public/agents/claude.svg"></span></td><td>Giải thích luồng warm_task và WarmPool</td><td class="num mono">96K</td><td class="num mono dim">540K</td><td class="num mono">9K</td><td class="num mono">$0.41<span class="src rep"></span></td><td class="open">↗</td></tr>
+        <tr><td class="mono dim">04/11 08:12</td><td><span class="av"><img src="../../public/agents/claude.svg"></span></td><td>Sửa lỗi PATH khi mở app từ Finder</td><td class="num mono">54K</td><td class="num mono dim">210K</td><td class="num mono">6K</td><td class="num mono">$0.22<span class="src est"></span></td><td class="open">↗</td></tr>
+      </tbody>
+    </table>
+    <div class="legend-box"><span><span class="src rep" style="margin:0 5px 0 0"></span>CLI báo</span><span><span class="src est" style="margin:0 5px 0 0"></span>Ước tính theo bảng giá</span><span class="spacer"></span><span>Bấm một dòng để mở cuộc trò chuyện</span></div>
+    <span class="note" style="right:16px;top:-12px">chip lọc đến từ biểu đồ và thẻ "Theo agent"</span>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="card-head"><h2>⚙ Giá &amp; ngân sách</h2><span class="dim" style="font-size:12px">thu gọn, bấm để mở ngăn kéo chỉnh sửa</span></div>
+    <div class="drawer-hint" style="grid-template-columns:repeat(4,1fr);padding-top:12px">
+      <div class="mini"><div class="t">Ngân sách</div>$10 / ngày · $2 / task</div>
+      <div class="mini"><div class="t">Claude Code</div>CLI tự báo chi phí</div>
+      <div class="mini"><div class="t">Codex · từ 01/11</div><span class="mono">$1.25 · $0.13 · $10</span></div>
+      <div class="mini"><div class="t">Gemini CLI</div><span style="color:var(--wait)">Chưa có giá · 6 lượt</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= KẾT NỐI · MCP ======================= -->
+<section class="screen" id="conn">
+  <header class="page-head">
+    <div><h1>Kết nối</h1><p>Công cụ và kỹ năng TG Studio đưa vào phiên của agent, không sửa file cấu hình của agent.</p></div>
+    <span class="spacer"></span>
+    <button class="btn primary">＋ Thêm server</button>
+  </header>
+  <nav class="tabs"><a class="on" href="#conn">MCP server <span class="count">3</span></a><a href="#skills">Skill <span class="count">5</span></a></nav>
+
+  <div class="card bridge anno">
+    <div class="logo-bridge"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a3c0ff" stroke-width="1.8" stroke-linecap="round"><path d="M3 17c3-6 15-6 18 0M6 13.5V17M12 11.5V17M18 13.5V17M2 17h20"/></svg></div>
+    <div style="flex:1;min-width:0">
+      <h2>tg-bridge <span class="badge run">Tích hợp sẵn</span><span class="badge">127.0.0.1 · token riêng mỗi task</span></h2>
+      <div class="dim" style="font-size:12.5px">Kênh phối hợp giữa các agent. Tool nào có tác động đều phải qua bạn duyệt.</div>
+      <div class="tools"><span class="tool" title="Tiến độ hiện ở cuộc trò chuyện và Giám sát">report_progress</span><span class="tool">write_note</span><span class="tool">read_notes</span><span class="tool">handoff_to</span><span class="tool">request_approval</span><span class="tool">get_task_context</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <div class="row"><span style="font-size:12.5px">Bật cho task Sửa code</span><span class="switch"></span></div>
+      <span class="faint" style="font-size:11.5px">Áp dụng cho lượt chạy mới</span>
+    </div>
+    <span class="note" style="left:470px;bottom:-10px">di chuột lên tên tool để xem mô tả</span>
+  </div>
+
+  <div class="sec-head"><h3>Server của bạn</h3><span class="dim" style="font-size:12px">stdio chạy với mọi agent qua ACP · http chỉ gửi khi agent hỗ trợ</span></div>
+  <div class="servers">
+    <div class="card srv">
+      <div class="srv-top"><div class="srv-ic">GH</div><div><div class="srv-name">github</div><span class="status"><i></i>stdio · 2 biến môi trường</span></div><span class="more">⋯</span></div>
+      <div class="srv-cmd">npx -y @modelcontextprotocol/server-github</div>
+      <div class="agents-row">
+        <span class="ag on"><span class="av"><img src="../../public/agents/claude.svg"></span>Claude</span>
+        <span class="ag on"><span class="av"><img src="../../public/agents/codex.svg"></span>Codex</span>
+        <span class="ag"><span class="av"><img src="../../public/agents/gemini.svg"></span>Gemini</span>
+        <span class="ag"><span class="av"><img src="../../public/agents/kiro.svg"></span>Kiro</span>
+      </div>
+    </div>
+    <div class="card srv">
+      <div class="srv-top"><div class="srv-ic">PW</div><div><div class="srv-name">playwright</div><span class="status"><i></i>stdio</span></div><span class="more">⋯</span></div>
+      <div class="srv-cmd">npx @playwright/mcp@latest</div>
+      <div class="agents-row">
+        <span class="ag on"><span class="av"><img src="../../public/agents/claude.svg"></span>Claude</span>
+        <span class="ag"><span class="av"><img src="../../public/agents/codex.svg"></span>Codex</span>
+        <span class="ag on"><span class="av"><img src="../../public/agents/gemini.svg"></span>Gemini</span>
+        <span class="ag"><span class="av"><img src="../../public/agents/kiro.svg"></span>Kiro</span>
+      </div>
+    </div>
+    <div class="card srv anno">
+      <div class="srv-top"><div class="srv-ic">LN</div><div><div class="srv-name">linear</div><span class="status warn"><i></i>http · Codex không hỗ trợ http</span></div><span class="more">⋯</span></div>
+      <div class="srv-cmd">https://mcp.linear.app/mcp</div>
+      <div class="agents-row">
+        <span class="ag on"><span class="av"><img src="../../public/agents/claude.svg"></span>Claude</span>
+        <span class="ag on" style="border-color:#4a3b16"><span class="av"><img src="../../public/agents/codex.svg"></span>Codex ⚠</span>
+        <span class="ag"><span class="av"><img src="../../public/agents/gemini.svg"></span>Gemini</span>
+        <span class="ag"><span class="av"><img src="../../public/agents/kiro.svg"></span>Kiro</span>
+      </div>
+      <span class="note" style="right:10px;bottom:-12px">chip agent = bật/tắt ngay, thay cho bảng checkbox</span>
+    </div>
+    <div class="card srv add">
+      <div class="plus">＋</div>
+      <div>Thêm server</div>
+      <div class="presets"><span class="chip">GitHub</span><span class="chip">Filesystem</span><span class="chip">Playwright</span><span class="chip">Tự nhập</span></div>
+    </div>
+  </div>
+
+  <div class="drawer-demo" id="drawer">
+    <div class="drawer-bg">(màn Kết nối mờ phía sau)</div>
+    <div class="drawer">
+      <div class="row"><h3>Thêm MCP server</h3><span class="spacer"></span><span class="faint">✕</span></div>
+      <div class="seg" style="align-self:flex-start"><button class="on">stdio · chạy lệnh</button><button>http · URL</button></div>
+      <label class="field">Tên<div class="inp">github</div></label>
+      <label class="field">Lệnh<div class="inp">npx -y @modelcontextprotocol/server-github</div></label>
+      <label class="field">Biến môi trường
+        <div class="kv"><div class="inp">GITHUB_TOKEN</div><div class="inp">••••••••••••</div><span class="x">×</span></div>
+        <span style="color:var(--run);font-size:12px">＋ Thêm biến</span>
+      </label>
+      <label class="field">Bật cho
+        <div class="agents-row"><span class="ag on"><span class="av"><img src="../../public/agents/claude.svg"></span>Claude</span><span class="ag on"><span class="av"><img src="../../public/agents/codex.svg"></span>Codex</span><span class="ag"><span class="av"><img src="../../public/agents/gemini.svg"></span>Gemini</span><span class="ag"><span class="av"><img src="../../public/agents/kiro.svg"></span>Kiro</span></div>
+      </label>
+      <div class="faint" style="font-size:11.5px">ⓘ Biến môi trường lưu trong máy này, không mã hoá.</div>
+      <span class="spacer"></span>
+      <div class="row"><span class="spacer"></span><button class="btn">Huỷ</button><button class="btn primary">Lưu server</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= KẾT NỐI · SKILL ======================= -->
+<section class="screen" id="skills">
+  <header class="page-head">
+    <div><h1>Kết nối</h1><p>Công cụ và kỹ năng TG Studio đưa vào phiên của agent, không sửa file cấu hình của agent.</p></div>
+    <span class="spacer"></span>
+    <button class="btn">↻ Đọc lại</button>
+    <button class="btn primary">＋ Thêm skill</button>
+  </header>
+  <nav class="tabs"><a href="#conn">MCP server <span class="count">3</span></a><a class="on" href="#skills">Skill <span class="count">5</span></a></nav>
+
+  <div class="row" style="margin-bottom:10px">
+    <span class="chip on">Tất cả</span><span class="chip">Thư viện của bạn</span><span class="chip">Chỉ agent thấy</span>
+    <span class="spacer"></span><span class="dim" style="font-size:12px">Dự án: <span class="mono">tg-studio</span> · đọc từ chính agent, 0 token</span>
+  </div>
+  <div class="card anno">
+    <div class="sk" style="padding-top:9px;padding-bottom:9px"><span class="faint" style="font-size:11.5px">Skill</span><span class="faint" style="font-size:11.5px"><span class="av" style="width:14px;height:14px;vertical-align:-3px"><img src="../../public/agents/claude.svg" style="width:10px"></span> Claude Code</span><span class="faint" style="font-size:11.5px"><span class="av" style="width:14px;height:14px;vertical-align:-3px"><img src="../../public/agents/codex.svg" style="width:10px"></span> Codex</span><span></span></div>
+    <div class="sk"><div><div class="sk-name">/release-check</div><div class="sk-desc">Kiểm tra phiên bản, CHANGELOG và tag trước khi phát hành</div></div>
+      <div class="where"><span class="pill ok">✓ repo</span><span class="pill ok">✓ máy</span></div>
+      <div class="where"><span class="pill">chưa hỗ trợ</span></div><span class="more">⋯</span></div>
+    <div class="sk"><div><div class="sk-name">/vi-copy</div><div class="sk-desc">Viết chuỗi giao diện tiếng Việt theo giọng của TG Studio</div></div>
+      <div class="where"><span class="pill wait">↑ cập nhật repo</span></div>
+      <div class="where"><span class="pill">chưa hỗ trợ</span></div><span class="more">⋯</span></div>
+    <div class="sk"><div><div class="sk-name">/rust-test</div><div class="sk-desc">Chạy cargo test đúng module vừa sửa</div></div>
+      <div class="where"><button class="btn sm">Cài vào repo</button><button class="btn sm">máy</button></div>
+      <div class="where"><span class="pill">chưa hỗ trợ</span></div><span class="more">⋯</span></div>
+    <div class="sk" style="opacity:.8"><div><div class="sk-name">/frontend-design <span class="badge">plugin</span></div><div class="sk-desc">Agent đang thấy, không có trong thư viện của bạn</div></div>
+      <div class="where"><span class="pill ok">● đang thấy</span></div>
+      <div class="where"><span class="faint">—</span></div><span class="more">⋯</span></div>
+    <div class="sk" style="opacity:.8"><div><div class="sk-name">$migrate-db</div><div class="sk-desc">.agents/skills/migrate-db/SKILL.md</div></div>
+      <div class="where"><span class="faint">—</span></div>
+      <div class="where"><span class="pill ok">● đang thấy</span></div><span class="more">⋯</span></div>
+    <div class="legend-box"><span><span class="pill ok">✓</span> đã cài, trùng thư viện</span><span><span class="pill wait">↑</span> bản cài khác thư viện</span><span><span class="pill ok">●</span> agent tự tìm thấy</span><span class="spacer"></span><span>Gõ / ở ô chat (Codex: $) để gọi</span></div>
+    <span class="note" style="right:16px;top:-12px">gộp "Thư viện" và "Agent đang thấy" thành một danh sách</span>
+  </div>
+</section>
+
+<script>
+  const data = [1.2,0.8,2.1,0,1.6,3.4,2.2,1.1,0.4,2.8,3.9,4.4,2.6,1.9,0,0.7,2.4,3.1,5.2,4.1,2.9,3.6,6.15,4.8,3.3,2.0,5.6,7.1,6.4,8.2];
+  const bars = document.getElementById('bars'), xl = document.getElementById('xl');
+  data.forEach((v, i) => {
+    const b = document.createElement('div');
+    b.className = 'bar' + (i === data.length - 1 ? ' today' : '') + (i === 22 ? ' sel' : '');
+    b.style.height = (v / 10 * 100) + '%';
+    if (v) {
+      const cl = v * 0.62, cx = v * 0.3, gm = v - cl - cx;
+      [['--c-claude', cl], ['--c-codex', cx], ['--c-gemini', gm]].forEach(([c, x]) => {
+        const s = document.createElement('i'); s.style.flex = x; s.style.background = `var(${c})`; b.appendChild(s);
+      });
+    }
+    bars.appendChild(b);
+    const d = new Date(2026, 9, 9 + i);
+    const l = document.createElement('span'); l.textContent = i % 4 === 0 || i === data.length - 1 ? `${d.getDate()}/${d.getMonth() + 1}` : ''; xl.appendChild(l);
+  });
+</script>
+</body>
+</html>
