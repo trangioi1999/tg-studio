@@ -778,6 +778,11 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .live-status .sep { color: var(--faint); }
 .live-status .clock { font-size: 12px; white-space: nowrap; }
 .live-status .step { flex: 1; }
+.proposal-card { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid #22304a; border-radius: 10px; background: #0f1422; font-size: 12.5px; animation: tg-fade-in 0.2s ease-out; }
+.proposal-head { display: flex; align-items: center; gap: 8px; }
+.proposal-head strong { color: var(--text); font-weight: 500; }
+.proposal-card summary { cursor: pointer; color: var(--muted); }
+.proposal-plan { display: block; max-height: 240px; overflow: auto; margin-top: 6px; }
 .boot-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); animation: tg-fade-in 0.25s ease-out; }
 .pending-col { display: flex; flex-direction: column; gap: 14px; }
 .pending-col .msg-user, .chat-col > .msg-user:last-of-type { animation: tg-fade-in 0.2s ease-out; }
@@ -804,5 +809,5 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .md.typing > div > :last-child::after, .md.revealing > div > :last-child::after { animation: none; }
-  .boot-status, .pending-col .msg-user, .chat-col > .msg-user:last-of-type, .dots i { animation: none; }
+  .proposal-card, .boot-status, .pending-col .msg-user, .chat-col > .msg-user:last-of-type, .dots i { animation: none; }
 }
