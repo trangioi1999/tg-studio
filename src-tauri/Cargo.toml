@@ -24,3 +24,4 @@ dunce = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
