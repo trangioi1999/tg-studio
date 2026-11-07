@@ -158,6 +158,8 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
             }
         },
     };
+    let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
+    if let Some(pid) = pid { crate::resources::register(pid, crate::resources::Owner::Run(id.clone())); }
     let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: runner::now_ms() }, &repo.to_string_lossy(), &wt, group);
     if let Err(e) = saved {
         let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
@@ -174,6 +176,7 @@ pub(crate) async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
     if let Some(pid) = pid { env::kill_tree(pid).await; }
     let _ = child.kill().await;
     let _ = child.wait().await;
+    if let Some(pid) = pid { crate::resources::unregister(pid); }
 }
 
 fn turn_outcome(result: &Value) -> (&'static str, Option<String>) {

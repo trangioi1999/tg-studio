@@ -153,6 +153,7 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
     let timeout = setup_timeout(&command.0);
     let mut child = crate::acp_tasks::spawn_adapter(&command, &key.cwd)?;
     let pid = child.id();
+    if let Some(pid) = pid { crate::resources::register(pid, crate::resources::Owner::Warm); }
     let relay = Arc::new(Mutex::new(Relay::default()));
     let stderr = child.stderr.take().expect("piped stderr");
     let stderr_task = {

@@ -225,6 +225,7 @@ pub async fn start_agent(
     env::isolate(&mut command);
     let mut child = command.spawn().map_err(|e| format!("Không chạy được {}: {e}", bin.display()))?;
     let run_id = uuid::Uuid::new_v4().to_string();
+    let registration = crate::resources::Registration::new(child.id(), crate::resources::Owner::Run(run_id.clone()));
     // A live session keeps stdin open and writes each question as it comes.
     let live = agent.headless_input("").is_some();
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -334,6 +335,7 @@ pub async fn start_agent(
         let app = app.clone();
         let id = run_id.clone();
         tauri::async_runtime::spawn(async move {
+            let registration = registration;
             let finished = tokio::select! {
                 status = child.wait() => Some(status),
                 _ = stop_rx => None,
@@ -347,6 +349,7 @@ pub async fn start_agent(
                     None
                 }
             };
+            drop(registration);
             if let Ok(mut map) = app.state::<Runs>().0.lock() {
                 map.remove(&id);
             }

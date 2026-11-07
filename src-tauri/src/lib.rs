@@ -19,6 +19,7 @@ mod skills;
 mod policy;
 mod project;
 mod runner;
+mod resources;
 mod store;
 mod usage;
 mod warm;
@@ -81,6 +82,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            resources::resource_usage,
+            resources::kill_process,
             warm::warm_task,
             detect::detect_agents,
             runner::start_agent,
