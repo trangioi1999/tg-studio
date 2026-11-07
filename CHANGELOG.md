@@ -5,7 +5,7 @@
 ## [Chưa phát hành]
 
 ### Thay đổi
-- Cây tệp có biểu tượng thư mục (đóng/mở), biểu tượng trang cho tệp lạ và nhận thêm nhiều loại tệp (Java, Swift, C/C++, SQL, Dockerfile, `.env`, `.gitignore`…).
+- Cây tệp, tab và ⌘P dùng bộ icon Material Icon Theme (MIT) như VS Code: thư mục có icon riêng theo tên (`components`, `services`, `models`, `hooks`, `utils`, `docs`…, đóng/mở), tệp theo tên và đuôi (`.component.ts`, `.service.ts`, `.spec.ts`, `package.json`, `Dockerfile`…).
 
 ### Sửa lỗi
 - macOS không còn hỏi quyền Documents/Desktop/Downloads mỗi lần mở app: bản đóng gói giờ được ký (ad-hoc) nên macOS nhớ lựa chọn Cho phép. Sau mỗi bản cập nhật vẫn có thể hỏi lại một lần.
