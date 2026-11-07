@@ -516,7 +516,9 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .statusbar .dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #55555c; }
 .statusbar .dot.live { background: var(--ok); }
 .statusbar .mock { color: var(--warn); }
-.statusbar .limit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.statusbar .limit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.statusbar .limit:hover { background: var(--hover); color: var(--text-2); }
+.statusbar .limit.busy { opacity: 0.6; }
 .statusbar .limit [data-level='warn'] { color: var(--warn); }
 .statusbar .limit [data-level='over'] { color: var(--err); }
 .statusbar .err { color: var(--err); }
@@ -578,6 +580,18 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .tl-thread { width: 100%; height: 36px; display: flex; align-items: center; gap: 9px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); text-align: left; cursor: pointer; }
 .tl-thread.active { background: #1c1c22; color: var(--text); }
 .tl-title { flex: 1; }
+.tl-item, .tl-confirm { width: 100%; }
+.tl-item { position: relative; }
+/* Shown on hover over the pill's place, so a long title keeps its width. */
+.tl-del { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; display: none; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: #1c1c22; color: var(--muted); cursor: pointer; }
+.tl-del .ic { width: 14px; height: 14px; }
+.tl-del:hover:not(:disabled) { color: var(--fail); background: var(--fail-bg); }
+.tl-del:disabled { opacity: 0.45; cursor: default; }
+.tl-item:hover .tl-del, .tl-del:focus-visible { display: inline-flex; }
+.tl-item:hover .tl-thread .pill { visibility: hidden; }
+.tl-confirm { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 8px; border: 1px solid #4a2a26; border-radius: 8px; background: #1a100f; font-size: 12px; color: var(--text-2); }
+.btn.danger { background: var(--fail); border-color: var(--fail); color: var(--bg); font-weight: 600; }
+.tl-err { margin: 2px 8px 6px; font-size: 12px; }
 .tl-agents { flex: none; display: inline-flex; }
 .tl-agents .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--panel); }
 .tl-thread.active .tl-agents .avatar + .avatar { box-shadow: 0 0 0 2px #1c1c22; }
@@ -764,6 +778,15 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .live-status .sep { color: var(--faint); }
 .live-status .clock { font-size: 12px; white-space: nowrap; }
 .live-status .step { flex: 1; }
+.proposal-card { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid #22304a; border-radius: 10px; background: #0f1422; font-size: 12.5px; animation: tg-fade-in 0.2s ease-out; }
+.proposal-head { display: flex; align-items: center; gap: 8px; }
+.proposal-head strong { color: var(--text); font-weight: 500; }
+.proposal-card summary { cursor: pointer; color: var(--muted); }
+.proposal-plan { display: block; max-height: 240px; overflow: auto; margin-top: 6px; }
+.boot-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); animation: tg-fade-in 0.25s ease-out; }
+.pending-col { display: flex; flex-direction: column; gap: 14px; }
+.pending-col .msg-user, .chat-col > .msg-user:last-of-type { animation: tg-fade-in 0.2s ease-out; }
+@keyframes tg-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .dots { display: inline-flex; gap: 3px; }
 .dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--run); animation: tg-dot 1.2s infinite ease-in-out; }
 .dots i:nth-child(2) { animation-delay: 0.15s; } .dots i:nth-child(3) { animation-delay: 0.3s; }
@@ -786,4 +809,5 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .md.typing > div > :last-child::after, .md.revealing > div > :last-child::after { animation: none; }
+  .proposal-card, .boot-status, .pending-col .msg-user, .chat-col > .msg-user:last-of-type, .dots i { animation: none; }
 }

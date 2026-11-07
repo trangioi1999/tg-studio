@@ -136,6 +136,17 @@ export class ThreadsService {
   }
 
   /** Empties the composer's target, in the given project. */
+  /** Deletes a conversation: its history and drafts. Usage stays counted. */
+  async remove(threadId: string): Promise<void> {
+    const ids = this.runs.runs().filter((r) => r.thread === threadId).map((r) => r.id);
+    try {
+      await this.runs.deleteRuns(ids);
+    } finally {
+      // Gone from history (even when a draft could not be cleaned): its tabs go too.
+      for (const id of ids) if (!this.runs.runs().some((r) => r.id === id)) this.workspace.closeRun(id);
+    }
+  }
+
   async newChat(root?: string, scope: string | null = null): Promise<void> {
     this.runs.selectedId.set(null);
     this.draftScope.set(scope);

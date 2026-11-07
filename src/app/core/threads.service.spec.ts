@@ -89,6 +89,32 @@ describe('ThreadsService', () => {
     expect(JSON.parse(localStorage.getItem('tg.recent')!)).toEqual(['/hai']);
   });
 
+  it('deletes every run of a conversation and ignores the late exit of its session', async () => {
+    const backend = TestBed.inject(AgentBackend);
+    const deleted: string[][] = [];
+    backend.deleteRuns = async (ids: string[]) => { deleted.push(ids); };
+    let emit!: (e: never) => void;
+    backend.onEvent = async (cb: (e: never) => void) => { emit = cb; return () => {}; };
+    const runs = TestBed.inject(RunsService);
+    runs.runs.set([run({ id: 'a', thread: 't1' }), run({ id: 'b', thread: 't1' }), run({ id: 'c', thread: 't2' })]);
+    runs.selectedId.set('b');
+    await TestBed.inject(ThreadsService).remove('t1');
+    expect(deleted).toEqual([['a', 'b']]);
+    expect(runs.runs().map((r) => r.id)).toEqual(['c']);
+    expect(runs.selectedId()).toBeNull();
+    emit({ runId: 'a', agent: 'claude', kind: 'exit', line: null, usage: null, code: null, data: null, atMs: 9 } as never);
+    expect(runs.runs().map((r) => r.id)).toEqual(['c']);
+  });
+
+  it('keeps a conversation when its agent is still busy', async () => {
+    const backend = TestBed.inject(AgentBackend);
+    backend.deleteRuns = async () => { throw new Error('Hãy dừng agent trước khi xoá cuộc trò chuyện.'); };
+    const runs = TestBed.inject(RunsService);
+    runs.runs.set([run({ id: 'a', thread: 't1' })]);
+    await expect(TestBed.inject(ThreadsService).remove('t1')).rejects.toThrow('Hãy dừng agent');
+    expect(runs.runs().map((r) => r.id)).toEqual(['a']);
+  });
+
   it('remembers the subfolder of a new chat', async () => {
     const threads = TestBed.inject(ThreadsService);
     await threads.newChat('/ba', 'goi/api');

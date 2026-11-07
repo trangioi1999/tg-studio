@@ -128,7 +128,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=9 => {},
+            1..=10 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -184,6 +184,10 @@ impl Store {
         if version < 9 {
             tx.execute_batch("ALTER TABLE runs ADD COLUMN scope TEXT;
                 PRAGMA user_version = 9;")?;
+        }
+        if version < 10 {
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN deleted_at INTEGER;
+                PRAGMA user_version = 10;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -470,6 +474,19 @@ impl Store {
              FROM runs WHERE id = ?1", [run_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
     }
 
+    /// Hide history and forget drafts without changing the usage ledger.
+    pub fn delete_runs(&self, ids: &[String], at: u64) -> Result<()> {
+        let at = sql_integer(at)?;
+        let mut conn = self.connection()?;
+        let tx = conn.transaction()?;
+        for id in ids {
+            tx.execute("UPDATE runs SET deleted_at = ?2, worktree = NULL, branch = NULL,
+                base = NULL, worktree_owner = NULL WHERE id = ?1", params![id, at])?;
+            tx.execute("DELETE FROM run_lines WHERE run_id = ?1", [id])?;
+        }
+        tx.commit()
+    }
+
     pub fn list_runs(&self, limit: usize) -> Result<Vec<StoredRun>> {
         let mut conn = self.connection()?;
         // Read the run and its events from a single snapshot, including across connections.
@@ -477,7 +494,7 @@ impl Store {
         let mut runs = {
             let mut stmt = tx.prepare(
                 "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id, thread_id, COALESCE(repo, cwd), scope
-                 FROM runs ORDER BY started_at DESC, id DESC LIMIT ?1",
+                 FROM runs WHERE deleted_at IS NULL ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
                 let agent: String = row.get(1)?;
@@ -594,6 +611,63 @@ fn unsigned(value: i64, column: usize) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deletion_keeps_usage_but_removes_history_and_worktree() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "a", 1);
+        insert(&store, "b", 2);
+        store.append_line("a", "log", "secret", 3).unwrap();
+        store.append_line("b", "log", "keep", 3).unwrap();
+        store.set_run_worktree("a", "/repo", &Worktree { run_id: "a".into(), path: "/wt".into(), branch: "branch".into(), base: "base".into() }).unwrap();
+        store.add_usage("a", 3, &Usage { cost_usd: Some(0.5), ..usage(10, 2, 3) }).unwrap();
+        let before = store.usage_rows(0).unwrap();
+        store.delete_runs(&["a".into()], 4).unwrap();
+        assert_eq!(store.usage_rows(0).unwrap(), before);
+        let runs = store.list_runs(10).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].id, "b");
+        assert_eq!(runs[0].lines[0].line, "keep");
+        let conn = store.connection().unwrap();
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM run_lines WHERE run_id = 'a'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM runs WHERE id = 'a' AND deleted_at = 4 AND worktree IS NULL AND branch IS NULL AND base IS NULL AND worktree_owner IS NULL", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    }
+
+    #[test]
+    fn deletion_rolls_back_the_whole_batch_on_failure() {
+        let store = Store::open_in_memory().unwrap();
+        for id in ["a", "b"] {
+            insert(&store, id, 1);
+            store.append_line(id, "log", "saved", 2).unwrap();
+        }
+        let before = store.list_runs(10).unwrap();
+        store.connection().unwrap().execute_batch("CREATE TRIGGER reject_delete BEFORE DELETE ON run_lines
+            WHEN OLD.run_id = 'b' BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+        assert!(store.delete_runs(&["a".into(), "b".into()], 3).is_err());
+        assert_eq!(store.list_runs(10).unwrap(), before);
+    }
+
+    #[test]
+    fn v7_and_v9_migration_preserve_existing_data() {
+        for version in [7, 9] {
+            let store = Store::open_in_memory().unwrap();
+            insert(&store, "old", 1);
+            store.append_line("old", "log", "saved", 2).unwrap();
+            store.add_usage("old", 3, &usage(10, 2, 3)).unwrap();
+            let before = store.list_runs(10).unwrap();
+            let conn = store.0.into_inner().unwrap();
+            conn.execute_batch("ALTER TABLE runs DROP COLUMN deleted_at;").unwrap();
+            if version == 7 {
+                conn.execute_batch("ALTER TABLE runs DROP COLUMN thread_id; ALTER TABLE runs DROP COLUMN scope;").unwrap();
+            }
+            conn.pragma_update(None, "user_version", version).unwrap();
+            let migrated = Store::initialize(conn).unwrap();
+            assert_eq!(migrated.list_runs(10).unwrap(), before);
+            assert_eq!(migrated.usage_rows(0).unwrap()[0].usage, Some(usage(10, 2, 3)));
+            migrated.delete_runs(&["old".into()], 4).unwrap();
+            assert!(migrated.list_runs(10).unwrap().is_empty());
+        }
+    }
 
     #[test]
     fn v1_migration_preserves_history() {
@@ -763,7 +837,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 9);
+            assert_eq!(version, 10);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();

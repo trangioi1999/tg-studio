@@ -28,14 +28,14 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
       <span>{{ runs.sessionRuns().length }} lượt</span>
       <span class="spacer"></span>
       @for (row of limitRows(); track row.agent) {
-        <span class="limit" [title]="row.title" [attr.aria-label]="row.title">
+        <button class="limit" [class.busy]="runs.refreshingLimits()" [title]="row.title + '\nBấm để cập nhật.'" [attr.aria-label]="row.title + '. Bấm để cập nhật.'" (click)="runs.refreshLimits(true)">
           <tg-agent-avatar [agent]="row.agent" [size]="14" />
           @for (w of row.windows; track w.id) {
             <span [attr.data-level]="w.level">{{ w.name }} {{ w.reset ? 'đã reset' : w.percent + '%' }}</span>
           } @empty {
-            <span class="dim">chưa có số</span>
+            <span class="dim">{{ runs.refreshingLimits() ? 'đang đọc…' : 'chưa có số' }}</span>
           }
-        </span>
+        </button>
       }
       @if (diag.saved()) { <span class="ellipsis" role="status">Đã lưu chẩn đoán: {{ diag.saved() }}</span> }
       @if (diag.failed()) { <span class="err" role="alert">{{ diag.failed() }}</span> }
@@ -63,7 +63,7 @@ export class StatusBar {
       const limits = this.runs.limits()[agent];
       if (limits?.windows.length) return [{ agent, windows: limits.windows.map((w) => limitView(w, now)), title: limitsTitle(limits, now) }];
       if (!installed.has(agent) || !LIMIT_SOURCES.includes(agent)) return [];
-      return [{ agent, windows: [], title: 'Số hạn mức có sau lượt chạy đầu tiên của agent này.' }];
+      return [{ agent, windows: [], title: agent === 'claude' ? 'Chưa đọc được hạn mức từ Claude Code.' : 'Số hạn mức có sau lượt chạy đầu tiên của agent này.' }];
     });
   });
 
@@ -71,9 +71,15 @@ export class StatusBar {
     // A window can reset, and another Codex session can spend, while nothing runs here.
     const timer = setInterval(() => {
       this.tick.set(Date.now());
-      void this.runs.loadLimits();
+      void this.runs.refreshLimits();
     }, 60_000);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    // Coming back to the app after using a CLI elsewhere: the numbers may be stale.
+    const onFocus = () => void this.runs.refreshLimits();
+    window.addEventListener('focus', onFocus);
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    });
   }
 
   protected tok = fmtTokens;
