@@ -14,6 +14,7 @@
 | T2 Làm mới hạn mức | Claude | `status-bar.ts`, `runs.service.ts` + spec | T1 (cùng `runs.service.ts`, làm nối tiếp) |
 | T3 Lõi xoá cuộc trò chuyện | **Codex** | `store.rs`, `acp_tasks.rs` | — (song song với T1, T2) |
 | T4 UI xoá cuộc trò chuyện | Claude | `lib.rs`, `backend.ts`, `mock-backend.ts`, `threads.service.ts`, `thread-list.ts`, `styles.scss` + spec | T3 |
+| T6 Hạn mức Claude không cần chat | **Codex** | `claude_usage.rs` (mới), `Cargo.toml`, dòng `mod` trong `lib.rs` | — |
 | T5 Chỉ hỏi → làm luôn | Claude | `runner.rs`/`usage.rs` (nếu cần), `runs.service.ts`, `agent-panel.ts` | T1, kiểm chứng live trước |
 
 Quy tắc như `2026-11-03-roadmap-master.md`: Claude review và commit việc của Codex; không sửa test để né lỗi.
@@ -42,6 +43,20 @@ Quy tắc như `2026-11-03-roadmap-master.md`: Claude review và commit việc c
 - [ ] Gọi lại `loadLimits()` khi cửa sổ được focus lại (tối đa một lần mỗi 30 s) và mỗi 5 phút khi app đang mở.
 - [ ] Bấm vào ô hạn mức ở `StatusBar` thì tải lại ngay; tooltip ghi "Cập nhật lúc HH:MM" và nguồn (Codex: nhật ký phiên của Codex, cả khi chạy ngoài app; Claude: lượt chạy gần nhất trong app).
 - [ ] Spec: focus cửa sổ gọi `accountLimits`; hai lần focus trong 30 s chỉ gọi một lần.
+
+Ghi chú (2026-11-07): `StatusBar` đã gọi `loadLimits()` mỗi 60 s, nên số Codex đã tự mới. Phần thiếu là Claude, xem T6.
+
+## T6 — Hạn mức Claude không cần chat (Codex)
+
+**Đã kiểm chứng (Claude Code 2.1.319):** `claude -p "/usage" --output-format json` là lệnh cục bộ: `num_turns: 0`, `total_cost_usd: 0`, `local_command: "usage"`, không tốn token, ~3–5 s. Trường `result` là chữ, ví dụ `Current session: 8% used · resets Nov 7 at 6:59pm (Asia/Saigon)` và `Current week (all models): 18% used · resets Nov 9 at 3:59am (Asia/Saigon)`. Fixture: `src-tauri/tests/fixtures/claude/2.1.319/usage-command.json`.
+
+- [ ] `Cargo.toml`: thêm `chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }` (đã có trong `Cargo.lock`, build `--offline` được).
+- [ ] Module mới `src-tauri/src/claude_usage.rs` (khai báo `mod claude_usage;` trong `lib.rs`, không sửa gì khác ở `lib.rs`):
+  - `pub fn parse_usage_text(text: &str, now: chrono::DateTime<chrono::Local>) -> Option<Vec<LimitWindow>>`: mỗi dòng `<tên>: <n>% used · resets <Mon> <d> at <h:mm><am|pm> (<tz>)` thành một `LimitWindow`. `Current session` → id `five_hour`; `Current week (all models)` → `seven_day`; `Current week (<x> only)` → `seven_day_<x viết thường, khoảng trắng thành _>`. `utilization = n / 100`, `status = None`. `resets_at`: hiểu ngày giờ theo giờ máy (`Local`; tên vùng trong ngoặc là vùng của máy), năm là năm hiện tại, nếu ra thời điểm sớm hơn `now` quá 1 ngày thì cộng 1 năm. Dòng không có `resets …` thì `resets_at = None`. Không có dòng nào khớp (ví dụ đang dùng API key) → `None`.
+  - `pub fn parse_usage_output(json: &str, now) -> Option<Vec<LimitWindow>>`: chỉ nhận khi `type == "result"`, `is_error == false`, `local_command == "usage"`; đọc `result` rồi gọi hàm trên.
+  - `#[tauri::command] pub async fn refresh_claude_limits(store: State<'_, Store>) -> Result<Option<AccountLimits>, String>`: tìm `claude` bằng `env::which`, chạy bằng `env::command` với `.env("PATH", env::login_path())`, thư mục làm việc là thư mục home, stdin null, tham số `-p /usage --output-format json`, timeout 30 s (kill khi quá). Gọi lại trong vòng 60 s kể từ lần chạy trước thì trả về số đã lưu, không spawn. Có số thì `store.set_limits(AgentKind::Claude, &windows, now_ms)` và trả về `AccountLimits` của Claude. Không có `claude` hoặc không đọc được số → `Ok(None)`. Lỗi spawn/timeout → `Err` tiếng Việt.
+- [ ] Test (`#[cfg(test)]` trong module): fixture thật → 2 cửa sổ đúng id, `utilization` 0.08 và 0.18, `resets_at` đúng giờ địa phương; dòng `Current week (Sonnet only)`; 12:05am và 12:05pm; ngày đã qua đầu năm (now = 31/12, reset 2/1 → năm sau); output API key không có dòng nào → `None`; `is_error: true` → `None`.
+- [ ] UI (Claude làm sau): gọi lúc mở app, khi bấm ô hạn mức, và mỗi 5 phút.
 
 ## T3 — Lõi xoá cuộc trò chuyện (Codex)
 
