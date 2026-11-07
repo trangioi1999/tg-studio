@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.5.0] - 2026-11-07
+
 ### Thêm
 - Kéo để đổi cỡ các khung: cột trái, khung chat với khung code, cây tệp, khung log. Bấm đúp đường viền để về mặc định; app nhớ cỡ cho lần sau.
 - Mở nhanh tệp bằng ⌘P / Ctrl+P.
