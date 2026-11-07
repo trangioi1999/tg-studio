@@ -1011,7 +1011,8 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 /* File-type badge (tg-file-icon) */
 .file-icon { flex: none; width: 16px; text-align: center; font: 700 8.5px/1 var(--mono); letter-spacing: -0.02em; }
 .file-icon { display: inline-flex; align-items: center; justify-content: center; }
-.file-icon svg { display: block; }
+.file-icon svg, .file-icon img { display: block; }
+.file-icon img { width: 16px; height: 16px; user-select: none; }
 
 /* Quick open (⌘P) */
 .qo-backdrop { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.35); }

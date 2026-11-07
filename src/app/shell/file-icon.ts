@@ -1,4 +1,5 @@
 import { Component, computed, input } from '@angular/core';
+import { iconId, iconManifest, iconUrl } from '../core/file-icons';
 
 /** Short label and colour per file type, like an editor's file icons. */
 const TYPES: [RegExp, string, string][] = [
@@ -38,12 +39,17 @@ const TYPES: [RegExp, string, string][] = [
   [/^(license|licence|copying)(\..*)?$/, '©', '#c9b45a'],
 ];
 
-/** File-type badge, or a folder glyph for directories. Unknown files get a plain page. */
+/**
+ * Material Icon Theme icon for a file or folder (`core/file-icons.ts`). Until its manifest
+ * has loaded, or if it cannot, a small type badge or folder glyph stands in.
+ */
 @Component({
   selector: 'tg-file-icon',
   host: { class: 'file-icon', 'aria-hidden': 'true', '[class.folder]': 'dir()', '[style.color]': 'color()' },
   template: `
-    @if (dir()) {
+    @if (url(); as u) {
+      <img [src]="u" alt="" width="16" height="16" draggable="false" />
+    } @else if (dir()) {
       <svg viewBox="0 0 16 16" width="15" height="15">
         @if (open()) {
           <path d="M1.5 4.25c0-.69.56-1.25 1.25-1.25h3.1l1.4 1.5h5.5c.69 0 1.25.56 1.25 1.25v.75H4.2c-.55 0-1.03.36-1.19.88L1.5 11.9z" fill="currentColor" opacity=".55" />
@@ -66,8 +72,13 @@ export class FileIcon {
   readonly name = input.required<string>();
   readonly dir = input(false);
   readonly open = input(false);
+  private readonly base = computed(() => this.name().slice(this.name().lastIndexOf('/') + 1));
+  protected readonly url = computed(() => {
+    const m = iconManifest();
+    return m ? iconUrl(m, iconId(m, this.base(), this.dir(), this.open())) : null;
+  });
   protected readonly type = computed<[string, string] | null>(() => {
-    const n = this.name().toLowerCase();
+    const n = this.base().toLowerCase();
     const hit = TYPES.find(([re]) => re.test(n));
     return hit ? [hit[1], hit[2]] : null;
   });

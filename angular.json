@@ -32,6 +32,21 @@
                 "glob": "editor.main.css",
                 "input": "node_modules/monaco-editor/min/vs/editor",
                 "output": "monaco"
+              },
+              {
+                "glob": "*.svg",
+                "input": "node_modules/material-icon-theme/icons",
+                "output": "file-icons"
+              },
+              {
+                "glob": "material-icons.json",
+                "input": "node_modules/material-icon-theme/dist",
+                "output": "file-icons"
+              },
+              {
+                "glob": "LICENSE",
+                "input": "node_modules/material-icon-theme",
+                "output": "file-icons"
               }
             ],
             "styles": [
