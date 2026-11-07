@@ -1,46 +1,21 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
-import { fmtTokens, fmtUsd } from '../core/format';
 import { AGENT_IDS, AGENT_META, AccountLimits, LimitWindow } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
 
+/** Plan limits (Claude Pro/Max, Codex) as a card on the cost screen. */
 @Component({
   selector: 'tg-usage-panel',
+  host: { class: 'pg-card cost-limits' },
   imports: [AgentAvatar],
   template: `
-    <div class="panel-head">
-      <span class="label">USAGE · PHIÊN NÀY</span>
-      <span class="spacer"></span>
-      <strong>{{ usd(runs.totals().costUsd) }}</strong>
-      <span class="dim">{{ tok(runs.totals().tokens) }} tok</span>
-    </div>
-    <div class="usage-table">
-      @for (u of rows(); track u.agent) {
-        <div class="usage-row">
-          <tg-agent-avatar [agent]="u.agent" />
-          <div class="usage-main">
-            <div>{{ meta[u.agent].name }} <span class="src" [attr.data-src]="u.costSource">{{ sourceLabel[u.costSource] }}</span></div>
-            <div class="mono dim">in {{ tok(u.inputTokens) }} · cache {{ tok(u.cachedInputTokens) }} · out {{ tok(u.outputTokens) }}</div>
-          </div>
-          <div class="usage-cost">
-            <strong>{{ usd(u.costUsd) }}</strong>
-            <span class="dim">{{ u.runs }} lượt</span>
-          </div>
-        </div>
-      } @empty {
-        <p class="dim pad">Chưa có số liệu. Chạy một agent để bắt đầu ghi usage.</p>
-      }
-    </div>
-    <div class="panel-head limits-head">
-      <span class="label">HẠN MỨC GÓI</span>
-    </div>
+    <div class="pg-card-head"><h2>Hạn mức gói</h2></div>
     <div class="limits">
       @for (l of limits(); track l.agent) {
         <div class="limit-agent">
           <div class="limit-title">
             <tg-agent-avatar [agent]="l.agent" [size]="16" />
             <span>{{ meta[l.agent].name }}</span>
-            <span class="src" data-src="reported">reported</span>
             <span class="spacer"></span>
             <span class="dim" [title]="exact(l.at)">{{ ago(l.at) }}</span>
           </div>
@@ -65,19 +40,12 @@ import { AgentAvatar } from './agent-avatar';
         <p class="dim pad">Chưa có số liệu hạn mức. Hạn mức gói Claude Pro/Max (5 giờ và 7 ngày) hiện sau một lượt chạy Claude ở chế độ <strong>Chỉ đọc</strong>. Chế độ Sửa code (qua adapter ACP) hiện chưa nhận được số này. Đăng nhập Claude bằng API key thì không có hạn mức gói, chỉ có chi phí.</p>
       }
     </div>
-    <div class="note">
-      <p><strong>reported</strong>: CLI tự báo chi phí. <strong>estimated</strong>: tính từ token × bảng giá trong <code>core/pricing.ts</code>. <strong>chưa có giá</strong>: chỉ có token.</p>
-      <p class="dim">Với gói Pro/Max, chi phí là giá API quy đổi để tham khảo; phần bị trừ thật là hạn mức gói ở trên. Hạn mức lấy từ lượt chạy gần nhất, không tự làm mới.</p>
-    </div>
+    <p class="dim cost-limits-note">Với gói Pro/Max, chi phí là giá API quy đổi để tham khảo; phần bị trừ thật là hạn mức ở đây. Lấy từ lượt chạy gần nhất.</p>
   `,
 })
 export class UsagePanel implements OnDestroy {
   protected readonly runs = inject(RunsService);
   protected readonly meta = AGENT_META;
-  protected readonly rows = computed(() => this.runs.usageByAgent().filter((u) => u.runs > 0));
-  protected readonly sourceLabel = { reported: 'reported', estimated: 'estimated', unpriced: 'chưa có giá', none: '' };
-  protected tok = fmtTokens;
-  protected usd = fmtUsd;
 
   /** Re-render "x phút trước" once a minute. */
   private readonly now = signal(Date.now());
