@@ -516,7 +516,9 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .statusbar .dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #55555c; }
 .statusbar .dot.live { background: var(--ok); }
 .statusbar .mock { color: var(--warn); }
-.statusbar .limit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.statusbar .limit { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; height: 18px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.statusbar .limit:hover { background: var(--hover); color: var(--text-2); }
+.statusbar .limit.busy { opacity: 0.6; }
 .statusbar .limit [data-level='warn'] { color: var(--warn); }
 .statusbar .limit [data-level='over'] { color: var(--err); }
 .statusbar .err { color: var(--err); }

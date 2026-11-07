@@ -513,6 +513,18 @@ export class MockBackend extends AgentBackend {
     return [];
   }
 
+  async refreshClaudeLimits(): Promise<AccountLimits | null> {
+    const hour = 3_600_000;
+    return {
+      agent: 'claude',
+      at: Date.now(),
+      windows: [
+        { id: 'five_hour', utilization: 0.08, resetsAt: Date.now() + 3 * hour, status: null },
+        { id: 'seven_day', utilization: 0.18, resetsAt: Date.now() + 40 * hour, status: null },
+      ],
+    };
+  }
+
   /** Two weeks of plausible history plus this session's runs. */
   async usageReport(since: number): Promise<UsageRow[]> {
     const day = 86_400_000;

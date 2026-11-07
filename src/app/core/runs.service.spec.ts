@@ -421,6 +421,7 @@ describe('RunsService plan limits', () => {
     const backend = new FakeBackend();
     let resolve!: (v: AccountLimits[]) => void;
     backend.accountLimits = () => new Promise((r) => (resolve = r));
+    backend.refreshClaudeLimits = async () => null;
     TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
     const service = TestBed.inject(RunsService);
     await flush();
