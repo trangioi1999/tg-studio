@@ -452,6 +452,20 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
             @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
           </div>
         }
+        @if (r.proposal && r.perm === 'read' && r.status !== 'running') {
+          <section class="proposal-card" aria-label="Kế hoạch sửa code">
+            <div class="proposal-head">
+              <tg-agent-avatar [agent]="r.agent" [size]="18" />
+              <strong>{{ meta[r.agent].name }} đã lên kế hoạch sửa code</strong>
+              <span class="dim">· Chỉ hỏi nên chưa sửa gì</span>
+            </div>
+            <details><summary>Xem kế hoạch</summary><tg-markdown class="proposal-plan" [text]="r.proposal" /></details>
+            <div class="permission-actions">
+              <button class="btn ghost sm" (click)="runs.dismissProposal(r.id)">Không</button>
+              <button class="btn primary sm" [disabled]="sending() || !!blockedForEdit()" [title]="blockedForEdit() ?? 'Chuyển sang Hỏi trước và làm theo kế hoạch'" (click)="actOnProposal(r)">Làm luôn</button>
+            </div>
+          </section>
+        }
         @if (live(); as l) {
           <div class="live-status" role="status" [class.waiting]="l.waiting">
             <tg-agent-avatar [agent]="l.run.agent" [size]="20" />
@@ -1111,6 +1125,22 @@ export class AgentPanel {
     } finally {
       this.sending.set(false);
     }
+  }
+
+  /** Why the plan cannot be carried out here (code tasks need a Git repo with a commit). */
+  protected blockedForEdit(): string | null {
+    if (!this.workspace.repo()) return 'Sửa code cần một repo Git.';
+    if (this.workspace.project()?.git === 'no_commits') return 'Sửa code cần ít nhất một commit.';
+    return null;
+  }
+
+  /** Yes to a Chỉ hỏi plan: the conversation moves to Hỏi trước and the agent carries it out. */
+  protected async actOnProposal(r: Run): Promise<void> {
+    if (!r.proposal) return;
+    this.chosen.set(r.agent);
+    this.setPerm('ask');
+    this.prompt.set(`Làm theo kế hoạch đã đề xuất:\n\n${r.proposal}`);
+    await this.send();
   }
 
   /** A failed send gives the words back, unless the user already typed something new. */

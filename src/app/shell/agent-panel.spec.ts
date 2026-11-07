@@ -239,6 +239,23 @@ describe('AgentPanel composer', () => {
     expect(runs.selected()?.thread).toBe(question.thread);
   });
 
+  it('carries out a Chỉ hỏi plan in the same conversation once the user says yes', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { setPerm(p: string): void; perm(): string; actOnProposal(r: unknown): Promise<void> };
+    const runs = TestBed.inject(RunsService);
+    p.setPerm('read');
+    p.prompt.set('đổi a.txt thành xin chào');
+    await p.send();
+    const question = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
+    runs.runs.update((list) => list.map((r) => (r.id === question.id ? { ...r, proposal: '# Đổi a.txt\n- Ghi đè thành xin chào' } : r)));
+    await p.actOnProposal(runs.runs().find((r) => r.id === question.id));
+    expect(p.perm()).toBe('ask');
+    expect(backend.lastStart?.approval).toBe('ask');
+    expect(backend.lastStart?.thread).toBe(question.thread);
+    expect(backend.lastStart?.prompt).toContain('Ghi đè thành xin chào');
+  });
+
   it('continues a Codex question in its conversation, resuming the CLI session', async () => {
     const { backend, panel } = await setup();
     const calls: { thread: string | null | undefined; resumeFrom: string | null | undefined }[] = [];

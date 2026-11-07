@@ -1,3 +1,4 @@
+import { planProposal } from './proposal';
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
@@ -47,6 +48,8 @@ export interface Run {
   perm?: 'read' | 'ask' | 'auto';
   /** Code tasks: the user's folder or a draft. Live runs only. */
   place?: Place;
+  /** Chỉ hỏi: the plan the agent wrote instead of editing, until the next question. Live runs only. */
+  proposal?: string | null;
 }
 
 /** A tg-bridge `handoff_to` proposal waiting for the user. */
@@ -446,6 +449,11 @@ export class RunsService {
     if (gone.has(this.selectedId() ?? '')) this.selectedId.set(null);
   }
 
+  /** The user turned down a Chỉ hỏi plan: stop offering it. */
+  dismissProposal(id: string): void {
+    this.runs.update((list) => list.map((r) => (r.id === id ? { ...r, proposal: null } : r)));
+  }
+
   async stop(id: string): Promise<void> {
     this.stopping.add(id);
     await this.backend.stop(id);
@@ -496,7 +504,9 @@ export class RunsService {
         case 'log':
         case 'stderr': {
           const line = toConsoleLine(run.agent, e.kind, e.line);
-          return line ? { ...run, lines: addLine(run.lines, line).slice(-MAX_LINES) } : run;
+          const proposal = e.kind === 'log' && run.perm === 'read' ? planProposal(run.agent, e.line) : null;
+          const next = proposal ? { ...run, proposal } : run;
+          return line ? { ...next, lines: addLine(run.lines, line).slice(-MAX_LINES) } : next;
         }
         case 'usage':
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
@@ -517,7 +527,7 @@ export class RunsService {
           return { ...run, lines };
         }
         case 'user':
-          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
+          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, proposal: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
         case 'turn_end': {
           this.stopping.delete(run.id);
           this.forget(run.id);
