@@ -1,12 +1,40 @@
-import { Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  HostListener,
+  ViewChild,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { AgentBackend } from '../core/backend';
-import { AGENT_IDS, AGENT_META, AgentId, McpServer, NameValue, Skill, SkillTarget } from '../core/protocol';
+import {
+  AGENT_IDS,
+  AGENT_META,
+  AgentId,
+  McpServer,
+  NameValue,
+  Skill,
+  SkillTarget,
+} from '../core/protocol';
 import { AgentsService } from '../core/agents.service';
-import { GROUP_LABEL, filterCommands } from '../core/commands';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 
-const EMPTY: McpServer = { id: '', name: '', transport: 'stdio', command: '', args: [], env: [], url: '', headers: [], agents: ['claude'] };
+const EMPTY: McpServer = {
+  id: '',
+  name: '',
+  transport: 'stdio',
+  command: '',
+  args: [],
+  env: [],
+  url: '',
+  headers: [],
+  agents: ['claude'],
+};
 
 const SKILL_TEMPLATE = `---
 name: ten-skill
@@ -23,168 +51,476 @@ description: Một câu nói khi nào agent nên dùng skill này.
   selector: 'tg-integrations',
   imports: [AgentAvatar],
   template: `
-    <div class="integrations">
-      <header class="usage-head"><h1>Kết nối</h1></header>
-      @if (error()) { <p class="error-text" role="alert">{{ error() }}</p> }
-      @if (info()) { <p class="ok-text" role="status">{{ info() }}</p> }
-
-      <section class="mission-block" aria-label="tg-bridge">
-        <div class="block-head">
-          <span class="label">TG-BRIDGE</span>
-          <span class="dim ellipsis">Kênh phối hợp giữa các agent, do TG Studio cung cấp</span>
-          <span class="spacer"></span>
-          <label class="check-line"><input type="checkbox" [checked]="bridgeOn()" (change)="setBridge($any($event.target).checked)" /> Bật cho mọi task Sửa code</label>
+    <div class="conn-page">
+      <header class="pg-head">
+        <div>
+          <h1>Kết nối</h1>
+          <p>
+            Công cụ và kỹ năng TG Studio đưa vào phiên của agent, không sửa file cấu hình của agent.
+          </p>
         </div>
-        <p class="dim form-note pad">Mỗi task nhận một MCP server <code>tg-bridge</code> với các tool: <code>report_progress</code> (tiến độ hiện ở cuộc trò chuyện và màn Giám sát), <code>write_note</code>/<code>read_notes</code> (ghi chú chung giữa các agent cùng task, xem ở tab Kế hoạch &amp; ghi chú), <code>handoff_to</code> (đề xuất chuyển việc, bạn quyết định), <code>request_approval</code> (hiện thẻ duyệt), <code>get_task_context</code>. Chỉ nghe trên 127.0.0.1, mỗi task một token; tool nào có tác động đều phải qua bạn. Áp dụng cho lượt chạy mới.</p>
-      </section>
-
-      <section class="mission-block" aria-label="MCP servers">
-        <div class="block-head">
-          <span class="label">MCP SERVERS</span>
-          <span class="dim ellipsis">Bật một lần: TG Studio đưa server vào mọi phiên của agent được chọn, không sửa file cấu hình của agent.</span>
-          <span class="spacer"></span>
-          <button class="btn ghost sm" (click)="edit({ ...empty })">Thêm server</button>
+        <div class="conn-actions">
+          @if (tab() === 'skills') {
+            <button class="btn" (click)="rescan()">↻ Đọc lại</button>
+          }
+          <button
+            class="btn primary"
+            (click)="tab() === 'mcp' ? preset('custom') : editSkill(skillTemplate)"
+          >
+            {{ tab() === 'mcp' ? '＋ Thêm server' : '＋ Thêm skill' }}
+          </button>
         </div>
-        <table class="runs-table matrix">
-          <thead>
-            <tr>
-              <th>Server</th><th>Kết nối</th>
-              @for (a of agents; track a) { <th class="mid"><span class="cell-agent"><tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}</span></th> }
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (s of servers(); track s.id) {
-              <tr>
-                <td class="mono">{{ s.name }}</td>
-                <td class="mono dim ellipsis matrix-target" [title]="target(s)">{{ s.transport }} · {{ target(s) }}</td>
-                @for (a of agents; track a) {
-                  <td class="mid">
-                    <input type="checkbox" [checked]="s.agents.includes(a)" [attr.aria-label]="s.name + ' cho ' + meta[a].name" (change)="toggle(s, a)" />
-                  </td>
-                }
-                <td class="num"><button class="btn ghost sm" (click)="edit(s)">Sửa</button> <button class="btn ghost sm" (click)="remove(s)">Xóa</button></td>
-              </tr>
-            } @empty {
-              <tr><td [attr.colspan]="agents.length + 3" class="dim">Chưa có server nào.</td></tr>
-            }
-          </tbody>
-        </table>
-        <p class="dim form-note pad">Server <strong>stdio</strong> chạy với mọi agent qua ACP (chế độ Sửa code) và với Claude ở chế độ Chỉ đọc. Server <strong>http</strong> chỉ được gửi khi agent báo hỗ trợ; nếu không, log của lượt chạy ghi rõ đã bỏ qua. Biến môi trường và header lưu trong máy này, không mã hóa.</p>
-
-        @if (draft(); as d) {
-          <form class="mcp-form" (submit)="$event.preventDefault(); save()">
-            <div class="form-row">
-              <label class="field"><span>Tên</span><input class="mono" [value]="d.name" (input)="patch({ name: $any($event.target).value })" placeholder="github" required /></label>
-              <label class="field"><span>Kết nối</span>
-                <select (change)="patch({ transport: $any($event.target).value })">
-                  <option value="stdio" [selected]="d.transport === 'stdio'">stdio (chạy lệnh)</option>
-                  <option value="http" [selected]="d.transport === 'http'">http (URL)</option>
-                </select>
-              </label>
+      </header>
+      <nav class="pg-tabs" role="tablist" aria-label="Loại kết nối">
+        <button
+          id="conn-mcp-tab"
+          role="tab"
+          aria-controls="conn-mcp"
+          [attr.aria-selected]="tab() === 'mcp'"
+          (click)="tab.set('mcp')"
+        >
+          MCP server <span class="pg-count">{{ servers().length }}</span>
+        </button>
+        <button
+          id="conn-skills-tab"
+          role="tab"
+          aria-controls="conn-skills"
+          [attr.aria-selected]="tab() === 'skills'"
+          (click)="tab.set('skills')"
+        >
+          Skill <span class="pg-count">{{ skills().length }}</span>
+        </button>
+      </nav>
+      @if (tab() === 'mcp') {
+        <section id="conn-mcp" role="tabpanel" aria-labelledby="conn-mcp-tab">
+          <div class="pg-card conn-bridge">
+            <div class="conn-bridge-icon" aria-hidden="true">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              >
+                <path d="M3 17c3-6 15-6 18 0M6 13.5V17M12 11.5V17M18 13.5V17M2 17h20" />
+              </svg>
             </div>
-            @if (d.transport === 'stdio') {
-              <label class="field"><span>Lệnh</span><input class="mono" [value]="d.command ?? ''" (input)="patch({ command: $any($event.target).value })" placeholder="npx" /></label>
-              <label class="field"><span>Tham số (mỗi dòng một tham số)</span><textarea class="mono" rows="2" [value]="d.args.join('\\n')" (input)="patch({ args: lines($any($event.target).value) })" placeholder="-y&#10;@modelcontextprotocol/server-github"></textarea></label>
-              <label class="field"><span>Biến môi trường (TÊN=giá trị, mỗi dòng một biến)</span><textarea class="mono" rows="2" [value]="pairsText(d.env)" (input)="patch({ env: pairs($any($event.target).value, '=') })"></textarea></label>
-            } @else {
-              <label class="field"><span>URL</span><input class="mono" [value]="d.url ?? ''" (input)="patch({ url: $any($event.target).value })" placeholder="https://…/mcp" /></label>
-              <label class="field"><span>Header (Tên: giá trị, mỗi dòng một header)</span><textarea class="mono" rows="2" [value]="pairsText(d.headers, ': ')" (input)="patch({ headers: pairs($any($event.target).value, ':') })"></textarea></label>
-            }
-            <div class="form-row">
-              <span class="dim">Bật cho:</span>
-              @for (a of agents; track a) {
-                <label class="pick" [class.on]="d.agents.includes(a)" [style.--agent]="meta[a].color">
-                  <input type="checkbox" [checked]="d.agents.includes(a)" (change)="patch({ agents: flip(d.agents, a) })" />
-                  <tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}
-                </label>
-              }
-              <span class="spacer"></span>
-              <button class="btn ghost sm" type="button" (click)="draft.set(null)">Hủy</button>
-              <button class="btn primary sm" type="submit" [disabled]="busy()">Lưu server</button>
-            </div>
-          </form>
-        }
-      </section>
-
-      <section class="mission-block" aria-label="Skill agent đang thấy">
-        <div class="block-head">
-          <span class="label">SKILL AGENT ĐANG THẤY</span>
-          <span class="dim ellipsis">{{ folderName() ? 'Trong ' + folderName() + ', đọc từ chính agent (không tốn token).' : 'Mở một thư mục để xem skill của dự án.' }}</span>
-          <span class="spacer"></span>
-          <button class="btn ghost sm" (click)="rescan()">Đọc lại</button>
-        </div>
-        <div class="cmd-seen">
-          @for (row of seen(); track row.agent) {
-            <div class="cmd-seen-agent">
-              <div class="cmd-seen-head"><tg-agent-avatar [agent]="row.agent" [size]="16" /><strong>{{ meta[row.agent].name }}</strong>
-                @if (row.list === 'loading') { <span class="dim"><span class="spin"></span> đang đọc…</span> }
-                @else if (row.list) { <span class="dim">{{ row.skills.length }} skill</span> }
+            <div class="conn-grow">
+              <h2>tg-bridge <span class="tag ok">Tích hợp sẵn</span></h2>
+              <div class="dim" title="Chỉ nghe trên 127.0.0.1, mỗi task một token riêng">
+                Kênh phối hợp giữa các agent. Tool có tác động đều phải qua bạn duyệt.
               </div>
-              @for (g of row.groups; track g.group) {
-                <div class="cmd-seen-group">
-                  <span class="dim">{{ groupLabel[g.group] }}</span>
-                  @for (c of g.items; track c.name) { <span class="cmd-chip mono" [title]="c.description">{{ c.insert.trim() }}</span> }
+              <div class="conn-chips">
+                @for (tool of bridgeTools; track tool.name) {
+                  <span class="conn-tool mono" [title]="tool.description">{{ tool.name }}</span>
+                }
+              </div>
+            </div>
+            <div class="conn-bridge-switch">
+              <div class="conn-row">
+                <span>Bật cho task Sửa code</span
+                ><button
+                  class="switch"
+                  role="switch"
+                  aria-label="Bật cho task Sửa code"
+                  [attr.aria-checked]="bridgeOn()"
+                  [disabled]="busy()"
+                  (click)="setBridge(!bridgeOn())"
+                ></button>
+              </div>
+              <span class="dim">Áp dụng cho lượt chạy mới</span>
+            </div>
+          </div>
+          <div class="conn-section-head">
+            <h2>Server của bạn</h2>
+            <span
+              class="dim"
+              title="stdio chạy với mọi agent qua ACP và Claude ở chế độ Chỉ đọc; http chỉ gửi khi agent hỗ trợ, nếu không sẽ ghi log bỏ qua. Biến môi trường và header lưu trong máy này, không mã hoá."
+              >stdio chạy lệnh · http khi agent hỗ trợ · lưu cục bộ, không mã hoá</span
+            >
+          </div>
+          @if (!servers().length) {
+            <p class="dim">Chưa có server nào. Chọn mẫu bên dưới để thêm công cụ cho agent.</p>
+          }
+          <div class="conn-servers">
+            @for (s of servers(); track s.id) {
+              <article class="pg-card conn-server">
+                <div class="conn-row">
+                  <span class="conn-initials">{{ s.name.slice(0, 2).toUpperCase() }}</span>
+                  <div class="conn-grow">
+                    <strong>{{ s.name }}</strong>
+                    <div class="dim">
+                      {{ s.transport }} ·
+                      {{
+                        s.transport === 'stdio'
+                          ? s.env.length + ' biến môi trường'
+                          : s.headers.length + ' header'
+                      }}
+                    </div>
+                  </div>
+                  <button
+                    class="btn sm"
+                    (click)="edit(s)"
+                    [attr.aria-label]="'Sửa server ' + s.name"
+                  >
+                    Sửa
+                  </button>
+                </div>
+                <div class="conn-command mono" [title]="target(s)">{{ target(s) }}</div>
+                <div class="conn-chips">
+                  @for (a of agents; track a) {
+                    <button
+                      class="fchip conn-agent"
+                      [attr.aria-pressed]="s.agents.includes(a)"
+                      [attr.aria-label]="s.name + ' cho ' + meta[a].name"
+                      [disabled]="busy()"
+                      (click)="toggle(s, a)"
+                    >
+                      <tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}
+                    </button>
+                  }
+                </div>
+                @if (confirming() === 'server:' + s.id) {
+                  <div class="conn-confirm" role="group" [attr.aria-label]="'Xoá ' + s.name">
+                    <span>Xoá server này?</span
+                    ><button class="btn sm" (click)="confirming.set(null)">Huỷ</button
+                    ><button class="btn sm conn-danger" [disabled]="busy()" (click)="remove(s)">
+                      Xoá
+                    </button>
+                  </div>
+                } @else {
+                  <button class="btn sm conn-delete" (click)="confirming.set('server:' + s.id)">
+                    Xoá
+                  </button>
+                }
+              </article>
+            }
+            <article class="pg-card conn-server conn-add">
+              <button class="conn-add-button" (click)="preset('custom')">
+                <span aria-hidden="true">＋</span>Thêm server
+              </button>
+              <div class="conn-chips">
+                @for (p of presets; track p.id) {
+                  <button class="fchip" (click)="preset(p.id)">{{ p.label }}</button>
+                }
+              </div>
+            </article>
+          </div>
+        </section>
+      } @else {
+        <section id="conn-skills" role="tabpanel" aria-labelledby="conn-skills-tab">
+          <div class="conn-filters">
+            <div class="conn-chips">
+              @for (f of filters; track f.id) {
+                <button
+                  class="fchip"
+                  [attr.aria-pressed]="skillFilter() === f.id"
+                  (click)="skillFilter.set(f.id)"
+                >
+                  {{ f.label }}
+                </button>
+              }
+            </div>
+            <span class="dim">{{
+              folderName()
+                ? 'Dự án: ' + folderName() + ' · đọc từ agent, không tốn token'
+                : 'Mở một thư mục để xem skill của dự án.'
+            }}</span>
+          </div>
+          <div class="pg-card conn-skills">
+            <div class="conn-skill-row conn-skill-head">
+              <span>Skill</span>
+              @for (a of skillAgents; track a) {
+                <div class="conn-row">
+                  <tg-agent-avatar [agent]="a" [size]="16" />{{ meta[a].name }}
+                  @if (loading(a)) {
+                    <span class="dim"><span class="spin"></span> đang đọc…</span>
+                  }
                 </div>
               }
-              @if (row.list && row.list !== 'loading' && !row.skills.length) { <p class="dim">Không thấy skill nào.</p> }
+              <span></span>
             </div>
-          }
-        </div>
-        <p class="dim form-note pad">Claude đọc <code>.claude/skills/</code> của dự án và <code>~/.claude/skills</code>; Codex đọc <code>.agents/skills/</code> của dự án và skill của máy. Gõ <code>/</code> ở đầu ô chat (Codex: <code>$</code>) để gọi.</p>
-      </section>
-
-      <section class="mission-block" aria-label="Skills">
-        <div class="block-head">
-          <span class="label">SKILLS</span>
-          <span class="dim ellipsis">Thư viện SKILL.md của bạn, cài vào agent hỗ trợ.</span>
-          <span class="spacer"></span>
-          <button class="btn ghost sm" (click)="skillDraft.set(skillTemplate)">Thêm skill</button>
-        </div>
-        <table class="runs-table">
-          <thead><tr><th>Skill</th><th>Mô tả</th>
-            @for (a of agents; track a) { <th class="mid"><span class="cell-agent"><tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}</span></th> }
-            <th></th></tr></thead>
-          <tbody>
-            @for (k of skills(); track k.name) {
-              <tr>
-                <td class="mono">{{ k.name }}</td>
-                <td class="ellipsis prompt-cell" [title]="k.description">{{ k.description }}</td>
-                @for (a of agents; track a) {
-                  <td class="mid">
-                    @if (a === 'claude') {
-                      @for (t of targets()[k.name] ?? []; track t.scope) {
-                        <div class="skill-target">
-                          <span class="dim">{{ t.scope === 'project' ? 'repo' : 'máy' }}:</span>
-                          @if (t.state === 'same') { <span class="ok">đã cài</span> }
-                          @else {
-                            <button class="btn ghost sm" [disabled]="busy()" [title]="t.path" (click)="install(k, t)">{{ t.state === 'different' ? 'Cập nhật' : 'Cài' }}</button>
-                          }
-                        </div>
-                      }
-                    } @else {
-                      <span class="dim" title="Chưa có vị trí chuẩn đã kiểm chứng để đặt SKILL.md cho agent này">chưa hỗ trợ</span>
+            @for (row of skillRows(); track row.name) {
+              <div class="conn-skill-row" [class.conn-seen-only]="!row.library">
+                <div>
+                  <strong class="mono">{{ row.name }}</strong>
+                  <p class="conn-description dim">{{ row.description }}</p>
+                </div>
+                @for (a of skillAgents; track a) {
+                  <div class="conn-chips conn-skill-status" [attr.aria-label]="meta[a].name">
+                    @if (row.visible.includes(a)) {
+                      <span class="tag ok">● đang thấy</span>
                     }
-                  </td>
+                    @if (row.library; as k) {
+                      @if (a === 'claude') {
+                        @for (t of targets()[k.name] ?? []; track t.scope) {
+                          @if (t.state === 'same') {
+                            <span class="tag ok" [title]="t.path"
+                              >✓ {{ t.scope === 'project' ? 'repo' : 'máy' }}</span
+                            >
+                          } @else {
+                            <button
+                              class="btn sm"
+                              [class.conn-update]="t.state === 'different'"
+                              [title]="t.path"
+                              [disabled]="busy()"
+                              (click)="install(k, t)"
+                            >
+                              {{ t.state === 'different' ? '↑ cập nhật ' : 'Cài vào '
+                              }}{{ t.scope === 'project' ? 'repo' : 'máy' }}
+                            </button>
+                          }
+                        }
+                        @if (!targets()[k.name]?.length) {
+                          <span class="dim">Chưa đọc được nơi cài</span>
+                        }
+                      } @else {
+                        <span
+                          class="dim"
+                          title="Chưa có vị trí chuẩn đã kiểm chứng để đặt SKILL.md cho agent này"
+                          >chưa hỗ trợ</span
+                        >
+                      }
+                    } @else if (!row.visible.includes(a)) {
+                      <span class="dim">—</span>
+                    }
+                  </div>
                 }
-                <td class="num"><button class="btn ghost sm" (click)="skillDraft.set(k.content)">Sửa</button> <button class="btn ghost sm" (click)="removeSkill(k)">Xóa</button></td>
-              </tr>
+                <div class="conn-chips">
+                  @if (row.library; as k) {
+                    @if (confirming() === 'skill:' + k.name) {
+                      <div
+                        class="conn-confirm"
+                        role="group"
+                        [attr.aria-label]="'Xoá skill ' + k.name"
+                      >
+                        <span>Xoá skill?</span
+                        ><button class="btn sm" (click)="confirming.set(null)">Huỷ</button
+                        ><button
+                          class="btn sm conn-danger"
+                          [disabled]="busy()"
+                          (click)="removeSkill(k)"
+                        >
+                          Xoá
+                        </button>
+                      </div>
+                    } @else {
+                      <button class="btn sm" (click)="editSkill(k.content)">Sửa</button
+                      ><button class="btn sm" (click)="confirming.set('skill:' + k.name)">
+                        Xoá
+                      </button>
+                    }
+                  }
+                </div>
+              </div>
             } @empty {
-              <tr><td [attr.colspan]="agents.length + 3" class="dim">Thư viện trống.</td></tr>
+              <p class="conn-empty dim">
+                {{
+                  skillFilter() === 'library'
+                    ? 'Thư viện trống. Thêm skill để bắt đầu.'
+                    : 'Chưa có skill trong bộ lọc này.'
+                }}
+              </p>
             }
-          </tbody>
-        </table>
-        <p class="dim form-note pad">Claude Code đọc skill ở <code>.claude/skills/&lt;tên&gt;/SKILL.md</code> trong repo (mức repo) và ở <code>~/.claude/skills</code> (mức máy). Nếu đã có bản khác, bản cũ được sao lưu thành <code>SKILL.md.bak-…</code> trước khi ghi.</p>
-        @if (skillDraft() !== null) {
-          <form class="mcp-form" (submit)="$event.preventDefault(); saveSkill()">
-            <label class="field"><span>SKILL.md</span><textarea class="mono" rows="10" [value]="skillDraft()" (input)="skillDraft.set($any($event.target).value)"></textarea></label>
-            <div class="form-row"><span class="spacer"></span>
-              <button class="btn ghost sm" type="button" (click)="skillDraft.set(null)">Hủy</button>
-              <button class="btn primary sm" type="submit" [disabled]="busy()">Lưu skill</button>
+            <footer class="conn-legend dim">
+              <span>✓ đã cài, trùng thư viện</span
+              ><span class="conn-update">↑ bản cài khác thư viện</span
+              ><span>● agent tự tìm thấy</span
+              ><span
+                title="Claude đọc .claude/skills trong repo và ~/.claude/skills; bản cũ được sao lưu trước khi cập nhật. Codex đọc .agents/skills và skill của máy."
+                >Gõ / ở ô chat (Codex: $) để gọi</span
+              >
+            </footer>
+          </div>
+        </section>
+      }
+    </div>
+    @if (draft(); as d) {
+      <div class="sheet-backdrop" (click)="closeDrawer()">
+        <form
+          class="sheet conn-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="conn-server-title"
+          (click)="$event.stopPropagation()"
+          (keydown)="trapFocus($event)"
+          (submit)="$event.preventDefault(); save()"
+        >
+          <div class="sheet-head">
+            <h3 id="conn-server-title">{{ d.id ? 'Sửa MCP server' : 'Thêm MCP server' }}</h3>
+            <span class="spacer"></span
+            ><button
+              type="button"
+              class="icon-btn"
+              aria-label="Đóng ngăn kéo"
+              (click)="closeDrawer()"
+            >
+              ×
+            </button>
+          </div>
+          <div class="conn-segment" role="group" aria-label="Kiểu kết nối">
+            <button
+              type="button"
+              [attr.aria-pressed]="d.transport === 'stdio'"
+              (click)="patch({ transport: 'stdio' })"
+            >
+              stdio · chạy lệnh</button
+            ><button
+              type="button"
+              [attr.aria-pressed]="d.transport === 'http'"
+              (click)="patch({ transport: 'http' })"
+            >
+              http · URL
+            </button>
+          </div>
+          <label class="field"
+            >Tên<input
+              #drawerFocus
+              class="mono"
+              [value]="d.name"
+              (input)="patch({ name: $any($event.target).value })"
+              required
+          /></label>
+          @if (d.transport === 'stdio') {
+            <label class="field"
+              >Lệnh<input
+                class="mono"
+                [value]="d.command ?? ''"
+                (input)="patch({ command: $any($event.target).value })"
+                placeholder="npx"
+            /></label>
+            <label class="field"
+              >Tham số (mỗi dòng một tham số)<textarea
+                class="mono"
+                rows="3"
+                [value]="d.args.join('\\n')"
+                (input)="patch({ args: lines($any($event.target).value) })"
+              ></textarea>
+            </label>
+          } @else {
+            <label class="field"
+              >URL<input
+                class="mono"
+                [value]="d.url ?? ''"
+                (input)="patch({ url: $any($event.target).value })"
+                placeholder="https://…/mcp"
+            /></label>
+          }
+          <div class="field">
+            <span>{{ d.transport === 'stdio' ? 'Biến môi trường' : 'Header' }}</span>
+            @for (
+              pair of d.transport === 'stdio' ? d.env : d.headers;
+              track $index;
+              let i = $index
+            ) {
+              <div class="conn-pair">
+                <input
+                  class="mono"
+                  aria-label="Tên biến hoặc header"
+                  placeholder="Tên"
+                  [value]="pair.name"
+                  (input)="patchPair(i, { name: $any($event.target).value })"
+                /><input
+                  [type]="d.transport === 'stdio' ? 'password' : 'text'"
+                  aria-label="Giá trị"
+                  placeholder="Giá trị"
+                  autocomplete="off"
+                  [value]="pair.value"
+                  (input)="patchPair(i, { value: $any($event.target).value })"
+                /><button
+                  class="icon-btn"
+                  type="button"
+                  [attr.aria-label]="'Xoá dòng ' + (i + 1)"
+                  (click)="removePair(i)"
+                >
+                  ×
+                </button>
+              </div>
+            }
+            <button type="button" class="btn sm conn-pair-add" (click)="addPair()">
+              {{ d.transport === 'stdio' ? '＋ Thêm biến' : '＋ Thêm header' }}
+            </button>
+          </div>
+          <div class="field">
+            <span>Bật cho</span>
+            <div class="conn-chips">
+              @for (a of agents; track a) {
+                <button
+                  type="button"
+                  class="fchip"
+                  [attr.aria-pressed]="d.agents.includes(a)"
+                  (click)="patch({ agents: flip(d.agents, a) })"
+                >
+                  <tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}
+                </button>
+              }
             </div>
-          </form>
-        }
-      </section>
+          </div>
+          <p class="dim">ⓘ Lưu trong máy này, không mã hoá.</p>
+          <div class="sheet-foot">
+            <span class="spacer"></span
+            ><button class="btn" type="button" (click)="closeDrawer()">Huỷ</button
+            ><button class="btn primary" type="submit" [disabled]="busy()">Lưu server</button>
+          </div>
+        </form>
+      </div>
+    }
+    @if (skillDraft() !== null) {
+      <div class="sheet-backdrop" (click)="closeDrawer()">
+        <form
+          class="sheet conn-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="conn-skill-title"
+          (click)="$event.stopPropagation()"
+          (keydown)="trapFocus($event)"
+          (submit)="$event.preventDefault(); saveSkill()"
+        >
+          <div class="sheet-head">
+            <h3 id="conn-skill-title">Chỉnh sửa skill</h3>
+            <span class="spacer"></span
+            ><button
+              type="button"
+              class="icon-btn"
+              aria-label="Đóng ngăn kéo"
+              (click)="closeDrawer()"
+            >
+              ×
+            </button>
+          </div>
+          <label class="field conn-skill-editor"
+            >SKILL.md<textarea
+              #drawerFocus
+              class="mono"
+              rows="20"
+              [value]="skillDraft()"
+              (input)="skillDraft.set($any($event.target).value)"
+            ></textarea>
+          </label>
+          <div class="sheet-foot">
+            <span class="spacer"></span
+            ><button class="btn" type="button" (click)="closeDrawer()">Huỷ</button
+            ><button class="btn primary" type="submit" [disabled]="busy()">Lưu skill</button>
+          </div>
+        </form>
+      </div>
+    }
+    <div class="conn-toasts">
+      @if (error()) {
+        <div class="conn-toast conn-toast-error" role="alert">
+          <span>{{ error() }}</span
+          ><button class="icon-btn" aria-label="Đóng thông báo lỗi" (click)="error.set(null)">
+            ×
+          </button>
+        </div>
+      }
+      @if (info()) {
+        <div class="conn-toast" role="status">
+          <span>{{ info() }}</span
+          ><button class="icon-btn" aria-label="Đóng thông báo" (click)="info.set(null)">×</button>
+        </div>
+      }
     </div>
   `,
 })
@@ -193,7 +529,44 @@ export class Integrations implements OnInit {
   private readonly workspace = inject(WorkspaceService);
   protected readonly meta = AGENT_META;
   protected readonly agents = AGENT_IDS;
-  protected readonly empty = EMPTY;
+  protected readonly tab = signal<'mcp' | 'skills'>('mcp');
+  protected readonly skillFilter = signal<'all' | 'library' | 'seen'>('all');
+  protected readonly confirming = signal<string | null>(null);
+  protected readonly skillAgents: AgentId[] = ['claude', 'codex'];
+  protected readonly filters = [
+    { id: 'all', label: 'Tất cả' },
+    { id: 'library', label: 'Thư viện của bạn' },
+    { id: 'seen', label: 'Chỉ agent thấy' },
+  ] as const;
+  protected readonly presets = [
+    { id: 'github', label: 'GitHub' },
+    { id: 'filesystem', label: 'Filesystem' },
+    { id: 'playwright', label: 'Playwright' },
+    { id: 'custom', label: 'Tự nhập' },
+  ] as const;
+  protected readonly bridgeTools = [
+    { name: 'report_progress', description: 'Tiến độ hiện ở cuộc trò chuyện và màn Giám sát' },
+    {
+      name: 'write_note',
+      description: 'Ghi chú chung giữa các agent cùng task, xem ở tab Kế hoạch & ghi chú',
+    },
+    {
+      name: 'read_notes',
+      description: 'Đọc ghi chú chung giữa các agent cùng task, xem ở tab Kế hoạch & ghi chú',
+    },
+    { name: 'handoff_to', description: 'Đề xuất chuyển việc, bạn quyết định' },
+    { name: 'request_approval', description: 'Hiện thẻ duyệt' },
+    { name: 'get_task_context', description: 'Đọc ngữ cảnh của task hiện tại' },
+  ];
+  private returnFocus: HTMLElement | null = null;
+  @ViewChild('drawerFocus') set drawerFocus(element: ElementRef<HTMLElement> | undefined) {
+    if (element) element.nativeElement.focus();
+  }
+  private readonly dismissInfo = effect((onCleanup) => {
+    if (!this.info()) return;
+    const timer = setTimeout(() => this.info.set(null), 4000);
+    onCleanup(() => clearTimeout(timer));
+  });
   protected readonly skillTemplate = SKILL_TEMPLATE;
   protected readonly servers = signal<McpServer[]>([]);
   protected readonly draft = signal<McpServer | null>(null);
@@ -206,21 +579,147 @@ export class Integrations implements OnInit {
   protected readonly info = signal<string | null>(null);
   private readonly repo = computed(() => this.workspace.repo()?.root ?? null);
   private readonly installed = inject(AgentsService);
-  protected readonly groupLabel = GROUP_LABEL;
-  protected readonly folderName = computed(() => this.workspace.folder()?.split(/[\\/]/).filter(Boolean).pop() ?? null);
+  protected readonly folderName = computed(
+    () => this.workspace.folder()?.split(/[\\/]/).filter(Boolean).pop() ?? null,
+  );
   /** Agents with a session that reports skills: Claude and Codex, when installed. */
-  private readonly seenAgents = computed(() => this.installed.agents().filter((a) => a.path && (a.id === 'claude' || a.id === 'codex')).map((a) => a.id));
-  protected readonly seen = computed(() => this.seenAgents().map((agent) => {
-    const list = this.installed.commandsFor(agent, this.workspace.folder());
-    const skills = Array.isArray(list) ? list.filter((c) => c.kind === 'skill') : [];
-    const groups = skills.length ? filterCommands(skills, { trigger: agent === 'codex' ? '$' : '/', start: 0, query: '' }, 500) : [];
-    return { agent, list, skills, groups };
-  }));
+  private readonly seenAgents = computed(() =>
+    this.installed
+      .agents()
+      .filter((a) => a.path && (a.id === 'claude' || a.id === 'codex'))
+      .map((a) => a.id),
+  );
+  protected readonly seen = computed(() =>
+    this.seenAgents().map((agent) => {
+      const list = this.installed.commandsFor(agent, this.workspace.folder());
+      const skills = Array.isArray(list) ? list.filter((c) => c.kind === 'skill') : [];
+      return { agent, list, skills };
+    }),
+  );
   private readonly loadSeen = effect(() => {
     const folder = this.workspace.folder();
     const agents = this.seenAgents();
     untracked(() => agents.forEach((a) => void this.installed.loadCommands(a, folder)));
   });
+
+  protected readonly skillRows = computed(() => {
+    const rows = new Map<
+      string,
+      { name: string; description: string; library: Skill | null; visible: AgentId[] }
+    >();
+    const key = (name: string) => name.trim().replace(/^[/$]/, '');
+    for (const skill of this.skills())
+      rows.set(key(skill.name), {
+        name: skill.name,
+        description: skill.description,
+        library: skill,
+        visible: [],
+      });
+    for (const seen of this.seen())
+      for (const command of seen.skills) {
+        const name = key(command.name);
+        const row = rows.get(name) ?? {
+          name,
+          description: command.description,
+          library: null,
+          visible: [],
+        };
+        if (!row.visible.includes(seen.agent)) row.visible.push(seen.agent);
+        rows.set(name, row);
+      }
+    return [...rows.values()].filter(
+      (row) =>
+        this.skillFilter() === 'all' ||
+        (this.skillFilter() === 'library' ? !!row.library : !row.library),
+    );
+  });
+
+  protected loading(agent: AgentId): boolean {
+    return this.seen().some((row) => row.agent === agent && row.list === 'loading');
+  }
+
+  protected preset(kind: string): void {
+    const server = { ...EMPTY };
+    if (kind === 'github')
+      Object.assign(server, {
+        name: 'github',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: [{ name: 'GITHUB_PERSONAL_ACCESS_TOKEN', value: '' }],
+      });
+    if (kind === 'filesystem')
+      Object.assign(server, {
+        name: 'filesystem',
+        command: 'npx',
+        args: [
+          '-y',
+          '@modelcontextprotocol/server-filesystem',
+          ...(this.workspace.folder() ? [this.workspace.folder()!] : []),
+        ],
+      });
+    if (kind === 'playwright')
+      Object.assign(server, {
+        name: 'playwright',
+        command: 'npx',
+        args: ['@playwright/mcp@latest'],
+      });
+    this.edit(server);
+  }
+
+  protected editSkill(content: string): void {
+    this.returnFocus = document.activeElement as HTMLElement;
+    this.draft.set(null);
+    this.skillDraft.set(content);
+  }
+
+  @HostListener('document:keydown.escape')
+  protected closeDrawer(): void {
+    if (!this.draft() && this.skillDraft() === null) return;
+    this.draft.set(null);
+    this.skillDraft.set(null);
+    this.returnFocus?.focus();
+  }
+
+  protected trapFocus(event: KeyboardEvent): void {
+    if (event.key !== 'Tab') return;
+    const elements = Array.from(
+      (event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input, textarea, [tabindex="0"]',
+      ),
+    );
+    const first = elements[0],
+      last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
+  protected patchPair(index: number, change: Partial<NameValue>): void {
+    const d = this.draft();
+    if (!d) return;
+    const field = d.transport === 'stdio' ? 'env' : 'headers';
+    this.patch({
+      [field]: d[field].map((pair, i) => (i === index ? { ...pair, ...change } : pair)),
+    });
+  }
+
+  protected addPair(): void {
+    const d = this.draft();
+    if (!d) return;
+    const field = d.transport === 'stdio' ? 'env' : 'headers';
+    this.patch({ [field]: [...d[field], { name: '', value: '' }] });
+  }
+
+  protected removePair(index: number): void {
+    const d = this.draft();
+    if (!d) return;
+    const field = d.transport === 'stdio' ? 'env' : 'headers';
+    this.patch({ [field]: d[field].filter((_, i) => i !== index) });
+  }
 
   protected rescan(): void {
     const folder = this.workspace.folder();
@@ -234,7 +733,9 @@ export class Integrations implements OnInit {
   }
 
   ngOnInit(): void {
-    void this.reload();
+    void this.reload().catch((e: unknown) =>
+      this.error.set(e instanceof Error ? e.message : String(e)),
+    );
   }
 
   protected target(s: McpServer): string {
@@ -242,18 +743,10 @@ export class Integrations implements OnInit {
   }
 
   protected lines(text: string): string[] {
-    return text.split('\n').map((l) => l.trim()).filter(Boolean);
-  }
-
-  protected pairs(text: string, sep: string): NameValue[] {
-    return this.lines(text).map((l) => {
-      const i = l.indexOf(sep);
-      return i < 0 ? { name: l, value: '' } : { name: l.slice(0, i).trim(), value: l.slice(i + 1).trim() };
-    });
-  }
-
-  protected pairsText(list: NameValue[], sep = '='): string {
-    return list.map((p) => `${p.name}${sep}${p.value}`).join('\n');
+    return text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
   }
 
   protected flip(list: AgentId[], a: AgentId): AgentId[] {
@@ -261,7 +754,15 @@ export class Integrations implements OnInit {
   }
 
   protected edit(s: McpServer): void {
-    this.draft.set({ ...s, args: [...s.args], env: [...s.env], headers: [...s.headers], agents: [...s.agents] });
+    this.returnFocus = document.activeElement as HTMLElement;
+    this.skillDraft.set(null);
+    this.draft.set({
+      ...s,
+      args: [...s.args],
+      env: [...s.env],
+      headers: [...s.headers],
+      agents: [...s.agents],
+    });
   }
 
   protected patch(change: Partial<McpServer>): void {
@@ -272,15 +773,21 @@ export class Integrations implements OnInit {
     const d = this.draft();
     if (!d) return;
     await this.guard(async () => {
-      const clean = { ...d, command: d.transport === 'stdio' ? d.command : null, url: d.transport === 'http' ? d.url : null };
+      const clean = {
+        ...d,
+        command: d.transport === 'stdio' ? d.command : null,
+        url: d.transport === 'http' ? d.url : null,
+      };
       const saved = await this.backend.saveMcpServer(clean);
-      this.draft.set(null);
+      this.closeDrawer();
       this.info.set(`Đã lưu ${saved.name}. Áp dụng cho các lượt chạy mới.`);
     });
   }
 
   protected async toggle(s: McpServer, a: AgentId): Promise<void> {
-    await this.guard(() => this.backend.saveMcpServer({ ...s, agents: this.flip(s.agents, a) }).then(() => undefined));
+    await this.guard(() =>
+      this.backend.saveMcpServer({ ...s, agents: this.flip(s.agents, a) }).then(() => undefined),
+    );
   }
 
   protected async remove(s: McpServer): Promise<void> {
@@ -292,7 +799,7 @@ export class Integrations implements OnInit {
     if (content === null) return;
     await this.guard(async () => {
       const skill = await this.backend.saveSkill(content);
-      this.skillDraft.set(null);
+      this.closeDrawer();
       this.info.set(`Đã lưu skill ${skill.name} vào thư viện.`);
     });
   }
@@ -304,14 +811,18 @@ export class Integrations implements OnInit {
   protected async install(k: Skill, t: SkillTarget): Promise<void> {
     await this.guard(async () => {
       const done = await this.backend.installSkill(k.name, t.scope, this.repo());
-      this.info.set(`Đã cài ${k.name} vào ${done.path}${done.backup ? ` (bản cũ lưu ở ${done.backup})` : ''}.`);
+      this.info.set(
+        `Đã cài ${k.name} vào ${done.path}${done.backup ? ` (bản cũ lưu ở ${done.backup})` : ''}.`,
+      );
     });
   }
 
   protected async setBridge(on: boolean): Promise<void> {
     await this.guard(async () => {
       await this.backend.setSetting('bridge', JSON.stringify({ enabled: on }));
-      this.info.set(on ? 'Đã bật tg-bridge cho các task mới.' : 'Đã tắt tg-bridge cho các task mới.');
+      this.info.set(
+        on ? 'Đã bật tg-bridge cho các task mới.' : 'Đã tắt tg-bridge cho các task mới.',
+      );
     });
   }
 
@@ -325,7 +836,12 @@ export class Integrations implements OnInit {
     this.servers.set(await this.backend.listMcpServers());
     const skills = await this.backend.listSkills();
     this.skills.set(skills);
-    const entries = await Promise.all(skills.map(async (k) => [k.name, await this.backend.skillTargets(k.name, this.repo()).catch(() => [])] as const));
+    const entries = await Promise.all(
+      skills.map(
+        async (k) =>
+          [k.name, await this.backend.skillTargets(k.name, this.repo()).catch(() => [])] as const,
+      ),
+    );
     this.targets.set(Object.fromEntries(entries));
   }
 
@@ -335,6 +851,7 @@ export class Integrations implements OnInit {
     this.info.set(null);
     try {
       await work();
+      this.confirming.set(null);
       await this.reload();
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));

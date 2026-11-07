@@ -91,6 +91,7 @@ const RING = 2 * Math.PI * 15;
         <section class="pg-card cost-chart-card" aria-label="Biểu đồ theo ngày">
           <div class="pg-card-head">
             <h2>Theo ngày</h2>
+            @if (agent(); as a) { <span class="dim">chỉ {{ meta[a].name }}</span> }
             @if (day() !== null) { <span class="dim">bấm cột lần nữa để bỏ lọc</span> }
             <span class="spacer"></span>
             <div class="segmented" role="group" aria-label="Đơn vị">
@@ -359,8 +360,9 @@ export class UsageScreen {
     PRICE_HISTORY();
     this.today();
     const measure = this.measure();
-    const days = dailyBuckets(this.rows(), this.days(), measure);
-    const limit = measure === 'cost' ? this.budget.budgets().daily : null;
+    const agent = this.agent();
+    const days = dailyBuckets(agent ? this.rows().filter((r) => r.agent === agent) : this.rows(), this.days(), measure);
+    const limit = measure === 'cost' && !agent ? this.budget.budgets().daily : null;
     const peak = Math.max(0, ...days.map((d) => d.total));
     // Show the budget line only when it sits near the bars, not far above a flat chart.
     const showBudget = limit !== null && limit > 0 && peak >= limit * 0.3;
