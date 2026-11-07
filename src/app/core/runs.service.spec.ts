@@ -190,6 +190,7 @@ describe('RunsService history', () => {
           { kind: 'started', line: 'bắt đầu' },
           { kind: 'log', line: 'xin chào' },
           { kind: 'stderr', line: 'lỗi' },
+          { kind: 'stderr', line: '[session/load] sessionId=abc phase=replay durationMs=0 totalMs=1130' },
         ],
       }),
       stored({ id: 'older', startedAt: 500 }),
@@ -202,6 +203,7 @@ describe('RunsService history', () => {
       { text: 'bắt đầu', tone: 'muted' },
       { text: 'xin chào', tone: 'text' },
       { text: 'lỗi', tone: 'error' },
+      { text: '[session/load] sessionId=abc phase=replay durationMs=0 totalMs=1130', tone: 'muted' },
     ]);
     expect(service.selected()?.restored).toBe(true);
   });

@@ -4,6 +4,9 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Khi nối lại cuộc trò chuyện, các dòng `[session/load] … phase=…` (adapter Claude ghi thời gian đọc lại phiên, không tốn token) không còn hiện như lỗi trong khung chat.
+
 ## [0.4.0] - 2026-11-07
 
 ### Thay đổi
