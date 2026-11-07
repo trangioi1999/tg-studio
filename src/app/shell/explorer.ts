@@ -61,6 +61,7 @@ interface Row {
               <div class="tree-dir">
                 <button class="tree-row" role="treeitem" [attr.aria-expanded]="row.open" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">
                   <span class="twisty" aria-hidden="true">{{ row.open ? '▾' : '▸' }}</span>
+                  <tg-file-icon [name]="row.name" [dir]="true" [open]="row.open" />
                   <span class="ellipsis">{{ row.name }}</span>
                 </button>
                 <button class="tl-add" [attr.aria-label]="'Trò chuyện mới trong thư mục ' + row.path" title="Trò chuyện mới trong thư mục này" (click)="threads.newChat(workspace.folder(), row.path)">+</button>
@@ -81,6 +82,7 @@ interface Row {
           @if (row.dir) {
             <button class="tree-row" role="treeitem" [attr.aria-expanded]="row.open" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">
               <span class="twisty" aria-hidden="true">{{ row.open ? '▾' : '▸' }}</span>
+              <tg-file-icon [name]="row.name" [dir]="true" [open]="row.open" />
               <span class="ellipsis">{{ row.name }}</span>
             </button>
           } @else {

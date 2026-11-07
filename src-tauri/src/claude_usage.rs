@@ -76,12 +76,16 @@ pub async fn refresh_claude_limits(store: State<'_, Store>) -> Result<Option<Acc
         return saved_limits(&store);
     }
     let Some(claude) = env::which("claude") else { return Ok(None); };
-    let Some(home) = crate::detect::home_dir() else { return Ok(None); };
+    // Never the home folder: Claude looks around its working folder at startup, and macOS
+    // then asks for Desktop, Documents, Downloads, Photos… on behalf of TG Studio. The
+    // limits belong to the account, so an empty folder of our own is enough.
+    let dir = std::env::temp_dir().join("tg-studio-usage");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Không tạo được thư mục tạm {}: {e}", dir.display()))?;
     let mut command = env::command(claude);
     // Not saved as a session: this runs every few minutes and would fill `claude --resume`.
     command.args(["-p", "/usage", "--output-format", "json", "--no-session-persistence"])
         .env("PATH", env::login_path())
-        .current_dir(home)
+        .current_dir(&dir)
         .stdin(Stdio::null())
         .kill_on_drop(true);
     *last = Some(Instant::now());

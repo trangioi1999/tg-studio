@@ -4,6 +4,13 @@
 
 ## [Chưa phát hành]
 
+### Thay đổi
+- Cây tệp có biểu tượng thư mục (đóng/mở), biểu tượng trang cho tệp lạ và nhận thêm nhiều loại tệp (Java, Swift, C/C++, SQL, Dockerfile, `.env`, `.gitignore`…).
+
+### Sửa lỗi
+- macOS không còn hỏi quyền Documents/Desktop/Downloads mỗi lần mở app: bản đóng gói giờ được ký (ad-hoc) nên macOS nhớ lựa chọn Cho phép. Sau mỗi bản cập nhật vẫn có thể hỏi lại một lần.
+- Lệnh đọc hạn mức Claude chạy trong thư mục tạm riêng thay vì thư mục home, để Claude không đọc quanh home và kéo theo các hộp hỏi quyền.
+
 ## [0.5.0] - 2026-11-07
 
 ### Thêm
