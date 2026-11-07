@@ -37,6 +37,7 @@ describe('filterCommands', () => {
     expect(names('writ')).toEqual(['superpowers:writing-plans']);
     expect(names('phát hành')).toEqual(['release-notes']);
     expect(names('zzz')).toEqual([]);
+    expect(names('p')).toEqual(['superpowers:writing-plans', 'compact']);
   });
 
   it('shows Codex skills for "$" and its commands for "/"', () => {

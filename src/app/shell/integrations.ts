@@ -24,7 +24,7 @@ description: Một câu nói khi nào agent nên dùng skill này.
   imports: [AgentAvatar],
   template: `
     <div class="integrations">
-      <header class="usage-head"><h1>Integrations</h1></header>
+      <header class="usage-head"><h1>Kết nối</h1></header>
       @if (error()) { <p class="error-text" role="alert">{{ error() }}</p> }
       @if (info()) { <p class="ok-text" role="status">{{ info() }}</p> }
 
@@ -35,7 +35,7 @@ description: Một câu nói khi nào agent nên dùng skill này.
           <span class="spacer"></span>
           <label class="check-line"><input type="checkbox" [checked]="bridgeOn()" (change)="setBridge($any($event.target).checked)" /> Bật cho mọi task Sửa code</label>
         </div>
-        <p class="dim form-note pad">Mỗi task nhận một MCP server <code>tg-bridge</code> với các tool: <code>report_progress</code> (tiến độ hiện ở Thread và Mission control), <code>write_note</code>/<code>read_notes</code> (ghi chú chung giữa các agent cùng task, xem ở tab Plan), <code>handoff_to</code> (đề xuất chuyển việc, bạn quyết định), <code>request_approval</code> (hiện thẻ duyệt), <code>get_task_context</code>. Chỉ nghe trên 127.0.0.1, mỗi task một token; tool nào có tác động đều phải qua bạn. Áp dụng cho lượt chạy mới.</p>
+        <p class="dim form-note pad">Mỗi task nhận một MCP server <code>tg-bridge</code> với các tool: <code>report_progress</code> (tiến độ hiện ở cuộc trò chuyện và màn Giám sát), <code>write_note</code>/<code>read_notes</code> (ghi chú chung giữa các agent cùng task, xem ở tab Kế hoạch &amp; ghi chú), <code>handoff_to</code> (đề xuất chuyển việc, bạn quyết định), <code>request_approval</code> (hiện thẻ duyệt), <code>get_task_context</code>. Chỉ nghe trên 127.0.0.1, mỗi task một token; tool nào có tác động đều phải qua bạn. Áp dụng cho lượt chạy mới.</p>
       </section>
 
       <section class="mission-block" aria-label="MCP servers">

@@ -46,7 +46,8 @@ export function filterCommands(list: AgentCommand[], q: CommandQuery, limit = 40
     const n = bare(c);
     if (!needle) return 1;
     if (n.startsWith(needle) || n.split(':').pop()!.startsWith(needle)) return 2;
-    return n.includes(needle) || c.description.toLowerCase().includes(needle) ? 1 : 0;
+    // One or two letters appear in almost every description; only names count until then.
+    return n.includes(needle) || (needle.length >= 3 && c.description.toLowerCase().includes(needle)) ? 1 : 0;
   };
   const hits = usable.map((c) => ({ c, s: score(c) })).filter((x) => x.s > 0);
   const out: { group: CommandGroup; items: AgentCommand[] }[] = [];
