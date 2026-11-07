@@ -392,12 +392,41 @@ export class RunsService {
     this.runs.update((list) => list.map((r) => (r.id === runId ? { ...r, task: false } : r)));
   }
 
+  /** Runs the user deleted: a late `exit` from their closing session must not bring them back. */
+  private readonly deleted = new Set<string>();
+
+  /** Deletes these runs from history and drops them from the screen. */
+  async deleteRuns(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    for (const id of ids) this.deleted.add(id);
+    try {
+      await this.backend.deleteRuns(ids);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // A failed cleanup still hid the history; anything else changed nothing.
+      if (!message.startsWith('Đã xoá cuộc trò chuyện')) {
+        for (const id of ids) this.deleted.delete(id);
+        throw e;
+      }
+      this.drop(ids);
+      throw e;
+    }
+    this.drop(ids);
+  }
+
+  private drop(ids: string[]): void {
+    const gone = new Set(ids);
+    this.runs.update((list) => list.filter((r) => !gone.has(r.id)));
+    if (gone.has(this.selectedId() ?? '')) this.selectedId.set(null);
+  }
+
   async stop(id: string): Promise<void> {
     this.stopping.add(id);
     await this.backend.stop(id);
   }
 
   private apply(e: AgentEvent): void {
+    if (this.deleted.has(e.runId)) return;
     this.lastEvent.update((all) => ({ ...all, [e.runId]: e.atMs }));
     if (e.kind === 'limits') {
       const windows = dataOf(e)['windows'];

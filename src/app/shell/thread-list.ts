@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { KEYS } from '../core/keys';
 import { AGENT_META } from '../core/protocol';
@@ -10,7 +11,7 @@ import { AgentAvatar } from './agent-avatar';
 /** Left column: projects and their conversations, then the screens beyond the chat. */
 @Component({
   selector: 'tg-thread-list',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, NgTemplateOutlet],
   template: `
     <div class="tl-top">
       <button class="tl-new" (click)="startNew()">
@@ -18,6 +19,40 @@ import { AgentAvatar } from './agent-avatar';
         Trò chuyện mới<span class="spacer"></span><span class="kbd">{{ keys.newChat }}</span>
       </button>
     </div>
+    <ng-template #row let-t>
+      @if (confirming() === t.id) {
+        <div class="tl-confirm" role="group" [attr.aria-label]="'Xoá ' + t.title">
+          <span class="grow">{{ confirmText(t) }}</span>
+          <button class="btn ghost sm" (click)="confirming.set(null)">Huỷ</button>
+          <button class="btn danger sm" [disabled]="removing()" (click)="remove(t)">Xoá</button>
+        </div>
+      } @else {
+        <div class="tl-item">
+            <button class="tl-thread" [class.active]="t.id === threads.selectedId() && ui.screen() === 'chat'" [title]="t.title + ' · ' + labelOf(t)" (click)="open(t)">
+                <span class="tl-agents" aria-hidden="true">
+                  @for (a of t.agents.slice(0, 3); track a) { <tg-agent-avatar [agent]="a" [size]="20" /> }
+                </span>
+                <span class="tl-title ellipsis">{{ t.title }}</span>
+                <span class="pill" [attr.data-status]="t.status">
+                  @switch (t.status) {
+                    @case ('running') { <span class="spin" aria-hidden="true"></span> }
+                    @case ('needs_you') { <span aria-hidden="true">●</span> }
+                    @case ('failed') { <span aria-hidden="true">✕</span> }
+                    @default { <span aria-hidden="true">✓</span> }
+                  }
+                  {{ labelOf(t) }}
+                </span>
+              </button>
+          <button class="tl-del" [attr.aria-label]="'Xoá ' + t.title"
+            [disabled]="t.status === 'running' || t.status === 'needs_you'"
+            [title]="t.status === 'running' || t.status === 'needs_you' ? 'Dừng agent trước khi xoá' : 'Xoá cuộc trò chuyện'"
+            (click)="ask(t)">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
+          </button>
+        </div>
+      }
+      @if (failed()?.id === t.id) { <p class="error-text tl-err">{{ failed()!.message }}</p> }
+    </ng-template>
     <nav class="tl-tree" aria-label="Dự án và cuộc trò chuyện">
       @for (p of threads.projects(); track p.root) {
         <section class="tl-project">
@@ -34,42 +69,14 @@ import { AgentAvatar } from './agent-avatar';
           </div>
           @if (!hidden().has(p.root)) {
             @for (t of p.threads; track t.id) {
-              <button class="tl-thread" [class.active]="t.id === threads.selectedId() && ui.screen() === 'chat'" [title]="t.title + ' · ' + label[t.status]" (click)="open(t)">
-                <span class="tl-agents" aria-hidden="true">
-                  @for (a of t.agents.slice(0, 3); track a) { <tg-agent-avatar [agent]="a" [size]="20" /> }
-                </span>
-                <span class="tl-title ellipsis">{{ t.title }}</span>
-                <span class="pill" [attr.data-status]="t.status">
-                  @switch (t.status) {
-                    @case ('running') { <span class="spin" aria-hidden="true"></span> }
-                    @case ('needs_you') { <span aria-hidden="true">●</span> }
-                    @case ('failed') { <span aria-hidden="true">✕</span> }
-                    @default { <span aria-hidden="true">✓</span> }
-                  }
-                  {{ label[t.status] }}
-                </span>
-              </button>
+              <ng-container *ngTemplateOutlet="row; context: { $implicit: t }" />
             } @empty {
               @if (p.root === workspace.folder() && !p.scopes.length) { <p class="dim tl-empty">Chưa có cuộc trò chuyện. Gõ yêu cầu ở ô chat để bắt đầu.</p> }
             }
             @for (g of p.scopes; track g.scope) {
               <div class="tl-scope mono ellipsis" [title]="g.scope">{{ g.scope }}/</div>
               @for (t of g.threads; track t.id) {
-                <button class="tl-thread" [class.active]="t.id === threads.selectedId() && ui.screen() === 'chat'" [title]="t.title + ' · ' + label[t.status]" (click)="open(t)">
-                <span class="tl-agents" aria-hidden="true">
-                  @for (a of t.agents.slice(0, 3); track a) { <tg-agent-avatar [agent]="a" [size]="20" /> }
-                </span>
-                <span class="tl-title ellipsis">{{ t.title }}</span>
-                <span class="pill" [attr.data-status]="t.status">
-                  @switch (t.status) {
-                    @case ('running') { <span class="spin" aria-hidden="true"></span> }
-                    @case ('needs_you') { <span aria-hidden="true">●</span> }
-                    @case ('failed') { <span aria-hidden="true">✕</span> }
-                    @default { <span aria-hidden="true">✓</span> }
-                  }
-                  {{ label[t.status] }}
-                </span>
-              </button>
+                <ng-container *ngTemplateOutlet="row; context: { $implicit: t }" />
               }
             }
           }
@@ -138,6 +145,39 @@ export class ThreadList {
   protected async open(t: Thread): Promise<void> {
     this.ui.screen.set('chat');
     await this.threads.select(t);
+  }
+
+  /** The conversation waiting for the user to confirm its deletion. */
+  protected readonly confirming = signal<string | null>(null);
+  protected readonly removing = signal(false);
+  protected readonly failed = signal<{ id: string; message: string } | null>(null);
+
+  /** The row template's context is untyped, so the label goes through a typed method. */
+  protected labelOf(t: Thread): string {
+    return this.label[t.status];
+  }
+
+  /** Only a draft loses work; changes made in the folder itself stay there. */
+  protected confirmText(t: Thread): string {
+    const drafts = this.runs.runs().some((r) => r.thread === t.id && r.task && r.perm !== 'read' && r.place !== 'direct');
+    return drafts ? 'Xoá cuộc trò chuyện? Bản nháp chưa nhận sẽ mất.' : 'Xoá cuộc trò chuyện? Code của bạn giữ nguyên.';
+  }
+
+  protected ask(t: Thread): void {
+    this.failed.set(null);
+    this.confirming.set(t.id);
+  }
+
+  protected async remove(t: Thread): Promise<void> {
+    this.removing.set(true);
+    try {
+      await this.threads.remove(t.id);
+    } catch (e) {
+      this.failed.set({ id: t.id, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      this.removing.set(false);
+      this.confirming.set(null);
+    }
   }
 
   protected async startNew(root?: string): Promise<void> {

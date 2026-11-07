@@ -394,6 +394,15 @@ export class MockBackend extends AgentBackend {
     this.runs.delete(runId);
   }
 
+  async deleteRuns(runIds: string[]): Promise<void> {
+    if (runIds.some((id) => this.runs.get(id)?.active)) throw new Error('Hãy dừng agent trước khi xoá cuộc trò chuyện.');
+    for (const id of runIds) {
+      if (this.runs.has(id)) await this.stop(id);
+      this.tasks.delete(id);
+      this.runs.delete(id);
+    }
+  }
+
   async listFiles(runId: string): Promise<string[]> {
     return [...this.task(runId).contents.keys()].sort();
   }
