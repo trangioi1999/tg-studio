@@ -3723,6 +3723,7 @@ dependencies = [
 name = "tg-studio"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "dunce",
  "rusqlite",
  "serde",
