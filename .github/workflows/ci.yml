@@ -1,15 +1,29 @@
 name: CI
 
+# Private repo: Actions minutes are limited (2,000/month), Windows bills 2x and macOS 10x.
+# One run per pull request, nothing for docs or the download site, and only Windows:
+# macOS is the development machine, where build + npm test + cargo test run before
+# every merge (AGENTS.md). Run it by hand (Actions → CI → Run workflow) when needed.
 on:
-  push:
   pull_request:
+    paths-ignore: ['docs/**', 'site/**', '**/*.md']
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: 'Chạy cả macOS (tốn gấp 10 lần phút)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: ${{ fromJSON(inputs.macos && '["windows-latest","macos-latest"]' || '["windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

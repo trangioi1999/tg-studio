@@ -53,7 +53,8 @@ Installer: dùng **NSIS** (`.exe`) làm mặc định cho người dùng cuối;
 
 ## 6. CI/CD (GitHub Actions) — đã có
 
-- `.github/workflows/ci.yml`: mỗi push/PR chạy `version:check`, build, `npm test`, `cargo test` trên macOS và Windows.
+- `.github/workflows/ci.yml`: mỗi PR chạy `version:check`, build, `npm test`, `cargo test` **trên Windows**; bỏ qua PR chỉ sửa `docs/`, `site/`, `*.md`. Không chạy khi push, kể cả vào `main`, để một PR chỉ tốn một lần chạy. macOS không chạy tự động (tính gấp 10 lần phút; repo riêng tư chỉ có 2.000 phút/tháng) vì máy phát triển là Mac và ba lệnh kiểm tra luôn chạy ở đó trước khi merge. Cần CI macOS: Actions → CI → Run workflow, tick *Chạy cả macOS*.
+- **Download site** và **Release** build bộ cài trên cả macOS và Windows nên tốn nhiều phút nhất: chỉ chạy khi phát hành.
 - `.github/workflows/release.yml`:
   - **Đẩy tag `vX.Y.Z`** (khớp `package.json`, kiểm tra tự động): test rồi `tauri-action` build macOS (universal) + Windows và tạo **bản nháp** release kèm installer. Tag có dấu `-` (ví dụ `v0.2.0-beta.1`) thành prerelease.
   - **Chạy tay** (Actions → Release → Run workflow; cần workflow đã có trên nhánh mặc định): build và để installer ở mục *Artifacts* của lần chạy, không tạo release.
