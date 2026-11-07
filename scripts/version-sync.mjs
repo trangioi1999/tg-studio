@@ -1,5 +1,5 @@
-// One source of truth for the version: package.json. Copies it into
-// src-tauri/Cargo.toml and src-tauri/tauri.conf.json.
+// One source of truth for the version: package.json. Copies it into src-tauri/Cargo.toml,
+// src-tauri/Cargo.lock, package-lock.json and src-tauri/tauri.conf.json.
 //   node scripts/version-sync.mjs          write
 //   node scripts/version-sync.mjs --check  exit 1 if any file differs (CI)
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -17,6 +17,25 @@ const files = [
     // Only the [package] version, the first `version =` line.
     read: (text) => /^version = "([^"]+)"/m.exec(text)?.[1],
     write: (text) => text.replace(/^version = "[^"]+"/m, `version = "${version}"`),
+  },
+  {
+    // The lockfiles carry the version too; a stale one shows up as a diff after the next build.
+    path: 'src-tauri/Cargo.lock',
+    read: (text) => /\[\[package\]\]\nname = "tg-studio"\nversion = "([^"]+)"/.exec(text)?.[1],
+    write: (text) => text.replace(/(\[\[package\]\]\nname = "tg-studio"\nversion = )"[^"]+"/, `$1"${version}"`),
+  },
+  {
+    path: 'package-lock.json',
+    read: (text) => {
+      const lock = JSON.parse(text);
+      return lock.version === lock.packages?.['']?.version ? lock.version : null;
+    },
+    write: (text) => {
+      const lock = JSON.parse(text);
+      lock.version = version;
+      if (lock.packages?.['']) lock.packages[''].version = version;
+      return JSON.stringify(lock, null, 2) + '\n';
+    },
   },
   {
     path: 'src-tauri/tauri.conf.json',

@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.2.0] - 2026-11-07
+
 ### Chat mượt hơn (2026-11-07)
 - Bấm gửi là tin nhắn hiện ngay kèm "Đang khởi động …", không còn đứng màn hình vài giây trong lúc agent mở phiên; không gửi được thì chữ trở lại ô chat.
 - Xoá cuộc trò chuyện ở cột trái (xác nhận ngay tại dòng): xoá lịch sử chat và bản nháp, giữ nguyên code của bạn và số liệu Chi phí.
