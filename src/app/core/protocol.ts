@@ -44,6 +44,20 @@ export interface AgentOptions {
   effort: ConfigSelect | null;
 }
 
+/** A skill or command the agent offers in a session. Mirrors `options::AgentCommand`. */
+export interface AgentCommand {
+  /** As the adapter sends it: "tg-demo-skill", "superpowers:writing-plans", "$tg-codex-skill", "compact". */
+  name: string;
+  /** Without the source marker. */
+  description: string;
+  kind: 'skill' | 'command';
+  source: 'project' | 'user' | 'plugin' | null;
+  plugin: string | null;
+  hint: string | null;
+  /** What goes into the composer: "/tg-demo-skill ", "$tg-codex-skill ", "/plan ". */
+  insert: string;
+}
+
 export interface Usage {
   /** Uncached input tokens. */
   inputTokens: number;
@@ -76,7 +90,7 @@ export interface AccountLimits {
 }
 
 export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit' | 'limits'
-  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge' | 'user' | 'turn_end';
+  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge' | 'user' | 'turn_end' | 'commands';
 
 /** A tg-bridge note shared by the runs of one task. Keep in sync with ledger.rs `BridgeNote`. */
 export interface BridgeNote {

@@ -1,8 +1,10 @@
 # Hiện skill và lệnh của agent trong app
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Mở dự án B là thấy ngay các skill mà agent đọc được (của dự án, của máy, của plugin), và gọi được chúng từ ô chat.
+
+**Kết quả (2026-11-07):** chủ repo chưa tự giao qua app, nên làm theo cách cũ: Codex làm S1 qua `codex exec` trong worktree, Claude làm S2 song song theo giao diện chốt sẵn. Mục "Cách làm qua TG Studio" giữ làm mẫu cho đợt sau.
 
 **Đây là đợt đầu tiên giao việc qua chính TG Studio.** Mỗi task là một cuộc trò chuyện trong app (cách làm ở cuối tài liệu). Chỗ nào vướng khi dùng app thì ghi vào mục **Vướng khi tự dùng** của `2026-11-07-chat-polish.md`.
 
@@ -63,25 +65,25 @@ pub struct AgentCommand {
 
 ## S1 — Lõi (Codex)
 
-- [ ] `pub fn parse_commands(agent: AgentKind, update: &Value, cwd: Option<&Path>) -> Vec<AgentCommand>` đọc `update["availableCommands"]`. Luật phân loại:
+- [x] `pub fn parse_commands(agent: AgentKind, update: &Value, cwd: Option<&Path>) -> Vec<AgentCommand>` đọc `update["availableCommands"]`. Luật phân loại:
   - Claude: description kết thúc ` (project)` → skill/project; ` (user)` → skill/user; bắt đầu `(<x>) ` và `name` có `:` → skill/plugin, `plugin = x`. Còn lại → command, source `null`. `insert = "/" + name + " "`.
   - Codex: `name` bắt đầu `$` → skill; có `:` → plugin (`plugin` = phần trước `:`, bỏ `$`); không thì source = `project` nếu tồn tại `<cwd>/.agents/skills/<tên không có $>/SKILL.md`, còn lại `user`. `insert = name + " "`. Không bắt đầu `$` → command, `insert = "/" + name + " "`.
   - Agent khác: mọi mục là command, `insert = "/" + name + " "`.
   - Bỏ mục `name` rỗng; giữ thứ tự adapter gửi.
-- [ ] `TaskSession::on_notification`: `available_commands_update` → `queue_data("commands", json!({"commands": parse_commands(self.agent, update, Some(<thư mục làm việc của phiên>))}))`.
-- [ ] Tách phần spawn + `initialize` + `session/new` trong `agent_options` thành hàm dùng chung; `agent_options` giữ nguyên hành vi. Lệnh mới `agent_commands`: handler riêng ghi lại `available_commands_update` đầu tiên; sau `session/new` chờ tối đa 5 s cho tới khi có; hết giờ thì trả `Ok(vec![])`. Không prompt, không tốn token. Đăng ký trong `lib.rs`.
-- [ ] Test: hai fixture ở trên (Claude: 2 skill dự án/máy, 2 skill plugin `superpowers`, `dataviz`/`compact`/`model`/`init`/`code-review` là command, `hint` của `code-review`; Codex với `cwd` tạm có `.agents/skills/tg-codex-skill/SKILL.md` → project, `$documents:documents` → plugin `documents`, `plan` → command `/plan `); `TaskSession` phát event `commands` khi nhận update (dùng agent giả `acp/fake.rs` hoặc gọi thẳng `on_notification` như test `usage_update` sẵn có).
-- [ ] Test thật `#[ignore]` `live_agent_commands_lists_project_skill`: repo tạm có `.claude/skills/tg-live-skill/SKILL.md`, `agent_commands(Claude, repo)` có mục `tg-live-skill` source `project`.
+- [x] `TaskSession::on_notification`: `available_commands_update` → `queue_data("commands", json!({"commands": parse_commands(self.agent, update, Some(<thư mục làm việc của phiên>))}))`.
+- [x] Tách phần spawn + `initialize` + `session/new` trong `agent_options` thành hàm dùng chung; `agent_options` giữ nguyên hành vi. Lệnh mới `agent_commands`: handler riêng ghi lại `available_commands_update` đầu tiên; sau `session/new` chờ tối đa 5 s cho tới khi có; hết giờ thì trả `Ok(vec![])`. Không prompt, không tốn token. Đăng ký trong `lib.rs`.
+- [x] Test: hai fixture ở trên (Claude: 2 skill dự án/máy, 2 skill plugin `superpowers`, `dataviz`/`compact`/`model`/`init`/`code-review` là command, `hint` của `code-review`; Codex với `cwd` tạm có `.agents/skills/tg-codex-skill/SKILL.md` → project, `$documents:documents` → plugin `documents`, `plan` → command `/plan `); `TaskSession` phát event `commands` khi nhận update (dùng agent giả `acp/fake.rs` hoặc gọi thẳng `on_notification` như test `usage_update` sẵn có).
+- [x] Test thật `#[ignore]` `live_agent_commands_lists_project_skill`: repo tạm có `.claude/skills/tg-live-skill/SKILL.md`, `agent_commands(Claude, repo)` có mục `tg-live-skill` source `project`.
 
 ## S2 — UI (Claude)
 
-- [ ] `protocol.ts`: `AgentCommand` khớp struct trên; `'commands'` vào `AgentEventKind`.
-- [ ] `AgentBackend.agentCommands(agent, cwd)` ở cả hai backend. Mock trả danh sách giống fixture (1 skill dự án, 1 skill máy, 2 skill plugin, vài command).
-- [ ] `AgentsService.commands`: cache theo `agent + thư mục dự án`, nạp khi mở dự án hoặc đổi agent (không chặn UI, lỗi thì im lặng và để trống); event `commands` của run đang mở cập nhật cache của agent/dự án đó.
-- [ ] Ô chat: gõ `/` ở đầu ô (mọi agent) hoặc `$` ở đầu một từ (Codex) → popover lọc theo chữ gõ tiếp, nhóm **Skill của dự án** · **Skill trên máy** · **Plugin** · **Lệnh**, mỗi dòng: tên, mô tả một dòng, `hint` mờ. ↑/↓ chọn, Enter/Tab chèn `insert`, Esc đóng; không cản `@mention` sẵn có. Chưa có danh sách thì hiện "Đang đọc skill của {agent}…".
-- [ ] Màn Kết nối, phần Skills: thêm mục **Skill agent đang thấy ở {dự án}** (chỉ đọc), mỗi agent một nhóm, ghi nguồn; mục thư viện của app giữ nguyên.
-- [ ] Spec: lọc và nhóm; Enter chèn đúng `insert`; Esc không gửi; event `commands` cập nhật danh sách; mock mode qua Playwright: gõ `/` thấy skill dự án.
-- [ ] Cập nhật `docs/user-guide.md` (gõ `/`, `$`) và `CLAUDE.md` (event `commands`, `agent_commands`).
+- [x] `protocol.ts`: `AgentCommand` khớp struct trên; `'commands'` vào `AgentEventKind`.
+- [x] `AgentBackend.agentCommands(agent, cwd)` ở cả hai backend. Mock trả danh sách giống fixture (1 skill dự án, 1 skill máy, 2 skill plugin, vài command).
+- [x] `AgentsService.commands`: cache theo `agent + thư mục dự án`, nạp lần đầu khi người dùng gõ `/`/`$` hoặc mở màn Kết nối (không mở adapter mỗi lần mở dự án) (không chặn UI, lỗi thì im lặng và để trống); event `commands` của run đang mở cập nhật cache của agent/dự án đó.
+- [x] Ô chat: gõ `/` ở đầu ô (mọi agent) hoặc `$` ở đầu một từ (Codex) → popover lọc theo chữ gõ tiếp, nhóm **Skill của dự án** · **Skill trên máy** · **Plugin** · **Lệnh**, mỗi dòng: tên, mô tả một dòng, `hint` mờ. ↑/↓ chọn, Enter/Tab chèn `insert`, Esc đóng; không cản `@mention` sẵn có. Chưa có danh sách thì hiện "Đang đọc skill của {agent}…".
+- [x] Màn Kết nối, phần Skills: thêm mục **Skill agent đang thấy ở {dự án}** (chỉ đọc), mỗi agent một nhóm, ghi nguồn; mục thư viện của app giữ nguyên.
+- [x] Spec: lọc và nhóm; Enter chèn đúng `insert`; Esc không gửi; event `commands` cập nhật danh sách; mock mode qua Playwright: gõ `/` thấy skill dự án.
+- [x] Cập nhật `docs/user-guide.md` (gõ `/`, `$`) và `CLAUDE.md` (event `commands`, `agent_commands`).
 
 ## Cách làm qua TG Studio
 

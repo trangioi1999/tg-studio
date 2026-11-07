@@ -58,6 +58,8 @@ Dưới ô chat có hai nút:
 
 Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện; agent mới nhận tóm tắt những gì đã nói.
 
+Gọi skill: gõ `/` ở đầu ô chat để mở danh sách skill và lệnh của agent đang chọn, chia nhóm **Skill của dự án**, **Skill trên máy**, **Plugin**, **Lệnh**. Gõ tiếp để lọc, ↑/↓ để chọn, Enter hoặc Tab để chèn, Esc để đóng. Với Codex, skill gọi bằng `$` ở bất kỳ đâu trong câu. App đọc danh sách từ chính agent (mở phiên không gửi prompt, không tốn token), nên skill trong `.claude/skills/` (Claude) hay `.agents/skills/` (Codex) của dự án đều hiện ra. Màn **Kết nối** có mục *Skill agent đang thấy* liệt kê đủ cho dự án đang mở.
+
 Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm biểu tượng thùng rác rồi **Xoá**. Lịch sử chat và bản nháp của nó bị xoá; thay đổi đã nằm trong code của bạn vẫn giữ nguyên, số liệu Chi phí không đổi. Không xoá được khi agent đang chạy.
 
 Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) gom vào một dòng **Nhật ký làm việc**: mở ra khi agent đang làm, tự thu gọn khi xong. Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).

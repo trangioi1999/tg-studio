@@ -18,6 +18,7 @@ struct EventQueue { emitting: bool, queued: VecDeque<AgentEvent> }
 pub struct TaskSession {
     run_id: String,
     agent: AgentKind,
+    cwd: std::path::PathBuf,
     sink: Arc<dyn EventSink>,
     rules: Arc<dyn RuleMemory>,
     sandbox: Arc<Sandbox>,
@@ -48,7 +49,7 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask)})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     pub fn set_approval(&self, approval:Approval) { *self.approval.lock().unwrap() = approval; }
@@ -210,6 +211,7 @@ impl ClientHandler for TaskSession {
                 }
             }
             Some("tool_call" | "tool_call_update") => self.queue_data("tool",update.clone()),
+            Some("available_commands_update") => self.queue_data("commands", json!({"commands": crate::options::parse_commands(self.agent, update, Some(&self.cwd))})),
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
                 if let Some(windows) = crate::usage::parse_rate_limit(&update["_meta"]["_claude/rateLimit"]) {
@@ -262,6 +264,27 @@ impl ClientHandler for TaskSession {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn available_commands_update_emits_commands_using_session_directory() {
+        let root = std::env::temp_dir().join(format!("tg-session-commands-{}", uuid::Uuid::new_v4()));
+        let skill = root.join(".agents/skills/tg-codex-skill");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "test").unwrap();
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Codex, &root, sink.clone(), Arc::new(Memory::default())).unwrap();
+        let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/codex-acp/2.5.0/available-commands.json")).unwrap();
+        session.on_notification("session/update", fixture["params"].clone());
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"available_commands_update", "availableCommands":[]}}));
+        let events = sink.0.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "commands");
+        let commands = &events[0].data.as_ref().unwrap()["commands"];
+        assert_eq!(commands[4]["source"], "project");
+        assert_eq!(commands[4]["insert"], "$tg-codex-skill ");
+        assert_eq!(events[1].data.as_ref().unwrap()["commands"], json!([]));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn usage_update_with_claude_rate_limit_emits_limits() {
         let sink = Arc::new(Recorder::default());

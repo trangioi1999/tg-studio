@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
-import { AgentId, AgentOptions, DetectedAgent, SessionPrefs } from './protocol';
+import { AgentCommand, AgentId, AgentOptions, DetectedAgent, SessionPrefs } from './protocol';
 
 const PREFS_KEY = 'tg.prefs';
 
@@ -26,6 +26,10 @@ function parseCache(raw: string | null): DetectedAgent[] {
   }
 }
 
+function commandsKey(agent: AgentId, cwd: string | null): string {
+  return `${agent}|${cwd ?? ''}`;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentsService {
   private readonly backend = inject(AgentBackend);
@@ -43,6 +47,38 @@ export class AgentsService {
   readonly prefs = signal<Partial<Record<AgentId, SessionPrefs>>>(loadPrefs());
   /** Why reading an agent's choices failed, word for word, so the user can report it. */
   readonly optionsError = signal<Partial<Record<AgentId, string>>>({});
+
+  /**
+   * Skills and commands each agent offers, per project folder: read once by opening a session
+   * without a prompt, then kept current by the `commands` events of live sessions.
+   */
+  readonly commands = signal<Record<string, AgentCommand[] | 'loading'>>({});
+
+  commandsFor(agent: AgentId | '', cwd: string | null): AgentCommand[] | 'loading' | null {
+    return agent ? (this.commands()[commandsKey(agent, cwd)] ?? null) : null;
+  }
+
+  /** Asks the agent once per folder; a failure leaves the list empty until asked again. */
+  async loadCommands(agent: AgentId, cwd: string | null): Promise<void> {
+    const key = commandsKey(agent, cwd);
+    if (this.commands()[key]) return;
+    this.commands.update((c) => ({ ...c, [key]: 'loading' }));
+    try {
+      const found = await this.backend.agentCommands(agent, cwd || null);
+      // A live session may have reported meanwhile; it is at least as fresh.
+      this.commands.update((c) => (c[key] === 'loading' ? { ...c, [key]: found } : c));
+    } catch (e) {
+      console.warn('Không đọc được skill của agent', e);
+      this.commands.update((c) => {
+        const { [key]: _, ...rest } = c;
+        return rest;
+      });
+    }
+  }
+
+  setCommands(agent: AgentId, cwd: string | null, list: AgentCommand[]): void {
+    this.commands.update((c) => ({ ...c, [commandsKey(agent, cwd)]: list }));
+  }
 
   prefsFor(agent: AgentId): SessionPrefs | null {
     const p = this.prefs()[agent];

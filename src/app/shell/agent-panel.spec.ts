@@ -349,4 +349,40 @@ describe('AgentPanel composer', () => {
     expect(panel.prompt()).toBe('sửa lỗi đăng nhập');
     expect(panel.pending()).toBeNull();
   });
+
+  it('offers the agent skills after "/" and inserts the picked one instead of sending', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & {
+      onInput(box: { value: string; selectionStart: number }): void;
+      onKeyDown(e: KeyboardEvent): void;
+      cmdMenu(): { loading: boolean; groups: { group: string; items: { name: string }[] }[] } | null;
+    };
+    p.onInput({ value: '/rel', selectionStart: 4 });
+    expect(p.cmdMenu()?.loading).toBe(true);
+    await vi.waitFor(() => expect(p.cmdMenu()?.loading).toBe(false));
+    expect(p.cmdMenu()?.groups.map((g) => g.group)).toEqual(['project']);
+    p.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(p.prompt()).toBe('/release-notes ');
+    expect(backend.starts).toBe(0);
+    expect(p.cmdMenu()).toBeNull();
+  });
+
+  it('closes the skill list with Esc without sending', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { onInput(box: { value: string; selectionStart: number }): void; onKeyDown(e: KeyboardEvent): void; cmdMenu(): unknown };
+    p.onInput({ value: '/', selectionStart: 1 });
+    expect(p.cmdMenu()).not.toBeNull();
+    p.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(p.cmdMenu()).toBeNull();
+    expect(backend.starts).toBe(0);
+  });
+
+  it('keeps the skill list current from a live session', async () => {
+    const { panel } = await setup();
+    const agents = TestBed.inject(AgentsService);
+    agents.setCommands('claude', '/demo', [{ name: 'moi', description: 'Skill vừa thêm', kind: 'skill', source: 'project', plugin: null, hint: null, insert: '/moi ' }]);
+    const p = panel as unknown as Composer & { onInput(box: { value: string; selectionStart: number }): void; cmdMenu(): { groups: { items: { name: string }[] }[] } | null };
+    p.onInput({ value: '/mo', selectionStart: 3 });
+    expect(p.cmdMenu()?.groups.flatMap((g) => g.items.map((i) => i.name))).toEqual(['moi']);
+  });
 });

@@ -1,3 +1,4 @@
+import { AgentsService } from './agents.service';
 import { TestBed } from '@angular/core/testing';
 import { vi } from 'vitest';
 import { MockBackend } from './mock-backend';
@@ -433,6 +434,20 @@ describe('RunsService plan limits', () => {
     await flush();
     expect(service.limits().claude?.at).toBe(500);
     expect(service.limits().codex?.at).toBe(50);
+  });
+});
+
+describe('RunsService agent commands', () => {
+  it('keeps the skills a live session reports for its agent and folder', async () => {
+    const backend = new FakeBackend();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const service = TestBed.inject(RunsService);
+    await flush();
+    backend.handler(liveEvent({ kind: 'started', atMs: 1 }));
+    const run = service.runs()[0];
+    const commands = [{ name: '$doc', description: 'd', kind: 'skill', source: 'project', plugin: null, hint: null, insert: '$doc ' }];
+    backend.handler(liveEvent({ kind: 'commands', data: { commands }, atMs: 2 }));
+    expect(TestBed.inject(AgentsService).commandsFor('codex', run.project || run.cwd || null)).toEqual(commands);
   });
 });
 

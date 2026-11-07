@@ -11,8 +11,8 @@ Thiết kế: `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Thứ t�
 - [ ] **M0** Windows ổn — đã xong phần code; còn thử bản cài trên máy thật
 - [x] **M1** Mở dự án đầy đủ: dự án gần đây, chuẩn bị Git, xem source chỉ đọc, cảnh báo tệp chưa commit. Chưa làm: kéo thả thư mục
 - [x] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
-- [ ] **M3** Chat trong một phiên agent (đã xong, kiểm chứng với Claude thật; còn kiểm chứng Codex)
-- [ ] **M4** Bố cục mới (đã xong: chat ở giữa, cây dự án → cuộc trò chuyện, panel phải; còn lưu trữ cuộc trò chuyện)
+- [x] **M3** Chat trong một phiên agent: kiểm chứng với Claude và Codex thật (Codex 2026-11-07: cùng tiến trình nhớ câu trước, `session/load` nối lại được)
+- [x] **M4** Bố cục mới: chat ở giữa, cây dự án → cuộc trò chuyện, panel phải, xoá cuộc trò chuyện (thay cho lưu trữ, theo chủ repo); gọi skill của agent bằng `/`
 - [ ] **M5** Thuật ngữ đã đổi; còn cập nhật tài liệu người dùng, ảnh chụp, nghiệm thu macOS và Windows
 
 ## Giai đoạn 0 — Nền móng (tuần 1–2)
