@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.4.0] - 2026-11-07
+
 ### Thay đổi
 - Làm lại màn Chi phí: thẻ tổng quan, biểu đồ theo ngày, phần "Hạn mức gói" gộp vào màn này.
 - Làm lại màn Kết nối (MCP server, skill, lệnh của agent) cho gọn và dễ đọc hơn.
