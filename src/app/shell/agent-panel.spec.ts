@@ -42,6 +42,7 @@ interface Composer {
   gitPlan(): { ignore: string[] } | null;
   planGit(): Promise<void>;
   prepareGit(): Promise<void>;
+  pending(): { text: string } | null;
 }
 
 async function setup() {
@@ -307,5 +308,28 @@ describe('AgentPanel composer', () => {
     await panel.send();
     expect(panel.error()).toContain('không tạo được worktree');
     expect(panel.prompt()).toBe('việc lớn');
+  });
+
+  it('shows the message and clears the box before the agent has started', async () => {
+    const { backend, panel } = await setup();
+    let finish!: (id: string) => void;
+    backend.startResult = () => new Promise((resolve) => (finish = resolve));
+    panel.prompt.set('sửa lỗi đăng nhập');
+    const sending = panel.send();
+    await vi.waitFor(() => expect(backend.starts).toBe(1));
+    expect(panel.prompt()).toBe('');
+    expect(panel.pending()?.text).toBe('sửa lỗi đăng nhập');
+    finish('run');
+    await sending;
+  });
+
+  it('gives the words back when the agent cannot start', async () => {
+    const { backend, panel } = await setup();
+    backend.startResult = () => Promise.reject(new Error('adapter không chạy'));
+    panel.prompt.set('sửa lỗi đăng nhập');
+    await panel.send();
+    expect(panel.error()).toContain('adapter không chạy');
+    expect(panel.prompt()).toBe('sửa lỗi đăng nhập');
+    expect(panel.pending()).toBeNull();
   });
 });
