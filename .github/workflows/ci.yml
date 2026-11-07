@@ -1,12 +1,9 @@
 name: CI
 
-# Private repo: Actions minutes are limited (2,000/month), Windows bills 2x and macOS 10x.
-# One run per pull request, nothing for docs or the download site, and only Windows:
-# macOS is the development machine, where build + npm test + cargo test run before
-# every merge (AGENTS.md). Run it by hand (Actions → CI → Run workflow) when needed.
+# Runs only by hand (Actions → CI → Run workflow, or `gh workflow run CI`): Actions minutes
+# are limited and the owner decides when to spend them. build + npm test + cargo test run
+# on the development Mac before every merge (AGENTS.md); this adds Windows (and macOS).
 on:
-  pull_request:
-    paths-ignore: ['docs/**', 'site/**', '**/*.md']
   workflow_dispatch:
     inputs:
       macos:
