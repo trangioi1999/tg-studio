@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand } from './protocol';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -184,6 +184,26 @@ export class MockBackend extends AgentBackend {
 
   async readProjectFile(_root: string, path: string): Promise<string> {
     return `// ${path}\n// Nội dung mẫu của mock mode.\n`;
+  }
+
+  async agentCommands(agent: AgentId): Promise<AgentCommand[]> {
+    await new Promise((r) => setTimeout(r, 300));
+    const c = (name: string, description: string, kind: AgentCommand['kind'], source: AgentCommand['source'], insert: string, plugin: string | null = null, hint: string | null = null): AgentCommand =>
+      ({ name, description, kind, source, plugin, hint, insert });
+    if (agent === 'codex') return [
+      c('$review-checklist', 'Danh sách kiểm tra khi review của dự án', 'skill', 'project', '$review-checklist '),
+      c('$documents:documents', 'Tạo và sửa tài liệu .docx', 'skill', 'plugin', '$documents:documents ', 'documents'),
+      c('plan', 'Turn plan mode on.', 'command', null, '/plan '),
+      c('review', 'Review uncommitted changes, or review with custom instructions.', 'command', null, '/review '),
+    ];
+    return [
+      c('release-notes', 'Viết ghi chú phát hành theo mẫu của dự án', 'skill', 'project', '/release-notes '),
+      c('formflow-init', 'FormFlow Angular Project Scaffold', 'skill', 'user', '/formflow-init '),
+      c('superpowers:brainstorming', 'You MUST use this before any creative work', 'skill', 'plugin', '/superpowers:brainstorming ', 'superpowers'),
+      c('superpowers:writing-plans', 'Use when you have a spec or requirements for a multi-step task', 'skill', 'plugin', '/superpowers:writing-plans ', 'superpowers'),
+      c('compact', 'Free up context by summarizing the conversation so far', 'command', null, '/compact ', null, '<optional custom summarization instructions>'),
+      c('model', 'Set the AI model for Claude Code', 'command', null, '/model ', null, '<model>'),
+    ];
   }
 
   async agentOptions(agent: AgentId): Promise<AgentOptions> {

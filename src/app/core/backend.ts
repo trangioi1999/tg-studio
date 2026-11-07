@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -24,6 +24,8 @@ export abstract class AgentBackend {
   abstract start(agent: AgentId, prompt: string, cwd: string, thread?: string | null, resumeFrom?: string | null, scope?: string | null, prefs?: SessionPrefs | null): Promise<string>;
   /** Opens a session without prompting to read the agent's model and effort choices. */
   abstract agentOptions(agent: AgentId, cwd: string | null): Promise<AgentOptions>;
+  /** Skills and commands the agent offers in this folder; opens a session without a prompt (no tokens). */
+  abstract agentCommands(agent: AgentId, cwd: string | null): Promise<AgentCommand[]>;
   /** Window buttons of the app's own title bar. */
   abstract windowAction(action: 'minimize' | 'maximize' | 'close'): Promise<void>;
   /**
@@ -126,6 +128,9 @@ export class TauriBackend extends AgentBackend {
   }
   start(agent: AgentId, prompt: string, cwd: string, thread: string | null = null, resumeFrom: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null) {
     return invoke<string>('start_agent', { agent, prompt, cwd, thread, resumeFrom, scope, prefs });
+  }
+  agentCommands(agent: AgentId, cwd: string | null) {
+    return invoke<AgentCommand[]>('agent_commands', { agent, cwd });
   }
   agentOptions(agent: AgentId, cwd: string | null) {
     return invoke<AgentOptions>('agent_options', { agent, cwd });

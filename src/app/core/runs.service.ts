@@ -4,7 +4,7 @@ import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -512,6 +512,11 @@ export class RunsService {
           return { ...run, usage: mergeUsage(run.usage, e.usage) };
         case 'limits':
           return run; // handled above: limits belong to the account, not the run
+        case 'commands': {
+          const list = dataOf(e)['commands'];
+          if (Array.isArray(list)) this.agents.setCommands(run.agent, run.project || run.cwd || null, list as AgentCommand[]);
+          return run;
+        }
         case 'bridge': {
           const d = dataOf(e);
           const lines = e.line ? addLine(run.lines, { text: e.line, tone: 'tool' }).slice(-MAX_LINES) : run.lines;

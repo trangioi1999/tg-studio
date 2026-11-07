@@ -1,4 +1,4 @@
-import { Component, HostListener, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, ElementRef, HostListener, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
 import { BudgetService } from '../core/budget.service';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
@@ -6,7 +6,8 @@ import { KEYS } from '../core/keys';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../core/pipeline.service';
 import { estimateCost } from '../core/pricing';
 import { AgentBackend } from '../core/backend';
-import { AGENT_IDS, AGENT_META, AgentId, BridgeNote, GitPlan } from '../core/protocol';
+import { AGENT_IDS, AGENT_META, AgentCommand, AgentId, BridgeNote, GitPlan } from '../core/protocol';
+import { GROUP_LABEL, commandQuery, filterCommands, insertCommand } from '../core/commands';
 import { Run, RunsService, isQuiet, recapOf, turnStart } from '../core/runs.service';
 import { ThreadsService } from '../core/threads.service';
 import { UiService } from '../core/ui.service';
@@ -40,10 +41,33 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
             @if (!run()) { <button class="link" (click)="threads.draftScope.set(null)">Bỏ</button> }
           </div>
         }
+        @if (cmdMenu(); as cm) {
+          <div class="pop cmd-pop" role="listbox" id="cmd-list" aria-label="Skill và lệnh của agent">
+            @if (cm.loading) {
+              <p class="pop-note"><span class="spin"></span> Đang đọc skill của {{ cm.agent }}…</p>
+            } @else {
+              @for (g of cm.groups; track g.group) {
+                <div class="cmd-group">{{ groupLabel[g.group] }}</div>
+                @for (c of g.items; track c.name) {
+                  <button role="option" class="cmd-opt" [class.on]="cm.active === c" [attr.aria-selected]="cm.active === c"
+                    (mousedown)="$event.preventDefault()" (click)="pickCommand(c)">
+                    <span class="cmd-name mono">{{ c.insert.trim() }}</span>
+                    @if (c.hint) { <span class="cmd-hint mono">{{ c.hint }}</span> }
+                    <span class="cmd-desc ellipsis">{{ c.description }}</span>
+                  </button>
+                }
+              } @empty {
+                <p class="pop-note">{{ cm.agent }} không có skill hay lệnh nào khớp "{{ cm.query }}".</p>
+              }
+            }
+          </div>
+        }
         <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
-        <textarea id="prompt" [rows]="run() ? 2 : 3" [placeholder]="placeholder()"
-          [value]="prompt()" (input)="prompt.set($any($event.target).value)"
-          (keydown.enter)="onEnter($any($event))"></textarea>
+        <textarea id="prompt" #promptBox [rows]="run() ? 2 : 3" [placeholder]="placeholder()"
+          [value]="prompt()" (input)="onInput($any($event.target))"
+          (click)="caret.set($any($event.target).selectionStart)" (keyup)="onKeyUp($any($event))"
+          [attr.aria-controls]="cmdMenu() ? 'cmd-list' : null" [attr.aria-expanded]="!!cmdMenu()"
+          (keydown)="onKeyDown($any($event))"></textarea>
         <div class="cmp-bar">
           <div class="pop-anchor">
             <button class="chip-btn" [class.open]="menu() === 'agent'" aria-haspopup="true" [attr.aria-expanded]="menu() === 'agent'" [title]="'Chọn agent và model (' + keys.model + ')'" (click)="toggleMenu('agent')">
@@ -1032,6 +1056,84 @@ export class AgentPanel {
     if (e.shiftKey || e.isComposing) return;
     e.preventDefault();
     void this.send();
+  }
+
+  // Skills and commands: "/" at the start of the message, or "$" for Codex.
+  private readonly promptBox = viewChild<ElementRef<HTMLTextAreaElement>>('promptBox');
+  protected readonly caret = signal(0);
+  protected readonly groupLabel = GROUP_LABEL;
+  private readonly cmdIndex = signal(0);
+  /** Closed with Esc until the typed word changes. */
+  private readonly cmdDismissed = signal<string | null>(null);
+  private readonly cmdQuery = computed(() => commandQuery(this.prompt(), this.caret(), this.agent()));
+  protected readonly cmdMenu = computed(() => {
+    const q = this.cmdQuery();
+    const agent = this.agent();
+    if (!q || !agent || this.cmdDismissed() === `${q.start}:${q.query}`) return null;
+    const list = this.agents.commandsFor(agent, this.workspace.folder());
+    const name = AGENT_META[agent].name;
+    if (list === null || list === 'loading') return { agent: name, query: q.query, loading: true, groups: [], active: null as AgentCommand | null };
+    const groups = filterCommands(list, q);
+    const flat = groups.flatMap((g) => g.items);
+    const active = flat.length ? flat[Math.min(this.cmdIndex(), flat.length - 1)] : null;
+    return { agent: name, query: q.query, loading: false, groups, active, flat };
+  });
+  /** The list is read the first time the user asks for it, not on every folder opened. */
+  private readonly cmdLoad = effect(() => {
+    const agent = this.agent();
+    if (!this.cmdQuery() || !agent) return;
+    const folder = this.workspace.folder();
+    untracked(() => void this.agents.loadCommands(agent, folder));
+  });
+
+  protected onInput(box: HTMLTextAreaElement): void {
+    this.prompt.set(box.value);
+    this.caret.set(box.selectionStart);
+    this.cmdIndex.set(0);
+  }
+
+  protected onKeyUp(e: KeyboardEvent): void {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) this.caret.set((e.target as HTMLTextAreaElement).selectionStart);
+  }
+
+  protected onKeyDown(e: KeyboardEvent): void {
+    const menu = this.cmdMenu();
+    const flat = menu && !menu.loading ? menu.flat ?? [] : [];
+    if (menu && !e.isComposing) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        const q = this.cmdQuery()!;
+        this.cmdDismissed.set(`${q.start}:${q.query}`);
+        return;
+      }
+      if (flat.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        const i = flat.indexOf(menu.active!);
+        this.cmdIndex.set((i + (e.key === 'ArrowDown' ? 1 : flat.length - 1)) % flat.length);
+        return;
+      }
+      if (menu.active && ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab')) {
+        e.preventDefault();
+        this.pickCommand(menu.active);
+        return;
+      }
+    }
+    if (e.key === 'Enter') this.onEnter(e);
+  }
+
+  protected pickCommand(c: AgentCommand): void {
+    const q = this.cmdQuery();
+    if (!q) return;
+    const done = insertCommand(this.prompt(), this.caret(), q, c);
+    this.prompt.set(done.text);
+    this.caret.set(done.caret);
+    const box = this.promptBox()?.nativeElement;
+    if (box) {
+      box.value = done.text;
+      box.focus();
+      box.setSelectionRange(done.caret, done.caret);
+    }
   }
 
   protected newChat(): void {

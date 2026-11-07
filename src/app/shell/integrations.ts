@@ -1,6 +1,8 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentBackend } from '../core/backend';
 import { AGENT_IDS, AGENT_META, AgentId, McpServer, NameValue, Skill, SkillTarget } from '../core/protocol';
+import { AgentsService } from '../core/agents.service';
+import { GROUP_LABEL, filterCommands } from '../core/commands';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 
@@ -105,6 +107,33 @@ description: Một câu nói khi nào agent nên dùng skill này.
         }
       </section>
 
+      <section class="mission-block" aria-label="Skill agent đang thấy">
+        <div class="block-head">
+          <span class="label">SKILL AGENT ĐANG THẤY</span>
+          <span class="dim ellipsis">{{ folderName() ? 'Trong ' + folderName() + ', đọc từ chính agent (không tốn token).' : 'Mở một thư mục để xem skill của dự án.' }}</span>
+          <span class="spacer"></span>
+          <button class="btn ghost sm" (click)="rescan()">Đọc lại</button>
+        </div>
+        <div class="cmd-seen">
+          @for (row of seen(); track row.agent) {
+            <div class="cmd-seen-agent">
+              <div class="cmd-seen-head"><tg-agent-avatar [agent]="row.agent" [size]="16" /><strong>{{ meta[row.agent].name }}</strong>
+                @if (row.list === 'loading') { <span class="dim"><span class="spin"></span> đang đọc…</span> }
+                @else if (row.list) { <span class="dim">{{ row.skills.length }} skill</span> }
+              </div>
+              @for (g of row.groups; track g.group) {
+                <div class="cmd-seen-group">
+                  <span class="dim">{{ groupLabel[g.group] }}</span>
+                  @for (c of g.items; track c.name) { <span class="cmd-chip mono" [title]="c.description">{{ c.insert.trim() }}</span> }
+                </div>
+              }
+              @if (row.list && row.list !== 'loading' && !row.skills.length) { <p class="dim">Không thấy skill nào.</p> }
+            </div>
+          }
+        </div>
+        <p class="dim form-note pad">Claude đọc <code>.claude/skills/</code> của dự án và <code>~/.claude/skills</code>; Codex đọc <code>.agents/skills/</code> của dự án và skill của máy. Gõ <code>/</code> ở đầu ô chat (Codex: <code>$</code>) để gọi.</p>
+      </section>
+
       <section class="mission-block" aria-label="Skills">
         <div class="block-head">
           <span class="label">SKILLS</span>
@@ -176,6 +205,33 @@ export class Integrations implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly info = signal<string | null>(null);
   private readonly repo = computed(() => this.workspace.repo()?.root ?? null);
+  private readonly installed = inject(AgentsService);
+  protected readonly groupLabel = GROUP_LABEL;
+  protected readonly folderName = computed(() => this.workspace.folder()?.split(/[\\/]/).filter(Boolean).pop() ?? null);
+  /** Agents with a session that reports skills: Claude and Codex, when installed. */
+  private readonly seenAgents = computed(() => this.installed.agents().filter((a) => a.path && (a.id === 'claude' || a.id === 'codex')).map((a) => a.id));
+  protected readonly seen = computed(() => this.seenAgents().map((agent) => {
+    const list = this.installed.commandsFor(agent, this.workspace.folder());
+    const skills = Array.isArray(list) ? list.filter((c) => c.kind === 'skill') : [];
+    const groups = skills.length ? filterCommands(skills, { trigger: agent === 'codex' ? '$' : '/', start: 0, query: '' }, 500) : [];
+    return { agent, list, skills, groups };
+  }));
+  private readonly loadSeen = effect(() => {
+    const folder = this.workspace.folder();
+    const agents = this.seenAgents();
+    untracked(() => agents.forEach((a) => void this.installed.loadCommands(a, folder)));
+  });
+
+  protected rescan(): void {
+    const folder = this.workspace.folder();
+    for (const a of this.seenAgents()) {
+      this.installed.commands.update((c) => {
+        const { [`${a}|${folder ?? ''}`]: _, ...rest } = c;
+        return rest;
+      });
+      void this.installed.loadCommands(a, folder);
+    }
+  }
 
   ngOnInit(): void {
     void this.reload();
