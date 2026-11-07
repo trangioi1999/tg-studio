@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.5.1] - 2026-11-07
+
 ### Thay đổi
 - Cây tệp, tab và ⌘P dùng bộ icon Material Icon Theme (MIT) như VS Code: thư mục có icon riêng theo tên (`components`, `services`, `models`, `hooks`, `utils`, `docs`…, đóng/mở), tệp theo tên và đuôi (`.component.ts`, `.service.ts`, `.spec.ts`, `package.json`, `Dockerfile`…).
 
