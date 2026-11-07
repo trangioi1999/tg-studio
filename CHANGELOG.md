@@ -4,6 +4,9 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Không thấy agent trên máy mà PATH chỉ khai báo trong `~/.bash_profile` trong khi shell mặc định là zsh (hoặc ngược lại): app hỏi PATH từ cả zsh lẫn bash rồi gộp lại.
+
 ## [0.3.0] - 2026-11-07
 
 ### Tài nguyên và dò agent

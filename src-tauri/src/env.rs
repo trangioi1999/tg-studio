@@ -16,7 +16,7 @@ pub struct PathSource {
     /// "shell", "timeout" (the shell did not answer in time), "failed", or "inherited" (Windows).
     pub outcome: &'static str,
     pub millis: u64,
-    /// Well-known install folders added because the shell PATH lacked them.
+    /// Folders beyond `$SHELL`'s own PATH: from the other shells, or well-known install folders.
     pub added: Vec<String>,
 }
 
@@ -30,10 +30,12 @@ pub fn path_source() -> PathSource {
 
 fn resolve_path() -> (String, PathSource) {
     let started = std::time::Instant::now();
-    let (path, shell, outcome) = read_login_path();
+    let (path, shell, outcome, own) = read_login_path();
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-    let (path, added) = with_known_dirs(&path, home.as_deref());
-    let added = added.iter().map(|d| d.to_string_lossy().into_owned()).collect();
+    let (path, _) = with_known_dirs(&path, home.as_deref());
+    // Everything beyond `$SHELL`'s own PATH: other shells' folders and well-known ones.
+    let own: Vec<PathBuf> = own.map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let added = std::env::split_paths(&path).filter(|d| !own.contains(d)).map(|d| d.to_string_lossy().into_owned()).collect();
     (path, PathSource { shell, outcome, millis: started.elapsed().as_millis() as u64, added })
 }
 
@@ -98,27 +100,50 @@ fn output_until(mut command: std::process::Command, marker: &str, timeout: std::
     text
 }
 
+/// The PATH one shell reports for a login + interactive session, or why it did not.
 #[cfg(unix)]
-fn read_login_path() -> (String, Option<String>, &'static str) {
+fn shell_path(shell: &str) -> Result<String, &'static str> {
     const START: &str = "__TG_PATH__";
     const END: &str = "__END__";
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let mut command = std::process::Command::new(&shell);
+    let mut command = std::process::Command::new(shell);
     command.args(["-ilc", "printf '__TG_PATH__%s__END__' \"$PATH\""]);
-    let inherited = std::env::var("PATH").unwrap_or_default();
-    let Some(text) = output_until(command, END, SHELL_TIMEOUT) else { return (inherited, Some(shell), "timeout") };
-    if let Some(start) = text.find(START) {
-        let rest = &text[start + START.len()..];
-        if let Some(end) = rest.find(END) {
-            return (rest[..end].to_string(), Some(shell), "shell");
-        }
+    let text = output_until(command, END, SHELL_TIMEOUT).ok_or("timeout")?;
+    let rest = &text[text.find(START).ok_or("failed")? + START.len()..];
+    Ok(rest[..rest.find(END).ok_or("failed")?].to_string())
+}
+
+/// The user's shell first, then zsh and bash too: `$SHELL` can be zsh while the folders
+/// are added in `~/.bash_profile` (seen on a Mac whose Terminal runs bash), and the other
+/// way round. All are asked at once, so a second shell costs no time.
+#[cfg(unix)]
+fn read_login_path() -> (String, Option<String>, &'static str, Option<String>) {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let mut shells = vec![shell.clone()];
+    for other in ["/bin/zsh", "/bin/bash"] {
+        if !shells.iter().any(|s| s == other) && std::path::Path::new(other).exists() { shells.push(other.into()); }
     }
-    (inherited, Some(shell), "failed")
+    let asked: Vec<_> = shells.iter().cloned().map(|s| std::thread::spawn(move || shell_path(&s))).collect();
+    let answers: Vec<Result<String, &'static str>> = asked.into_iter().map(|h| h.join().unwrap_or(Err("failed"))).collect();
+    let outcome: &'static str = match &answers[0] { Ok(_) => "shell", Err(e) => *e };
+    let own = answers[0].clone().ok();
+    let mut paths: Vec<String> = answers.into_iter().flatten().collect();
+    if own.is_none() { paths.insert(0, std::env::var("PATH").unwrap_or_default()); }
+    (merge_paths(&paths), Some(shell), outcome, own)
+}
+
+/// Joins PATH lists in order, keeping the first place of each folder.
+fn merge_paths(paths: &[String]) -> String {
+    let mut entries: Vec<PathBuf> = Vec::new();
+    for dir in paths.iter().flat_map(|p| std::env::split_paths(p).collect::<Vec<_>>()) {
+        if !dir.as_os_str().is_empty() && !entries.contains(&dir) { entries.push(dir); }
+    }
+    std::env::join_paths(&entries).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 #[cfg(windows)]
-fn read_login_path() -> (String, Option<String>, &'static str) {
-    (std::env::var("PATH").unwrap_or_default(), None, "inherited")
+fn read_login_path() -> (String, Option<String>, &'static str, Option<String>) {
+    let path = std::env::var("PATH").unwrap_or_default();
+    (path.clone(), None, "inherited", Some(path))
 }
 
 /// Hides the console Windows would otherwise open for each child of this GUI app.
@@ -216,6 +241,15 @@ pub fn which(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[test]
+    fn paths_of_several_shells_merge_in_order_without_repeats() {
+        let zsh = std::env::join_paths(["/usr/bin", "/bin"]).unwrap().to_string_lossy().into_owned();
+        let bash = std::env::join_paths(["/bin", "/Users/a/Desktop/DATA/Software/node/bin"]).unwrap().to_string_lossy().into_owned();
+        let merged = super::merge_paths(&[zsh, bash]);
+        assert_eq!(std::env::split_paths(&merged).collect::<Vec<_>>(),
+            ["/usr/bin", "/bin", "/Users/a/Desktop/DATA/Software/node/bin"].map(std::path::PathBuf::from));
+    }
 
     #[test]
     fn known_install_folders_are_added_after_the_shell_path() {
