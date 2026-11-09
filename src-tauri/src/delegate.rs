@@ -28,7 +28,10 @@ pub fn snapshot(dir: &Path) -> Result<String, String> {
     let real = git_path("index")?;
     let made = (|| {
         if real.exists() { std::fs::copy(&real, &index).map_err(|e| format!("Không chụp được thư mục: {e}"))?; }
-        crate::worktree::git_index(dir, &index, &["add", "-A", "--", ".", ":(exclude).tg"], None)?;
+        // Not `:(exclude).tg`: git refuses any pathspec naming an ignored path, and the
+        // first child's draft makes `.tg/` and ignores it. Add everything, then drop `.tg/`.
+        crate::worktree::git_index(dir, &index, &["add", "-A", "--", "."], None)?;
+        crate::worktree::git_index(dir, &index, &["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".tg"], None)?;
         let tree = crate::worktree::git_index(dir, &index, &["write-tree"], None)?;
         let head = git(dir, &["rev-parse", "HEAD"], None)?;
         // An internal commit only: its own identity, so a repo without user.name still works.
@@ -231,6 +234,25 @@ mod tests {
         assert_eq!(git(&r.0, &["rev-parse", &format!("{snap}^")], None).unwrap(), head);
         assert_eq!(git(&r.0, &["rev-parse", "HEAD"], None).unwrap(), head, "no branch moves");
         assert_eq!(git(&r.0, &["status", "--porcelain"], None).unwrap(), status, "the user's index is untouched");
+    }
+
+    #[test] fn snapshot_works_while_another_child_has_a_draft() {
+        // The first child's draft makes `.tg/` and ignores it; a second delegate must still snapshot.
+        let r = Repo::new();
+        let first = snapshot(&r.0).unwrap();
+        child_of(&r, &first, "first");
+        assert!(r.0.join(".tg").exists());
+        r.write("new.txt", "untracked\n");
+        let snap = snapshot(&r.0).unwrap();
+        assert_eq!(git(&r.0, &["show", &format!("{snap}:new.txt")], None).unwrap(), "untracked\n");
+        assert!(git(&r.0, &["ls-tree", "-r", "--name-only", &snap], None).unwrap().lines().all(|p| !p.starts_with(".tg/")));
+    }
+
+    #[test] fn snapshot_leaves_out_tg_even_when_it_is_not_ignored() {
+        let r = Repo::new();
+        r.write(".tg/worktrees/x/file.txt", "draft\n");
+        let snap = snapshot(&r.0).unwrap();
+        assert!(git(&r.0, &["ls-tree", "-r", "--name-only", &snap], None).unwrap().lines().all(|p| !p.starts_with(".tg/")));
     }
 
     #[test] fn merge_back_takes_the_childs_files_merges_and_reports_conflicts() {
