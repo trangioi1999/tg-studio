@@ -1,7 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { AgentBackend } from '../core/backend';
 import { MockBackend } from '../core/mock-backend';
-import { Run, RunsService } from './runs.service';
+import { RunsService } from './runs.service';
+import { Run } from './run';
 import { ThreadsService, buildThreads, groupByProject } from './threads.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 

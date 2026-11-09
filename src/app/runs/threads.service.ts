@@ -1,6 +1,7 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { AgentId } from '../core/protocol';
-import { Run, RunsService } from './runs.service';
+import { RunsService } from './runs.service';
+import { Run } from './run';
 import { WorkspaceService } from '../workspace/workspace.service';
 
 export type ThreadStatus = 'needs_you' | 'running' | 'failed' | 'waiting' | 'ended';

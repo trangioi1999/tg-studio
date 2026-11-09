@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { AgentId, Approval, FileDiff, Place } from '../core/protocol';
-import { Run, RunsService } from './runs.service';
+import { RunsService } from './runs.service';
+import { Run } from './run';
 import { errorText } from '../shared/errors';
 
 export interface PipelineStep {

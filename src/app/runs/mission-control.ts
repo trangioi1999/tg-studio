@@ -2,7 +2,8 @@ import { Component, OnDestroy, computed, effect, inject, signal, untracked } fro
 import { fmtDuration, fmtTokens, fmtUsd } from '../shared/format';
 import { AgentId } from '../core/protocol';
 import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
-import { Run, RunsService } from './runs.service';
+import { RunsService } from './runs.service';
+import { Run } from './run';
 import { ConsoleView, UiService } from '../shell/ui.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { AgentAvatar } from '../shared/agent-avatar';

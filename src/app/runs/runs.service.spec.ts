@@ -4,7 +4,8 @@ import { vi } from 'vitest';
 import { MockBackend } from '../core/mock-backend';
 import { AgentBackend, Unlisten } from '../core/backend';
 import { AccountLimits, AgentEvent, AgentId, DetectedAgent, StoredRun, Usage } from '../core/protocol';
-import { Run, RunsService, isQuiet, recapOf, turnStart } from './runs.service';
+import { RunsService } from './runs.service';
+import { Run, isQuiet, recapOf, turnStart } from './run';
 
 const usage: Usage = {
   inputTokens: 10,

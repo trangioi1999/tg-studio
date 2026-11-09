@@ -1,7 +1,8 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { AgentId, CheckResult, FileDiff, Hunk } from '../core/protocol';
 import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
-import { Run, RunsService } from '../runs/runs.service';
+import { RunsService } from '../runs/runs.service';
+import { Run } from '../runs/run';
 import { AgentAvatar } from '../shared/agent-avatar';
 import { errorText } from '../shared/errors';
 
