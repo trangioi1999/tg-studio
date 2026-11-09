@@ -1,23 +1,23 @@
 import { Component, effect, inject, untracked } from '@angular/core';
-import { AgentsService } from './core/agents.service';
-import { BudgetService } from './core/budget.service';
+import { AgentsService } from './agents/agents.service';
+import { BudgetService } from './usage/budget.service';
 import { DiagnosticsService } from './core/diagnostics.service';
-import { RunsService } from './core/runs.service';
-import { UiService } from './core/ui.service';
-import { WorkspaceService } from './core/workspace.service';
-import { AgentPanel } from './shell/agent-panel';
-import { AgentsPanel } from './shell/agents-panel';
-import { Integrations } from './shell/integrations';
-import { MissionControl } from './shell/mission-control';
-import { Onboarding } from './shell/onboarding';
+import { RunsService } from './runs/runs.service';
+import { UiService } from './shell/ui.service';
+import { WorkspaceService } from './workspace/workspace.service';
+import { AgentPanel } from './chat/agent-panel';
+import { AgentsPanel } from './agents/agents-panel';
+import { Integrations } from './integrations/integrations';
+import { MissionControl } from './runs/mission-control';
+import { Onboarding } from './agents/onboarding';
 import { SidePanel } from './shell/side-panel';
 import { StatusBar } from './shell/status-bar';
 import { ThreadList } from './shell/thread-list';
 import { TitleBar } from './shell/title-bar';
-import { UsageScreen } from './shell/usage-screen';
-import { Splitter } from './shell/splitter';
-import { QuickOpen } from './shell/quick-open';
-import { LayoutService } from './core/layout';
+import { UsageScreen } from './usage/usage-screen';
+import { Splitter } from './shared/splitter';
+import { QuickOpen } from './workspace/quick-open';
+import { LayoutService } from './shell/layout';
 
 @Component({
   selector: 'app-root',

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { AgentBackend } from '../core/backend';
-import { AgentsService } from '../core/agents.service';
+import { AgentsService } from '../agents/agents.service';
 import { MockBackend } from '../core/mock-backend';
 import { AccountLimits } from '../core/protocol';
 import { StatusBar } from './status-bar';

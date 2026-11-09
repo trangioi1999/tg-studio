@@ -1,12 +1,12 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
-import { KEYS } from '../core/keys';
+import { KEYS } from '../shared/keys';
 import { AGENT_META } from '../agents/agent-meta';
-import { RunsService } from '../core/runs.service';
-import { THREAD_STATUS_LABEL, Thread, ThreadsService } from '../core/threads.service';
-import { Screen, UiService } from '../core/ui.service';
-import { WorkspaceService } from '../core/workspace.service';
-import { AgentAvatar } from './agent-avatar';
+import { RunsService } from '../runs/runs.service';
+import { THREAD_STATUS_LABEL, Thread, ThreadsService } from '../runs/threads.service';
+import { Screen, UiService } from './ui.service';
+import { WorkspaceService } from '../workspace/workspace.service';
+import { AgentAvatar } from '../shared/agent-avatar';
 import { errorText } from '../shared/errors';
 
 /** Left column: projects and their conversations, then the screens beyond the chat. */

@@ -1,11 +1,11 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from '../core/backend';
-import { fmtTokens, fmtUsd } from '../core/format';
-import { IS_MAC } from '../core/keys';
-import { estimateCost } from '../core/pricing';
-import { RunsService } from '../core/runs.service';
-import { UiService } from '../core/ui.service';
-import { WorkspaceService } from '../core/workspace.service';
+import { fmtTokens, fmtUsd } from '../shared/format';
+import { IS_MAC } from '../shared/keys';
+import { estimateCost } from '../usage/pricing';
+import { RunsService } from '../runs/runs.service';
+import { UiService } from './ui.service';
+import { WorkspaceService } from '../workspace/workspace.service';
 
 /**
  * The app's own title bar: project, branch and conversation on the left, cost and the

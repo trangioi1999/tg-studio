@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
-import { Explorer } from './explorer';
-import { Splitter } from './splitter';
-import { Workbench } from './workbench';
+import { Explorer } from '../workspace/explorer';
+import { Splitter } from '../shared/splitter';
+import { Workbench } from '../workspace/workbench';
 
 /** The code beside the chat: the project or draft's files, editors and reviews. */
 @Component({

@@ -1,15 +1,15 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { AgentAvatar } from './agent-avatar';
+import { AgentAvatar } from '../shared/agent-avatar';
 import { ResourceMeter } from './resource-meter';
-import { AgentsService } from '../core/agents.service';
-import { limitView, limitsTitle } from '../core/limits';
+import { AgentsService } from '../agents/agents.service';
+import { limitView, limitsTitle } from '../usage/limits';
 import { AgentId } from '../core/protocol';
 import { AGENT_IDS } from '../agents/agent-meta';
 import { AgentBackend } from '../core/backend';
-import { BudgetService } from '../core/budget.service';
+import { BudgetService } from '../usage/budget.service';
 import { DiagnosticsService } from '../core/diagnostics.service';
-import { fmtTokens, fmtUsd } from '../core/format';
-import { RunsService } from '../core/runs.service';
+import { fmtTokens, fmtUsd } from '../shared/format';
+import { RunsService } from '../runs/runs.service';
 import { VersionService } from '../core/version.service';
 
 /** Agents with a known source of plan limits. Gemini and Kiro have none yet. */

@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { AgentBackend } from '../core/backend';
 import { MockBackend } from '../core/mock-backend';
 import { ResourceReport, UsageGroup } from '../core/protocol';
-import { RunsService } from '../core/runs.service';
+import { RunsService } from '../runs/runs.service';
 import { ResourceMeter } from './resource-meter';
 
 const mb = 1024 * 1024;
