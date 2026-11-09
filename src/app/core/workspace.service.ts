@@ -48,6 +48,9 @@ export class WorkspaceService {
   readonly diffs = signal<Record<string, FileDiff[]>>({});
   /** Unsaved edits, kept while the editor is closed by moving to another kind of tab. */
   readonly unsaved = new Map<string, string>();
+  /** A draft's files once applied to the folder, by run: what its commit takes. Kept here,
+   * not in the Changes tab, because they leave the diff once applied. */
+  readonly applied = signal<Record<string, string[]>>({});
   private loads: Record<string, number> = {};
 
   /** Settles once the saved folder has been restored or dropped. */

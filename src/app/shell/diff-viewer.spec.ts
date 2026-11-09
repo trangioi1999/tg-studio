@@ -109,4 +109,21 @@ describe('DiffViewer (changes as git sees them)', () => {
     await settle();
     expect(backend.calls).toEqual([['apply'], ['commit', ['src/a.ts', 'src/new.ts'], 'Thêm export CSV']]);
   });
+
+  it('still commits the applied draft after the Changes tab was closed and reopened', async () => {
+    const { backend, fixture, button, settle } = await setup({ direct: false, files: [] });
+    button('Áp vào thư mục').click();
+    await settle();
+    fixture.destroy();
+    const again = TestBed.createComponent(DiffViewer);
+    again.componentRef.setInput('runId', 'r1');
+    again.componentRef.setInput('agent', 'claude');
+    again.componentRef.setInput('suggestion', 'Thêm export CSV');
+    for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r)); again.detectChanges(); }
+    const el = again.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('Đã đưa 2 tệp vào thư mục');
+    ([...el.querySelectorAll('button')].find((b) => b.textContent!.trim().startsWith('Commit')) as HTMLButtonElement).click();
+    for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r)); again.detectChanges(); }
+    expect(backend.calls.at(-1)).toEqual(['commit', ['src/a.ts', 'src/new.ts'], 'Thêm export CSV']);
+  });
 });

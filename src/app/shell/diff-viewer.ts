@@ -120,7 +120,7 @@ export class DiffViewer {
   /** Files the user ticked or unticked, so a reload keeps their choice. */
   private readonly touched = new Set<string>();
   /** A draft's files once applied to the folder: what its commit takes. */
-  protected readonly applied = signal<string[]>([]);
+  protected readonly applied = computed(() => this.workspace.applied()[this.runId()] ?? []);
   protected readonly busy = signal(false);
   protected readonly loaded = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -156,7 +156,6 @@ export class DiffViewer {
         if (id !== this.loadedFor) {
           this.loadedFor = id;
           this.touched.clear();
-          this.applied.set([]);
           this.edited.set(null);
           this.committed.set(null);
         }
@@ -231,7 +230,7 @@ export class DiffViewer {
       await this.runs.acceptAll(id);
       ok = true;
     });
-    if (ok) this.applied.set(paths);
+    if (ok) this.setApplied(id, paths);
     await this.load();
     void this.workspace.refresh(id);
   }
@@ -245,11 +244,15 @@ export class DiffViewer {
     });
     if (!hash) return;
     this.committed.set((hash as string).slice(0, 7));
-    this.applied.set([]);
+    this.setApplied(id, []);
     this.edited.set(null);
     for (const p of paths) this.touched.delete(p);
     await this.load();
     void this.workspace.refresh(id);
+  }
+
+  private setApplied(runId: string, paths: string[]): void {
+    this.workspace.applied.update(({ [runId]: _, ...rest }) => (paths.length ? { ...rest, [runId]: paths } : rest));
   }
 
   protected async discard(): Promise<void> {
