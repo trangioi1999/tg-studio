@@ -137,6 +137,19 @@ fn save_accepted(wt: &Worktree) -> Result<(), String> {
         .map_err(|e| format!("Không lưu được phần thay đổi đã nhận: {e}"))
 }
 
+/// Runs `f` while no other review or commit runs in the same folder. Reading the changes
+/// rewrites the run's index (read-tree, add -N), so two at once fail on `index.lock`; the
+/// Changes tab asks for the diff and the user's own changes together. Direct runs of one
+/// repo share its folder and real index, so they take turns too.
+pub fn exclusive<T>(wt: &Worktree, f: impl FnOnce() -> T) -> T {
+    use std::{collections::HashMap, sync::{Arc, Mutex, OnceLock}};
+    static LOCKS: OnceLock<Mutex<HashMap<std::path::PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let lock = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+        .entry(wt.path.clone()).or_default().clone();
+    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    f()
+}
+
 pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
     if !wt.is_direct() && git(&wt.path, &["rev-parse", "HEAD"], None)?.trim() != wt.base {
         git(&wt.path, &["reset", "--soft", &wt.base], None)?;
@@ -371,6 +384,18 @@ mod tests {
         let p = w.path.join("file.txt");
         let s = fs::read_to_string(&p).unwrap().replace("line 2\n", "changed 2\n").replace("line 28\n", "changed 28\n");
         fs::write(p, s).unwrap();
+    }
+
+    #[test] fn reviews_of_one_worktree_at_once_do_not_collide() {
+        // The Changes tab asks for the diff and the user's own changes together.
+        let r = Repo::new();
+        let w = crate::worktree::direct(&r.0, "direct-run-race").unwrap();
+        for i in 0..20 { r.write(&format!("f{i}.txt"), "agent\n"); }
+        let handles: Vec<_> = (0..8).map(|i| {
+            let w = w.clone();
+            std::thread::spawn(move || if i % 2 == 0 { exclusive(&w, || pending(&w).map(|_| ())) } else { exclusive(&w, || own_changes(&w).map(|_| ())) })
+        }).collect();
+        for h in handles { h.join().unwrap().unwrap(); }
     }
 
     #[test] fn direct_run_works_once_a_draft_made_tg() {

@@ -90,7 +90,7 @@ impl ToolEnv for TaskEnv {
         self.session.ask(action, reason)
     }
     fn context(&self) -> serde_json::Value {
-        let changed: Vec<String> = diff::pending(&self.wt).map(|files| files.into_iter().map(|f| format!("{} {}", f.status, f.path)).collect()).unwrap_or_default();
+        let changed: Vec<String> = diff::exclusive(&self.wt, || diff::pending(&self.wt)).map(|files| files.into_iter().map(|f| format!("{} {}", f.status, f.path)).collect()).unwrap_or_default();
         json!({
             "task": self.prompt, "agent": self.agent, "runId": self.run_id, "worktree": self.wt.path,
             "parallelGroup": self.group, "sharedWithPipelineStepsOf": (self.wt.run_id != self.run_id).then_some(&self.wt.run_id),
@@ -751,12 +751,12 @@ fn stored_worktree(store: &Store, id: &str) -> Result<(PathBuf, Worktree), Strin
 #[tauri::command(async)]
 pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
-    diff::pending(&wt)
+    diff::exclusive(&wt, || diff::pending(&wt))
 }
 #[tauri::command(async)]
 pub fn accept_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
-    diff::accept_hunk(&repo, &wt, &path, &hunk_id)
+    diff::exclusive(&wt, || diff::accept_hunk(&repo, &wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
 pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<usize, String> {
@@ -764,12 +764,12 @@ pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: S
         return Err("Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.".into());
     }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
-    diff::accept_all(&repo, &wt)
+    diff::exclusive(&wt, || diff::accept_all(&repo, &wt))
 }
 #[tauri::command(async)]
 pub fn reject_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
-    diff::reject_hunk(&wt, &path, &hunk_id)
+    diff::exclusive(&wt, || diff::reject_hunk(&wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
 pub fn staged_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
@@ -778,14 +778,14 @@ pub fn staged_files(store: State<'_, Store>, run_id: String) -> Result<Vec<Strin
 }
 #[tauri::command(async)]
 pub fn commit_accepted(store: State<'_, Store>, run_id: String, message: String) -> Result<String, String> {
-    let (repo, _) = stored_worktree(&store, &run_id)?;
-    diff::commit(&repo, &message)
+    let (repo, wt) = stored_worktree(&store, &run_id)?;
+    diff::exclusive(&wt, || diff::commit(&repo, &message))
 }
 /// Whether the run works in the user's folder, and the uncommitted files there it did not change.
 #[tauri::command(async)]
 pub fn own_changes(store: State<'_, Store>, run_id: String) -> Result<diff::OwnChanges, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
-    diff::own_changes(&wt)
+    diff::exclusive(&wt, || diff::own_changes(&wt))
 }
 #[tauri::command(async)]
 pub fn revert_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, paths: Vec<String>) -> Result<(), String> {
@@ -793,7 +793,7 @@ pub fn revert_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id:
         return Err("Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới hoàn tác.".into());
     }
     let (_, wt) = stored_worktree(&store, &run_id)?;
-    diff::revert_files(&wt, &paths)
+    diff::exclusive(&wt, || diff::revert_files(&wt, &paths))
 }
 /// Commits the chosen files from the user's folder. Every direct run of the repository then
 /// counts them as done, so they leave its list of changes.
@@ -802,13 +802,16 @@ pub fn commit_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id:
     if tasks.busy(&run_id)? {
         return Err("Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.".into());
     }
-    let (repo, _) = stored_worktree(&store, &run_id)?;
-    let hash = diff::commit_files(&repo, &paths, &message)?;
-    let runs = store.direct_worktrees(&repo.to_string_lossy()).map_err(|e| format!("Đã commit {} nhưng không đọc được lịch sử: {e}", &hash[..7.min(hash.len())]))?;
-    for wt in runs {
-        if let Err(e) = diff::mark_committed(&wt, &paths) { eprintln!("Không cập nhật được thay đổi của {}: {e}", wt.run_id); }
-    }
-    Ok(hash)
+    let (repo, wt) = stored_worktree(&store, &run_id)?;
+    // Every direct run of the repo shares its folder, so one lock covers their bookkeeping.
+    diff::exclusive(&wt, || {
+        let hash = diff::commit_files(&repo, &paths, &message)?;
+        let runs = store.direct_worktrees(&repo.to_string_lossy()).map_err(|e| format!("Đã commit {} nhưng không đọc được lịch sử: {e}", &hash[..7.min(hash.len())]))?;
+        for wt in runs {
+            if let Err(e) = diff::mark_committed(&wt, &paths) { eprintln!("Không cập nhật được thay đổi của {}: {e}", wt.run_id); }
+        }
+        Ok(hash)
+    })
 }
 #[tauri::command(async)]
 pub fn list_worktree_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
