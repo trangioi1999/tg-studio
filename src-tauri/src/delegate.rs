@@ -49,8 +49,7 @@ pub struct Merged {
 
 /// Raw output of a git command, or `None` when it fails (a path missing from a tree).
 fn git_bytes(cwd: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = crate::env::std_command("git").current_dir(cwd).env("PATH", crate::env::login_path())
-        .args(args).stdin(std::process::Stdio::null()).output().ok()?;
+    let out = crate::worktree::git_output(cwd, args, None, None).ok()?;
     out.status.success().then_some(out.stdout)
 }
 
@@ -82,9 +81,8 @@ fn merge_text(dir: &Path, ours: &[u8], base: &[u8], theirs: &[u8]) -> Result<Opt
     let files = [("ours", ours), ("base", base), ("theirs", theirs)];
     let result = (|| {
         for (name, bytes) in files { std::fs::write(tmp.join(name), bytes).map_err(|e| e.to_string())?; }
-        let out = crate::env::std_command("git").current_dir(dir).env("PATH", crate::env::login_path())
-            .arg("merge-file").arg("-p").arg(tmp.join("ours")).arg(tmp.join("base")).arg(tmp.join("theirs"))
-            .stdin(std::process::Stdio::null()).output().map_err(|e| format!("Không chạy được Git: {e}"))?;
+        let [ours, base, theirs] = ["ours", "base", "theirs"].map(|n| tmp.join(n).to_string_lossy().into_owned());
+        let out = crate::worktree::git_output(dir, &["merge-file", "-p", &ours, &base, &theirs], None, None)?;
         // The exit code is the number of conflicts; negative (as unsigned, large) is an error.
         match out.status.code() {
             Some(0) => Ok(Some(out.stdout)),

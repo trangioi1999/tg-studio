@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -125,12 +125,7 @@ impl AgentEvent {
     }
 }
 
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
+use crate::clock::now_ms;
 
 /// Claude's partial-message line (`--include-partial-messages`).
 fn is_stream_chunk(line: &str) -> bool {

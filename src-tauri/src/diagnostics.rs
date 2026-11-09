@@ -39,7 +39,7 @@ pub async fn diagnostics(app: AppHandle, store: State<'_, Store>) -> Result<Valu
     let mut report = summarize(&store);
     report["app"] = json!({ "name": "TG Studio", "version": env!("CARGO_PKG_VERSION") });
     report["os"] = json!({ "family": std::env::consts::OS, "arch": std::env::consts::ARCH });
-    report["generatedAt"] = json!(crate::runner::now_ms());
+    report["generatedAt"] = json!(crate::clock::now_ms());
     report["dataDir"] = json!(app.path().app_data_dir().ok().map(|p| p.to_string_lossy().into_owned()));
     report["agents"] = serde_json::to_value(detect::detect_agents().await).map_err(|e| e.to_string())?;
     // Why an agent is not found is almost always the PATH. The home folder is shortened to ~.

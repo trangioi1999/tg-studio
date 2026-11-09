@@ -43,6 +43,16 @@ pub fn add_all_but_tg(run: impl Fn(&[&str]) -> Result<String, String>, flags: &[
 }
 
 fn git_env(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>) -> Result<String, String> {
+    let output = git_output(cwd, args, stdin, index)?;
+    if !output.status.success() {
+        return Err(format!("Lệnh Git thất bại: {}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    String::from_utf8(output.stdout).map_err(|e| format!("Kết quả Git không phải UTF-8: {e}"))
+}
+
+/// Runs git and returns its raw output whatever the exit code: for bytes that are not text
+/// (a blob) or an exit code that is not an error (`merge-file` counts conflicts).
+pub fn git_output(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>) -> Result<std::process::Output, String> {
     let mut command = crate::env::std_command("git");
     if let Some(index) = index { command.env("GIT_INDEX_FILE", index); }
     let mut child = command
@@ -63,13 +73,11 @@ fn git_env(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>
         });
         let output = child.wait_with_output().map_err(|e| format!("Không đọc được kết quả Git: {e}"))?;
         let written = writer.map(|w| w.join().expect("stdin writer panicked"));
-        if !output.status.success() {
-            return Err(format!("Lệnh Git thất bại: {}", String::from_utf8_lossy(&output.stderr).trim()));
-        }
-        if let Some(Err(e)) = written {
+        // A failed command's own message says more than the broken pipe it caused.
+        if let (true, Some(Err(e))) = (output.status.success(), written) {
             return Err(format!("Không gửi được dữ liệu cho Git: {e}"));
         }
-        String::from_utf8(output.stdout).map_err(|e| format!("Kết quả Git không phải UTF-8: {e}"))
+        Ok(output)
     })
 }
 

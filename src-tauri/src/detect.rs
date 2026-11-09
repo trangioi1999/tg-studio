@@ -133,7 +133,8 @@ mod tests {
         let cli = dir.join("hang");
         std::fs::write(&cli, format!("#!/bin/sh\necho $$ > '{}'\nexec sleep 30\n", pid_file.display())).unwrap();
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(super::version_within(&cli, std::time::Duration::from_millis(500)).await, None);
+        // Long enough for the fake CLI to start and write its pid even under a busy test run.
+        assert_eq!(super::version_within(&cli, std::time::Duration::from_secs(2)).await, None);
         let pid = std::fs::read_to_string(&pid_file).unwrap().trim().to_owned();
         let mut alive = true;
         for _ in 0..40 {

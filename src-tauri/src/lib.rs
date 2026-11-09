@@ -5,6 +5,7 @@ mod acp;
 mod acp_runner;
 mod adapters;
 mod claude_usage;
+mod clock;
 pub mod bridge;
 mod compose;
 mod delegate;

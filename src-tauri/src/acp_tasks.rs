@@ -39,11 +39,11 @@ struct AppSink(AppHandle);
 impl EventSink for AppSink {
     fn emit(&self, ev: AgentEvent) { runner::publish(&self.0, ev); }
     fn child_run(&self, id: &str, parent: &str, agent: AgentKind, title: &str) {
-        if let Err(e) = self.0.state::<Store>().insert_child_run(id, parent, agent, title, runner::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
+        if let Err(e) = self.0.state::<Store>().insert_child_run(id, parent, agent, title, crate::clock::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
     }
     fn child_finished(&self, id: &str, status: &str) {
         let code = (status == "done").then_some(0);
-        if let Err(e) = self.0.state::<Store>().finish_run(id, status, code, runner::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
+        if let Err(e) = self.0.state::<Store>().finish_run(id, status, code, crate::clock::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
     }
 }
 struct RepoRules { app: AppHandle, repo: String, agent: AgentKind }
@@ -96,7 +96,7 @@ impl ToolEnv for TaskEnv {
         self.sink.emit(event);
     }
     fn add_note(&self, topic: &str, text: &str) -> Result<(), String> {
-        self.app.state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, runner::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
+        self.app.state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, crate::clock::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
     }
     fn notes(&self, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>, String> {
         self.app.state::<Store>().notes(&self.scope, topic).map_err(|e| format!("Không đọc được ghi chú: {e}"))
@@ -359,7 +359,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
     };
     let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
     if let Some(pid) = pid { crate::resources::register(pid, crate::resources::Owner::Run(id.clone())); }
-    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: runner::now_ms() }, &repo.to_string_lossy(), &wt, group);
+    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: crate::clock::now_ms() }, &repo.to_string_lossy(), &wt, group);
     if let Err(e) = saved {
         let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
         terminate_adapter(&mut child, pid).await;
@@ -585,7 +585,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
             if let Some(warm) = warm { warm.release(); }
-            let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
+            let _ = app.state::<Store>().finish_run(&id, "failed", None, crate::clock::now_ms());
             return Err(e);
         }
     };
@@ -596,7 +596,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
             if let Some(warm) = warm { warm.release(); }
-            let _ = app.state::<Store>().finish_run(&id, "failed", None, runner::now_ms());
+            let _ = app.state::<Store>().finish_run(&id, "failed", None, crate::clock::now_ms());
             return Err(e);
         }
     };
@@ -705,7 +705,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
             sink.emit(event);
         }
         let code = if status == "done" { Some(0) } else { None };
-        if let Err(e) = app.state::<Store>().finish_run(&task_id, status, code, runner::now_ms()) {
+        if let Err(e) = app.state::<Store>().finish_run(&task_id, status, code, crate::clock::now_ms()) {
             eprintln!("Không lưu được trạng thái lượt chạy: {e}");
         }
         if let Some(done) = child_done { let _ = done.send((status.to_string(), session.last_reply())); }
@@ -909,7 +909,7 @@ async fn delete_runs_inner(store: &Store, tasks: &TaskRuns, runs: &Runs, run_ids
         if sharing.iter().any(|other| !run_ids.contains(other)) { continue; }
         if let Err(e) = worktree::remove(&repo, &wt, true) { errors.push(e); }
     }
-    store.delete_runs(run_ids, runner::now_ms()).map_err(|e| format!("Không xoá được cuộc trò chuyện: {e}"))?;
+    store.delete_runs(run_ids, crate::clock::now_ms()).map_err(|e| format!("Không xoá được cuộc trò chuyện: {e}"))?;
     if errors.is_empty() { Ok(()) }
     else { Err(format!("Đã xoá cuộc trò chuyện, nhưng chưa dọn được bản nháp: {}", errors.join("; "))) }
 }

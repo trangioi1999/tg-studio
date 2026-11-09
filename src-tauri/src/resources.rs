@@ -1,5 +1,5 @@
 //! Process ownership and resource samples. Sampling never holds the ownership lock.
-use std::{collections::{HashMap, HashSet}, sync::{LazyLock, Mutex}, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::{HashMap, HashSet}, sync::{LazyLock, Mutex}};
 use serde::Serialize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
@@ -144,7 +144,7 @@ pub async fn resource_usage() -> Result<ResourceReport, String> {
         let processes = sample()?;
         let (groups, webview) = group_processes(&processes, &registry_snapshot()?, std::process::id());
         Ok(ResourceReport {
-            at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
+            at: crate::clock::now_ms(),
             cpu: groups.iter().map(|g| g.cpu).sum(), memory: groups.iter().map(|g| g.memory).sum(),
             cores: std::thread::available_parallelism().map(usize::from).unwrap_or(1), groups,
             webview: webview && !cfg!(target_os = "macos"),

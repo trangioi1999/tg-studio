@@ -133,7 +133,7 @@ pub fn skill_targets(app: AppHandle, name: String, repo: Option<String>) -> Resu
 pub fn install_skill(app: AppHandle, name: String, scope: String, repo: Option<String>) -> Result<Installed, String> {
     let skill = list_in(&library(&app)?).into_iter().find(|s| s.name == name).ok_or("Không có skill này trong thư viện.")?;
     let (_, root) = roots(&app, repo.as_deref())?.into_iter().find(|(s, _)| *s == scope).ok_or("Chọn một repo Git để cài ở mức project.")?;
-    install_into(&root, &skill.name, &skill.content, crate::runner::now_ms())
+    install_into(&root, &skill.name, &skill.content, crate::clock::now_ms())
 }
 
 #[cfg(test)]
