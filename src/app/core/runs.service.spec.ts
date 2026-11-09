@@ -567,6 +567,21 @@ describe('RunsService open sessions', () => {
     expect(service.runs()[0].status).toBe('done');
   });
 
+  it('keeps how the last turn ended while the session waits', async () => {
+    const { backend, service } = setup([]);
+    await flush();
+    backend.handler(liveEvent({ kind: 'started' }));
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'failed' }, atMs: 5000 }));
+    expect(service.runs()[0]).toMatchObject({ status: 'idle', lastTurn: 'failed' });
+    backend.handler(liveEvent({ kind: 'user', line: 'thử lại' }));
+    expect(service.runs()[0].lastTurn).toBeNull();
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'stopped' }, atMs: 6000 }));
+    expect(service.runs()[0].lastTurn).toBe('stopped');
+    backend.handler(liveEvent({ kind: 'user', line: 'tiếp' }));
+    backend.handler(liveEvent({ kind: 'turn_end', data: { status: 'done' }, atMs: 7000 }));
+    expect(service.runs()[0].lastTurn).toBe('done');
+  });
+
   it('times each question from when it was sent, not from the session start', async () => {
     const { backend, service } = setup([]);
     await flush();

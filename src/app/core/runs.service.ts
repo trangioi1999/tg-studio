@@ -42,6 +42,8 @@ export interface Run {
   plan: PlanEntry[];
   /** Latest tg-bridge `report_progress`. Live runs only. */
   progress: { step: string; pct: number | null; note: string | null; at: number } | null;
+  /** How the last turn of an open session ended (`turn_end`); null while one runs. */
+  lastTurn?: 'done' | 'failed' | 'stopped' | null;
   /** Model picked when it started, if not the agent's default. Live runs only. */
   model?: string | null;
   /** Chỉ hỏi / Hỏi trước / Tự động, as last set. Live runs only. */
@@ -575,13 +577,15 @@ export class RunsService {
           return { ...run, lines };
         }
         case 'user':
-          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, proposal: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
+          return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, proposal: null, lastTurn: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
         case 'turn_end': {
-          this.stopping.delete(run.id);
+          const stopped = this.stopping.delete(run.id);
+          const reported = dataOf(e)['status'];
+          const lastTurn = reported === 'failed' || reported === 'stopped' ? reported : stopped ? 'stopped' : 'done';
           this.forget(run.id);
           void this.loadLimits();
           const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
-          return { ...run, status: 'idle', endedAt: e.atMs, permissions: [], waits };
+          return { ...run, status: 'idle', lastTurn, endedAt: e.atMs, permissions: [], waits };
         }
         case 'exit': {
           const stopped = this.stopping.delete(run.id);

@@ -405,7 +405,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                     }
                   }
                   <tg-delegations [parent]="tr" [except]="placed()[tr.id] ?? []" />
-                  @if (tr.status === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
+                  @if (turnStatus(tr) === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
                 </article>
               }
               @if (quiet()) {
@@ -820,8 +820,9 @@ export class AgentPanel {
   protected turnStatus(r: Run): TurnStatus {
     if (r.permissions.length) return 'needs_you';
     if (r.status === 'running') return 'running';
-    if (r.status === 'failed') return 'failed';
-    if (r.status === 'stopped' || r.status === 'interrupted') return 'stopped';
+    // An open session waits after every turn; how that turn ended still shows.
+    if (r.status === 'failed' || r.lastTurn === 'failed') return 'failed';
+    if (r.status === 'stopped' || r.status === 'interrupted' || r.lastTurn === 'stopped') return 'stopped';
     return 'waiting';
   }
 
