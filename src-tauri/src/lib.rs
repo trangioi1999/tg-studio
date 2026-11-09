@@ -23,6 +23,7 @@ mod runner;
 mod resources;
 mod store;
 mod usage;
+mod version;
 mod warm;
 mod workspace;
 mod worktree;
@@ -85,6 +86,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             resources::resource_usage,
+            version::app_version,
+            version::latest_version,
             resources::kill_process,
             warm::warm_task,
             detect::detect_agents,

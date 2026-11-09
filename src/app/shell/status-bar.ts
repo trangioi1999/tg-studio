@@ -9,6 +9,7 @@ import { BudgetService } from '../core/budget.service';
 import { DiagnosticsService } from '../core/diagnostics.service';
 import { fmtTokens, fmtUsd } from '../core/format';
 import { RunsService } from '../core/runs.service';
+import { VersionService } from '../core/version.service';
 
 /** Agents with a known source of plan limits. Gemini and Kiro have none yet. */
 const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
@@ -43,6 +44,12 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
       <button class="status-btn" (click)="diag.export()" title="Lưu một tệp chẩn đoán (không gồm khóa hay mật khẩu) vào Downloads để gửi khi báo lỗi. App không tự gửi gì.">Chẩn đoán</button>
       @if (backend.mode === 'mock') { <span class="mock">Mock mode — mở bằng <code>npm run dev</code> để chạy agent thật</span> }
       <tg-resource-meter />
+      @if (version.label()) {
+        <button class="status-btn version" [class.newer]="version.latest()?.newer" [class.busy]="version.checking()"
+          [title]="version.title()" [attr.aria-label]="version.title()" (click)="version.check()">
+          {{ version.label() }}@if (version.latest()?.newer) { · có v{{ version.latest()!.latest }} }
+        </button>
+      }
       <span>{{ tok(runs.totals().tokens) }} tok</span>
       <span [attr.data-level]="budget.dailyLevel()" class="today">
         Hôm nay {{ usd(budget.todayCost()) }}@if (budget.budgets().daily; as d) { / {{ usd(d) }} }
@@ -55,6 +62,7 @@ export class StatusBar {
   protected readonly backend = inject(AgentBackend);
   protected readonly budget = inject(BudgetService);
   protected readonly diag = inject(DiagnosticsService);
+  protected readonly version = inject(VersionService);
   private readonly agents = inject(AgentsService);
   private readonly tick = signal(Date.now());
   /** Plan limits stay on screen for every agent that can report them. */

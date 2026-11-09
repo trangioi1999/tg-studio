@@ -63,3 +63,28 @@ describe('StatusBar plan limits', () => {
     expect(bar.backend.claudeCalls).toBe(2);
   });
 });
+
+describe('StatusBar version', () => {
+  it('shows the build and its commit, and says when a newer release is out', async () => {
+    const bar = await render([]);
+    const button = () => bar.querySelector('.version') as HTMLButtonElement;
+    expect(button().textContent!.trim()).toBe('v0.5.1 · mock');
+    expect(button().title).toContain('Đang dùng bản mới nhất (v0.5.1)');
+
+    bar.backend.latestVersion = async () => ({ latest: '0.6.0', newer: true });
+    button().click();
+    await new Promise((resolve) => setTimeout(resolve));
+    bar.fixture.detectChanges();
+    expect(button().textContent).toContain('có v0.6.0');
+    expect(button().classList).toContain('newer');
+  });
+
+  it('a failed check says why in the tooltip', async () => {
+    const bar = await render([]);
+    bar.backend.latestVersion = () => Promise.reject(new Error('Không kết nối được GitHub để kiểm tra bản mới.'));
+    (bar.querySelector('.version') as HTMLButtonElement).click();
+    await new Promise((resolve) => setTimeout(resolve));
+    bar.fixture.detectChanges();
+    expect((bar.querySelector('.version') as HTMLButtonElement).title).toContain('Không kiểm tra được bản mới: Không kết nối được GitHub');
+  });
+});

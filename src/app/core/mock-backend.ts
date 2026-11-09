@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from './backend';
-import { AGENT_META, AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup } from './protocol';
+import { AGENT_META, AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion } from './protocol';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -613,6 +613,14 @@ export class MockBackend extends AgentBackend {
 
   async accountLimits(): Promise<AccountLimits[]> {
     return [];
+  }
+
+  async appVersion(): Promise<AppVersion> {
+    return { version: '0.5.1', commit: 'mock', builtAt: Date.now() };
+  }
+
+  async latestVersion(): Promise<LatestVersion> {
+    return { latest: '0.5.1', newer: false };
   }
 
   /** Plausible numbers: the app, one process tree per live run, and a stray probe. */

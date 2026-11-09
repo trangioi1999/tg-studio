@@ -381,3 +381,17 @@ export interface Worktree {
   branch: string;
   base: string;
 }
+
+/** This build (`version::app_version`): the commit tells apart builds of one version. */
+export interface AppVersion {
+  version: string;
+  commit: string;
+  /** Epoch ms, 0 if unknown. */
+  builtAt: number;
+}
+
+/** The newest published version (git tags on GitHub). */
+export interface LatestVersion {
+  latest: string;
+  newer: boolean;
+}

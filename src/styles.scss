@@ -644,6 +644,9 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .statusbar .err { color: var(--err); }
 .status-btn { height: 18px; padding: 0 6px; border: 1px solid #2a2a30; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
 .status-btn:hover { color: var(--text); }
+.status-btn.version { font-family: var(--mono); }
+.status-btn.version.newer { color: var(--wait); border-color: var(--wait); }
+.status-btn.version.busy { opacity: .6; }
 
 /* ===== Redesign (docs/superpowers/specs/2026-11-05-ui-redesign-design.md) ===== */
 .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
