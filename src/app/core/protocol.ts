@@ -172,6 +172,8 @@ export interface StoredRun {
   project: string;
   /** The subfolder the conversation is about, with `/`. null: all of the project. */
   scope: string | null;
+  /** The run that delegated this one (tg-bridge `delegate`). */
+  parent?: string | null;
 }
 
 export interface PermissionOption {
@@ -301,6 +303,20 @@ export interface OwnChange {
 export interface OwnChanges {
   direct: boolean;
   files: OwnChange[];
+}
+
+/** A piece of a task one agent handed to another through tg-bridge `delegate` (`delegate.rs`). */
+export interface Delegation {
+  id: string;
+  parent: string;
+  child: string | null;
+  agent: AgentId;
+  task: string;
+  status: 'waiting_approval' | 'running' | 'done' | 'failed' | 'stopped' | 'refused' | 'conflict';
+  summary: string | null;
+  filesChanged: string[];
+  conflicts: string[];
+  worktree: string | null;
 }
 
 /** One hunk picked from a run for a composite. */

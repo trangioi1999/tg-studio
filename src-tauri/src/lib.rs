@@ -7,6 +7,7 @@ mod adapters;
 mod claude_usage;
 pub mod bridge;
 mod compose;
+mod delegate;
 mod acp_tasks;
 mod detect;
 mod diagnostics;
@@ -66,6 +67,7 @@ pub fn run() {
         .manage(runner::Runs::default())
         .manage(runner::HeadlessSessions::default())
         .manage(acp_tasks::TaskRuns::default())
+        .manage(std::sync::Arc::new(delegate::Delegations::default()))
         .manage(acp_tasks::SessionInboxes::default())
         .manage(warm::WarmPool::default())
         .manage(compose::Composites::default())

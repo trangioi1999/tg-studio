@@ -87,6 +87,8 @@ pub struct StoredRun {
     pub project: String,
     /// The subfolder of the project the conversation is about, with `/`. None: all of it.
     pub scope: Option<String>,
+    /// The run that delegated this one through tg-bridge `delegate`.
+    pub parent: Option<String>,
 }
 
 impl Store {
@@ -128,7 +130,7 @@ impl Store {
                 CREATE INDEX usage_events_run_id_at ON usage_events(run_id, at, id);
                 PRAGMA user_version = 1;
             ")?,
-            1..=10 => {},
+            1..=11 => {},
             _ => return Err(Error::InvalidQuery),
         }
         if version < 2 {
@@ -188,6 +190,10 @@ impl Store {
         if version < 10 {
             tx.execute_batch("ALTER TABLE runs ADD COLUMN deleted_at INTEGER;
                 PRAGMA user_version = 10;")?;
+        }
+        if version < 11 {
+            tx.execute_batch("ALTER TABLE runs ADD COLUMN parent_run_id TEXT;
+                PRAGMA user_version = 11;")?;
         }
         tx.commit()?;
         Ok(Store(Mutex::new(conn)))
@@ -474,6 +480,23 @@ impl Store {
         Ok(())
     }
 
+    /// A run shown nested in `parent`: an agent's own subagent. It joins the parent's
+    /// conversation and folder.
+    pub fn insert_child_run(&self, id: &str, parent: &str, agent: AgentKind, prompt: &str, started_at: u64) -> Result<()> {
+        let agent = agent_key(agent)?;
+        self.connection()?.execute(
+            "INSERT OR IGNORE INTO runs (id, agent, prompt, cwd, started_at, status, thread_id, scope, repo, parent_run_id)
+             SELECT ?1, ?2, ?3, cwd, ?4, 'running', thread_id, scope, repo, id FROM runs WHERE id = ?5",
+            params![id, agent, prompt, sql_integer(started_at)?, parent],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_run_parent(&self, run_id: &str, parent: &str) -> Result<()> {
+        self.connection()?.execute("UPDATE runs SET parent_run_id = ?2 WHERE id = ?1", params![run_id, parent])?;
+        Ok(())
+    }
+
     pub fn set_acp_session(&self, run_id: &str, session: &str) -> Result<()> {
         self.connection()?.execute("UPDATE runs SET acp_session = ?2 WHERE id = ?1", params![run_id, session])?;
         Ok(())
@@ -505,7 +528,7 @@ impl Store {
         let tx = conn.transaction()?;
         let mut runs = {
             let mut stmt = tx.prepare(
-                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id, thread_id, COALESCE(repo, cwd), scope
+                "SELECT id, agent, prompt, cwd, started_at, ended_at, status, exit_code, worktree, task_id, thread_id, COALESCE(repo, cwd), scope, parent_run_id
                  FROM runs WHERE deleted_at IS NULL ORDER BY started_at DESC, id DESC LIMIT ?1",
             )?;
             let rows = stmt.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
@@ -515,7 +538,7 @@ impl Store {
                 Ok(StoredRun {
                     id: row.get(0)?, agent, prompt: row.get(2)?, cwd: row.get(3)?,
                     started_at: unsigned(row.get(4)?, 4)?, ended_at: row.get::<_, Option<i64>>(5)?.map(|n| unsigned(n, 5)).transpose()?, status: row.get(6)?,
-                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?, group: row.get(9)?, thread: row.get(10)?, project: row.get(11)?, scope: row.get(12)?,
+                    exit_code: row.get(7)?, usage: None, lines: Vec::new(), worktree: row.get(8)?, group: row.get(9)?, thread: row.get(10)?, project: row.get(11)?, scope: row.get(12)?, parent: row.get(13)?,
                 })
             })?;
             rows.collect::<Result<Vec<_>>>()?
@@ -668,7 +691,7 @@ mod tests {
             store.add_usage("old", 3, &usage(10, 2, 3)).unwrap();
             let before = store.list_runs(10).unwrap();
             let conn = store.0.into_inner().unwrap();
-            conn.execute_batch("ALTER TABLE runs DROP COLUMN deleted_at;").unwrap();
+            conn.execute_batch("ALTER TABLE runs DROP COLUMN parent_run_id; ALTER TABLE runs DROP COLUMN deleted_at;").unwrap();
             if version == 7 {
                 conn.execute_batch("ALTER TABLE runs DROP COLUMN thread_id; ALTER TABLE runs DROP COLUMN scope;").unwrap();
             }
@@ -720,6 +743,20 @@ mod tests {
         store.clear_run_worktree("b").unwrap();
         assert!(store.run_worktree("a").is_err());
         assert!(store.run_worktree("b").is_err());
+    }
+
+    #[test]
+    fn a_child_run_joins_its_parents_conversation() {
+        let store = Store::open_in_memory().unwrap();
+        insert(&store, "p", 1);
+        store.set_run_thread("p", "t", Some("src")).unwrap();
+        store.insert_child_run("p~1", "p", AgentKind::Claude, "Tìm tệp cấu hình", 2).unwrap();
+        store.append_line("p~1", "message", "Đã tìm thấy", 3).unwrap();
+        let runs = store.list_runs(10).unwrap();
+        let child = runs.iter().find(|r| r.id == "p~1").unwrap();
+        assert_eq!((child.parent.as_deref(), child.thread.as_deref(), child.scope.as_deref()), (Some("p"), Some("t"), Some("src")));
+        assert_eq!(child.prompt, "Tìm tệp cấu hình");
+        assert_eq!(child.lines[0].line, "Đã tìm thấy");
     }
 
     #[test]
@@ -863,7 +900,7 @@ mod tests {
             let conn = store.connection().unwrap();
             let version: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
             let foreign_keys: bool = conn.pragma_query_value(None, "foreign_keys", |r| r.get(0)).unwrap();
-            assert_eq!(version, 10);
+            assert_eq!(version, 11);
             assert!(foreign_keys);
             conn.prepare("SELECT model, step, worktree, task_id FROM runs").unwrap();
             conn.prepare("SELECT raw FROM usage_events").unwrap();

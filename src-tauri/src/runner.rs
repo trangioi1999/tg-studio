@@ -372,7 +372,13 @@ pub async fn start_agent(
 }
 
 #[tauri::command(async)]
-pub fn stop_agent(runs: State<'_, Runs>, run_id: String) -> Result<(), String> {
+pub fn stop_agent(runs: State<'_, Runs>, delegations: State<'_, std::sync::Arc<crate::delegate::Delegations>>, run_id: String) -> Result<(), String> {
+    // Stopping an agent stops the agents it delegated to as well.
+    for d in delegations.of_parent(&run_id).into_iter().filter(|d| d.active()) {
+        if let Some(child) = &d.child {
+            if let Some(tx) = runs.0.lock().map_err(|e| e.to_string())?.remove(child) { let _ = tx.send(()); }
+        }
+    }
     let sender = runs.0.lock().map_err(|e| e.to_string())?.remove(&run_id);
     match sender {
         Some(tx) => {

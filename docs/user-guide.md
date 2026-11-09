@@ -136,7 +136,18 @@ Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cun
 - **báo tiến độ**: hiện thành thanh tiến độ ở cuộc trò chuyện và cột agent trong Giám sát;
 - **ghi chú chung**: agent cùng task (nhóm song song, các bước pipeline) đọc được; xem ở tab **Plan**;
 - **đề xuất chuyển việc** cho agent khác: hiện thẻ ở cuộc trò chuyện và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng bản nháp nếu task trước đã xong);
-- **xin duyệt** việc ngoài phạm vi: hiện thẻ duyệt như lệnh thường.
+- **xin duyệt** việc ngoài phạm vi: hiện thẻ duyệt như lệnh thường;
+- **giao một phần việc** cho agent khác chạy song song (xem bên dưới).
+
+![Claude giao Codex viết test, dòng Codex lồng trong tin nhắn của Claude](images/delegate.png)
+
+**Agent con.** Khi task có phần làm độc lập được, agent đang làm (ví dụ Claude) có thể tự giao phần đó cho Codex hoặc một Claude khác:
+
+- Ở **Tự động**, agent tự chia việc, tự giao, tự đợi và tự gộp kết quả, không hỏi gì. Ở **Hỏi trước**, app hiện thẻ "Giao cho Codex: …" để bạn cho phép. Ở **Chỉ hỏi** không giao được.
+- Mỗi agent con là một dòng lồng trong tin nhắn của agent đã giao: avatar, việc được giao, trạng thái, thời gian, chi phí và bước đang làm. Bấm vào dòng để xem nhật ký của nó ngay tại chỗ; có nút **Dừng** khi đang chạy. Dừng agent cha thì các agent con cũng dừng.
+- Agent con làm trong bản nháp riêng chụp từ thư mục của agent cha, nên không đè tệp agent cha đang sửa. Xong việc, các tệp của nó được gộp về thư mục của agent cha (gộp từng dòng khi cả hai cùng sửa một tệp) và hiện trong tab Thay đổi như mọi thay đổi khác. Tệp xung đột thì agent cha tự gộp; dòng của agent con ghi rõ tệp nào.
+- Tối đa 3 agent con chạy cùng lúc; agent con không giao tiếp được cho agent khác. Agent chưa cài thì agent cha tự làm phần đó.
+- Subagent có sẵn của Claude Code (khi Claude tự chia việc bằng tool Task/Agent) cũng hiện thành dòng lồng như vậy, thay vì trộn vào nhật ký của Claude.
 
 tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở màn **Kết nối** nếu không cần.
 

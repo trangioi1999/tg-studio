@@ -342,19 +342,53 @@ export class MockBackend extends AgentBackend {
       task.files = mockDiff(run.agent);
     });
     send({ kind: 'bridge', line: '◆ tg-bridge · Sửa tiêu đề (60%)', data: { tool: 'report_progress', step: 'Sửa tiêu đề', pct: 60, note: null } }, 300);
-    if (run.agent === 'claude') {
+    // "chia việc" / "giao" in the request: Claude delegates the tests to Codex and waits for it.
+    const delegating = run.agent === 'claude' && /chia|giao/i.test(run.prompt);
+    const late = delegating ? 2300 : 0;
+    if (delegating) this.delegateMock(runId, run);
+    else if (run.agent === 'claude') {
       send({ kind: 'bridge', line: '◆ tg-bridge · đề xuất chuyển cho codex: Viết test cho tiêu đề mới', data: { tool: 'handoff_to', id: `handoff-${runId}`, agent: 'codex', task: 'Viết test cho tiêu đề mới', files: ['src/app/app.spec.ts'] } }, 470);
     }
-    send({ kind: 'message', data: { text: 'fix: sửa lỗi theo yêu cầu\n\nĐã sửa tiêu đề trong `src/app/app.ts` và chạy lại **toàn bộ test**:\n\n- Đổi chuỗi tiêu đề\n- Cập nhật test liên quan' } }, 500);
+    if (delegating) send({ kind: 'message', data: { text: 'Mình sửa tiêu đề, giao **Codex** viết test song song.' } }, 320);
+    send({ kind: 'message', data: { text: delegating
+      ? 'fix: sửa lỗi theo yêu cầu\n\nĐã sửa tiêu đề trong `src/app/app.ts`; Codex viết xong test trong `src/app/app.spec.ts` và đã gộp vào thư mục.'
+      : 'fix: sửa lỗi theo yêu cầu\n\nĐã sửa tiêu đề trong `src/app/app.ts` và chạy lại **toàn bộ test**:\n\n- Đổi chuỗi tiêu đề\n- Cập nhật test liên quan' } }, 500 + late);
     send({ kind: 'plan', data: { entries: [
       { content: 'Chạy test hiện tại', status: allowed ? 'completed' : 'pending' },
       { content: 'Sửa theo yêu cầu', status: 'completed' },
-    ] } }, 520);
+    ] } }, 520 + late);
     send({
       kind: 'usage',
       usage: { inputTokens: 2400, cachedInputTokens: 12000, outputTokens: 610, costUsd: run.agent === 'claude' ? 0.04 : null, source: run.agent === 'claude' ? 'reported' : 'tokens', cumulative: true },
-    }, 540);
-    this.endTurn(runId, run, 580);
+    }, 540 + late);
+    this.endTurn(runId, run, 580 + late);
+  }
+
+  /** Mock tg-bridge `delegate`: a Codex run nested in the parent, merged back when done. */
+  private delegateMock(parentId: string, parent: MockRun): void {
+    const id = `dlg-${parentId}`;
+    const childId = crypto.randomUUID();
+    const task = 'Viết test cho tiêu đề mới';
+    const root = `${this.tasks.get(parentId)?.root ?? '/mock'}/.tg/worktrees/${childId}`;
+    const base = { id, parent: parentId, agent: 'codex', task, summary: null, filesChanged: [] as string[], conflicts: [] as string[] };
+    const toParent = (data: Record<string, unknown>, line: string, delay: number, effect?: () => void) =>
+      this.later(parentId, parent, { kind: 'bridge', line, data: { ...base, ...data } }, delay, effect);
+    toParent({ tool: 'delegate', child: null, status: 'running', worktree: null }, `◆ tg-bridge · giao cho Codex: ${task}`, 340, () => {
+      const child: MockRun = { agent: 'codex', prompt: task, timers: [], active: true, open: false };
+      this.runs.set(childId, child);
+      this.tasks.set(childId, { files: [], contents: mockContents('codex', false), root, accepted: 0, staged: new Set<string>(), pending: false, own: [], direct: false });
+      const send = (partial: Partial<AgentEvent>, delay: number) => this.later(childId, child, partial, delay);
+      send({ kind: 'started', line: `mock codex · ${root}`, data: { parent: parentId } }, 10);
+      send({ kind: 'tool', data: { toolCallId: 'c1', title: 'Đọc src/app/app.ts', kind: 'read', status: 'completed' } }, 300);
+      send({ kind: 'tool', data: { toolCallId: 'c2', title: 'Sửa src/app/app.spec.ts', kind: 'edit', status: 'pending', locations: [{ path: `${root}/src/app/app.spec.ts`, line: 1 }] } }, 600);
+      send({ kind: 'tool', data: { toolCallId: 'c2', status: 'completed' } }, 1100);
+      send({ kind: 'message', data: { text: 'Đã thêm 3 test cho tiêu đề mới trong `src/app/app.spec.ts`.' } }, 1300);
+      send({ kind: 'usage', usage: { inputTokens: 1800, cachedInputTokens: 6000, outputTokens: 420, costUsd: null, source: 'tokens', cumulative: true } }, 1350);
+      send({ kind: 'exit', code: 0, data: { status: 'done' } }, 1500);
+      toParent({ tool: 'delegate', child: childId, status: 'running', worktree: root }, `◆ tg-bridge · giao cho Codex: ${task}`, 30);
+      toParent({ tool: 'delegate_done', child: childId, status: 'done', worktree: null, filesChanged: ['src/app/app.spec.ts'], summary: 'Đã thêm 3 test cho tiêu đề mới.' },
+        '◆ tg-bridge · Codex done: Viết test cho tiêu đề mới', 1600);
+    });
   }
 
   /** A session that stays open waits for the next message; a pipeline step ends. */

@@ -5,7 +5,13 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 use crate::{acp::{client::{ClientHandler, HandlerFuture, method_not_found}, handlers::{Sandbox, Terminals}}, adapters::AgentKind, policy::{self, Verdict}, runner::AgentEvent};
 
-pub trait EventSink: Send + Sync + 'static { fn emit(&self, ev: AgentEvent); }
+pub trait EventSink: Send + Sync + 'static {
+    fn emit(&self, ev: AgentEvent);
+    /// A run for one of the agent's own subagents, nested in `parent`; saved before its events.
+    fn child_run(&self, _id: &str, _parent: &str, _agent: AgentKind, _title: &str) {}
+    /// That subagent run ended ("done" or "stopped").
+    fn child_finished(&self, _id: &str, _status: &str) {}
+}
 pub trait RuleMemory: Send + Sync + 'static {
     fn rules(&self) -> Result<Vec<String>, String>;
     fn add(&self, rule: &str) -> Result<(), String>;
@@ -36,6 +42,10 @@ pub struct TaskSession {
     muted: AtomicBool,
     busy: AtomicBool,
     approval: Mutex<Approval>,
+    /// The agent's latest message, and whether a tool call ended it (the next chunk starts anew).
+    reply: Mutex<(String, bool)>,
+    /// The agent's own subagents (ACP child sessions): session id → (run id, still working).
+    subagents: Mutex<HashMap<String, (String, bool)>>,
 }
 
 /// How permission requests are answered. `Ask` shows a card; `Auto` allows without asking
@@ -49,11 +59,13 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask)})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),reply:Mutex::default(),subagents:Mutex::default()})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     pub fn set_approval(&self, approval:Approval) { *self.approval.lock().unwrap() = approval; }
-    fn approval(&self) -> Approval { *self.approval.lock().unwrap() }
+    pub fn approval(&self) -> Approval { *self.approval.lock().unwrap() }
+    /// The agent's latest message: a delegated agent's summary for its parent.
+    pub fn last_reply(&self) -> String { self.reply.lock().unwrap().0.clone() }
     pub fn agent(&self) -> AgentKind { self.agent }
     /// An approval card for something an agent asked through tg-bridge. True only if allowed.
     pub fn ask(&self, action:String, reason:String) -> crate::bridge::BoxFuture<bool> {
@@ -142,7 +154,72 @@ impl TaskSession {
             event.usage = Some(usage); self.queue(event); self.flush_events();
         }
     }
+    /// A subagent announced or changed state: open its nested run, or end it when idle.
+    fn subagent_update(&self, update:&Value) {
+        let Some(sid) = update["sessionId"].as_str() else { return };
+        let state = update["state"]["state"].as_str().unwrap_or("running");
+        let mut subs = self.subagents.lock().unwrap();
+        let known = subs.get(sid).cloned();
+        let id = match &known {
+            Some((id, _)) => id.clone(),
+            None => {
+                let id = format!("{}~{}", self.run_id, subs.len() + 1);
+                let title = update["title"].as_str().or(update["description"].as_str()).unwrap_or("Subagent").to_string();
+                subs.insert(sid.to_string(), (id.clone(), true));
+                drop(subs);
+                self.sink.child_run(&id, &self.run_id, self.agent, &title);
+                let mut ev = AgentEvent::new(&id, self.agent, "started");
+                ev.line = Some(format!("Subagent · {title}"));
+                ev.data = Some(json!({"parent": self.run_id, "subagent": true, "title": title}));
+                self.queue(ev);
+                subs = self.subagents.lock().unwrap();
+                id
+            }
+        };
+        let working = known.map_or(true, |k| k.1);
+        match state {
+            "idle" if working => {
+                subs.insert(sid.to_string(), (id.clone(), false));
+                drop(subs);
+                self.sink.child_finished(&id, "done");
+                let mut ev = AgentEvent::new(&id, self.agent, "exit");
+                ev.code = Some(0);
+                ev.data = Some(json!({"status": "done"}));
+                self.queue(ev);
+            }
+            "running" if !working => {
+                subs.insert(sid.to_string(), (id.clone(), true));
+                drop(subs);
+                self.queue(AgentEvent::new(&id, self.agent, "user"));
+            }
+            _ => {}
+        }
+    }
+    fn subagent_event(&self, child:&str, update:&Value) {
+        let (kind, data) = match update["sessionUpdate"].as_str() {
+            Some("agent_message_chunk") if update["content"]["type"] == "text" => match update["content"]["text"].as_str() {
+                Some(text) => ("message", json!({"text": text})),
+                None => return,
+            },
+            Some("tool_call" | "tool_call_update") => ("tool", update.clone()),
+            Some("plan") => ("plan", update.clone()),
+            _ => return,
+        };
+        let mut ev = AgentEvent::new(child, self.agent, kind);
+        ev.data = Some(data);
+        self.queue(ev);
+    }
+
     pub async fn finish(&self) {
+        // Subagents still working end with their parent's session.
+        let open: Vec<String> = self.subagents.lock().unwrap().values_mut().filter(|c| c.1).map(|c| { c.1 = false; c.0.clone() }).collect();
+        for id in open {
+            self.sink.child_finished(&id, "stopped");
+            let mut ev = AgentEvent::new(&id, self.agent, "exit");
+            ev.data = Some(json!({"status": "stopped"}));
+            self.queue(ev);
+        }
+        self.flush_events();
         self.cancel_pending();
         let mut closed=self.operation_gate.lock().await;
         *closed=true;
@@ -211,13 +288,23 @@ impl ClientHandler for TaskSession {
         let permissions=self.permissions.lock().unwrap();
         if permissions.closed {return;}
         let update = &params["update"];
+        if update["sessionUpdate"] == "subagent_update" { drop(permissions); self.subagent_update(update); self.flush_events(); return; }
+        // A subagent's own messages and tool calls go to its nested run.
+        let child = params["sessionId"].as_str().and_then(|s| self.subagents.lock().unwrap().get(s).map(|c| c.0.clone()));
+        if let Some(child) = child { drop(permissions); self.subagent_event(&child, update); self.flush_events(); return; }
         match update["sessionUpdate"].as_str() {
             Some("agent_message_chunk") => {
                 if update["content"]["type"] == "text" {
-                    if let Some(text) = update["content"]["text"].as_str() {self.queue_data("message",json!({"text":text}));}
+                    if let Some(text) = update["content"]["text"].as_str() {
+                        let mut reply=self.reply.lock().unwrap();
+                        if reply.1 { reply.0.clear(); reply.1=false; }
+                        reply.0.push_str(text);
+                        drop(reply);
+                        self.queue_data("message",json!({"text":text}));
+                    }
                 }
             }
-            Some("tool_call" | "tool_call_update") => self.queue_data("tool",update.clone()),
+            Some("tool_call" | "tool_call_update") => { self.reply.lock().unwrap().1=true; self.queue_data("tool",update.clone()) }
             Some("available_commands_update") => self.queue_data("commands", json!({"commands": crate::options::parse_commands(self.agent, update, Some(&self.cwd))})),
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
@@ -366,6 +453,42 @@ mod tests {
         fn rules(&self)->Result<Vec<String>,String> {Ok(self.0.lock().unwrap().clone())}
         fn add(&self, rule:&str)->Result<(),String> {self.0.lock().unwrap().push(rule.into());Ok(())}
     }
+    #[tokio::test]
+    async fn subagent_sessions_go_to_their_own_nested_run() {
+        #[derive(Default)]
+        struct Sink { events: Mutex<Vec<AgentEvent>>, children: Mutex<Vec<String>> }
+        impl EventSink for Sink {
+            fn emit(&self, ev: AgentEvent) { self.events.lock().unwrap().push(ev); }
+            fn child_run(&self, id: &str, parent: &str, _: AgentKind, title: &str) { self.children.lock().unwrap().push(format!("open {id} {parent} {title}")); }
+            fn child_finished(&self, id: &str, status: &str) { self.children.lock().unwrap().push(format!("end {id} {status}")); }
+        }
+        let root = std::env::temp_dir();
+        let sink = Arc::new(Sink::default());
+        let session = TaskSession::new("p", AgentKind::Claude, &root, sink.clone(), Arc::new(Memory::default())).unwrap();
+        let text = |sid: &str, t: &str| json!({"sessionId": sid, "update": {"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":t}}});
+        session.on_notification("session/update", text("root", "Tôi giao cho subagent."));
+        session.on_notification("session/update", json!({"sessionId":"root","update":{"sessionUpdate":"subagent_update","sessionId":"kid","title":"Tìm cấu hình","state":{"state":"running"}}}));
+        session.on_notification("session/update", json!({"sessionId":"kid","update":{"sessionUpdate":"tool_call","toolCallId":"t","title":"Đọc a.json","status":"completed"}}));
+        session.on_notification("session/update", text("kid", "Thấy ở a.json"));
+        session.on_notification("session/update", json!({"sessionId":"root","update":{"sessionUpdate":"subagent_update","sessionId":"kid","state":{"state":"idle"}}}));
+        session.on_notification("session/update", json!({"sessionId":"root","update":{"sessionUpdate":"tool_call","toolCallId":"u","title":"Sửa a.json","status":"pending"}}));
+        session.on_notification("session/update", text("root", "Xong."));
+        let events = sink.events.lock().unwrap();
+        let of = |run: &str| events.iter().filter(|e| e.run_id == run).map(|e| e.kind).collect::<Vec<_>>();
+        assert_eq!(of("p"), ["message", "tool", "message"], "the parent's log has only its own updates");
+        assert_eq!(of("p~1"), ["started", "tool", "message", "exit"]);
+        let started = events.iter().find(|e| e.run_id == "p~1" && e.kind == "started").unwrap();
+        assert_eq!(started.data.as_ref().unwrap()["parent"], "p");
+        assert_eq!(*sink.children.lock().unwrap(), ["open p~1 p Tìm cấu hình", "end p~1 done"]);
+        // The latest message after the last tool call is what a delegated agent reports back.
+        assert_eq!(session.last_reply(), "Xong.");
+        drop(events);
+        // A subagent still working when the session ends is stopped with it.
+        session.on_notification("session/update", json!({"sessionId":"root","update":{"sessionUpdate":"subagent_update","sessionId":"kid2","title":"Khác","state":{"state":"running"}}}));
+        session.finish().await;
+        assert_eq!(sink.children.lock().unwrap().last().unwrap(), "end p~2 stopped");
+    }
+
     #[tokio::test]
     async fn auto_allows_without_a_card_and_deny_refuses_writes() {
         let root = std::env::temp_dir().join(format!("tg-approval-{}", uuid::Uuid::new_v4()));

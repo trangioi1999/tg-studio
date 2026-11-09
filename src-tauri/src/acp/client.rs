@@ -83,6 +83,9 @@ impl AcpClient {
                     "clientCapabilities": {
                         "fs": { "readTextFile": true, "writeTextFile": true },
                         "terminal": true,
+                        // Claude's own subagents come as child sessions (`subagent_update`),
+                        // shown nested instead of mixed into the parent's log.
+                        "subagents": {},
                     },
                     "clientInfo": {
                         "name": "tg-studio",
