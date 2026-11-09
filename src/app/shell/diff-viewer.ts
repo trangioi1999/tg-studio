@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { AGENT_META, AgentId, FileDiff, OwnChange } from '../core/protocol';
+import { AgentId, FileDiff, OwnChange } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';

@@ -1,7 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { KEYS } from '../core/keys';
-import { AGENT_META } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { THREAD_STATUS_LABEL, Thread, ThreadsService } from '../core/threads.service';
 import { Screen, UiService } from '../core/ui.service';

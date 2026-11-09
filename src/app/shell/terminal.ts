@@ -1,5 +1,5 @@
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
-import { AGENT_META } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { Splitter } from './splitter';
 

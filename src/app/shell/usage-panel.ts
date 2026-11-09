@@ -1,5 +1,6 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
-import { AGENT_IDS, AGENT_META, AccountLimits, LimitWindow } from '../core/protocol';
+import { AccountLimits, LimitWindow } from '../core/protocol';
+import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
 

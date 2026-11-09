@@ -1,7 +1,8 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { fmtDuration, fmtUsd } from '../core/format';
 import { estimateCost } from '../core/pricing';
-import { AGENT_META, AgentId, Delegation } from '../core/protocol';
+import { AgentId, Delegation } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { Run, RunsService, turnStart } from '../core/runs.service';
 import { segmentsOf } from '../core/timeline';
 import { WorkspaceService } from '../core/workspace.service';

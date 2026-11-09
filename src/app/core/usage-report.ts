@@ -1,5 +1,6 @@
 import { costOf } from './pricing';
-import { AGENT_IDS, AgentId, UsageRow } from './protocol';
+import { AgentId, UsageRow } from './protocol';
+import { AGENT_IDS } from '../agents/agent-meta';
 
 export type Measure = 'cost' | 'tokens';
 export type SortKey = 'time' | 'cost' | 'tokens';

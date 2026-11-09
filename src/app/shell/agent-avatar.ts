@@ -1,5 +1,6 @@
 import { Component, computed, input } from '@angular/core';
-import { AGENT_META, AgentId } from '../core/protocol';
+import { AgentId } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 
 /** The agent's own logo on a neutral tile, so every agent reads the same way at a glance. */
 @Component({

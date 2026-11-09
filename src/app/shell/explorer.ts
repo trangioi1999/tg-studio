@@ -1,5 +1,5 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
-import { AGENT_META } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { ThreadsService } from '../core/threads.service';
 import { KEYS } from '../core/keys';

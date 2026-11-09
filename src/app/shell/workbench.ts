@@ -1,5 +1,5 @@
 import { Component, computed, effect, inject, untracked } from '@angular/core';
-import { AGENT_META } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { Tab, WorkspaceService, tabKey } from '../core/workspace.service';
 import { CodeEditor } from './code-editor';

@@ -11,15 +11,8 @@ import {
   untracked,
 } from '@angular/core';
 import { AgentBackend } from '../core/backend';
-import {
-  AGENT_IDS,
-  AGENT_META,
-  AgentId,
-  McpServer,
-  NameValue,
-  Skill,
-  SkillTarget,
-} from '../core/protocol';
+import { AgentId, McpServer, NameValue, Skill, SkillTarget } from '../core/protocol';
+import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
 import { AgentsService } from '../core/agents.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';

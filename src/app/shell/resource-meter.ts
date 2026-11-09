@@ -2,7 +2,8 @@ import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { AgentAvatar } from './agent-avatar';
 import { AgentBackend } from '../core/backend';
 import { fmtBytes, fmtCpu } from '../core/format';
-import { AGENT_META, ResourceReport, UsageGroup } from '../core/protocol';
+import { ResourceReport, UsageGroup } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { errorText } from '../shared/errors';
 

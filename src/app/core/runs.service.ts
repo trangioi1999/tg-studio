@@ -4,7 +4,8 @@ import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Delegation, Pick, PlanEntry, AgentId, FileDiff, OwnChanges, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Delegation, Pick, PlanEntry, AgentId, FileDiff, OwnChanges, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
 import { errorText } from '../shared/errors';
 
 export type { RunStatus };

@@ -1,6 +1,6 @@
 import { Component, computed, inject, linkedSignal, output, signal } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
-import { AGENT_META } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';

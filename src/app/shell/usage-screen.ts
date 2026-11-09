@@ -3,7 +3,8 @@ import { AgentBackend } from '../core/backend';
 import { BudgetService } from '../core/budget.service';
 import { fmtTokens, fmtUsd } from '../core/format';
 import { PRICE_HISTORY, costOf, priceAt } from '../core/pricing';
-import { AGENT_IDS, AGENT_META, AgentId, UsageRow } from '../core/protocol';
+import { AgentId, UsageRow } from '../core/protocol';
+import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../core/runs.service';
 import { UiService } from '../core/ui.service';
 import {

@@ -1,6 +1,7 @@
 import { Component, OnDestroy, computed, effect, inject, signal, untracked } from '@angular/core';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
-import { AGENT_IDS, AGENT_META, AgentId } from '../core/protocol';
+import { AgentId } from '../core/protocol';
+import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
 import { Run, RunsService } from '../core/runs.service';
 import { ConsoleView, UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';

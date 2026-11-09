@@ -1,7 +1,8 @@
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { fmtDuration, fmtTokens, fmtUsd } from '../core/format';
 import { estimateCost } from '../core/pricing';
-import { AGENT_META, AgentId, FileDiff } from '../core/protocol';
+import { AgentId, FileDiff } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { Run, RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
 import { Mixer } from './mixer';

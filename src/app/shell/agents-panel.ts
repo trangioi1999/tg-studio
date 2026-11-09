@@ -1,6 +1,6 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { AgentsService } from '../core/agents.service';
-import { AGENT_META } from '../core/protocol';
+import { AGENT_META } from '../agents/agent-meta';
 import { UiService } from '../core/ui.service';
 import { AgentAvatar } from './agent-avatar';
 
