@@ -4,6 +4,8 @@ import { AGENT_META } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
+import { errorText } from '../shared/errors';
+import { copyText } from '../shared/clipboard';
 
 export const ONBOARDED_KEY = 'tg.onboarded';
 
@@ -129,11 +131,7 @@ export class Onboarding {
   protected readonly sampleAgent = computed(() => this.agents.runnable()[0] ?? null);
 
   protected async copy(text: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* clipboard can be unavailable; the text is on screen */
-    }
+    await copyText(text); // if it fails, the text is on screen
   }
 
   protected async check(): Promise<void> {
@@ -149,7 +147,7 @@ export class Onboarding {
       await this.runs.start(agent.id, SAMPLE, this.workspace.folder());
       this.finish();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

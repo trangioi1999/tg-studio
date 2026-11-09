@@ -15,10 +15,12 @@ import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
 import { Delegations } from './delegations';
-import { Markdown, copyText, plainText } from './markdown';
+import { Markdown, plainText } from './markdown';
+import { copyText } from '../shared/clipboard';
 import { NgTemplateOutlet } from '@angular/common';
 import { segmentsOf, Segment } from '../core/timeline';
 import { Approval, ConfigChoice, Place } from '../core/protocol';
+import { errorText } from '../shared/errors';
 
 type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
 type TurnStatus = 'running' | 'needs_you' | 'waiting' | 'failed' | 'stopped';
@@ -844,11 +846,7 @@ export class AgentPanel {
   }
 
   protected async copy(text: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* the command is in the tooltip */
-    }
+    await copyText(text); // if it fails, the command is still in the tooltip
   }
 
   // Composer menus: who works (agent, model, team) and what it may do (permission).
@@ -969,7 +967,7 @@ export class AgentPanel {
     try {
       await work();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.gitBusy.set(false);
     }
@@ -1059,7 +1057,7 @@ export class AgentPanel {
     try {
       await this.runs.acceptHandoff(id, repo);
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.handoffBusy.set(false);
     }
@@ -1236,7 +1234,7 @@ export class AgentPanel {
           try {
             await this.runs.sendMessage(current.id, text);
           } catch (e) {
-            if (!(e instanceof Error ? e.message : String(e)).includes('đã đóng')) throw e;
+            if (!(errorText(e)).includes('đã đóng')) throw e;
             await this.runs.start(agent, text, cwd, thread, current.id, scope, null);
           }
         } else if (perm === 'read' && !this.readViaAcp()) {
@@ -1257,7 +1255,7 @@ export class AgentPanel {
         setTimeout(() => { if (this.pending()?.at === sent.at) this.pending.set(null); }, 4000);
       }
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
       this.restore(typed);
     } finally {
       this.sending.set(false);

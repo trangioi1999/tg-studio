@@ -23,6 +23,7 @@ import {
 import { AgentsService } from '../core/agents.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
+import { errorText } from '../shared/errors';
 
 const EMPTY: McpServer = {
   id: '',
@@ -734,7 +735,7 @@ export class Integrations implements OnInit {
 
   ngOnInit(): void {
     void this.reload().catch((e: unknown) =>
-      this.error.set(e instanceof Error ? e.message : String(e)),
+      this.error.set(errorText(e)),
     );
   }
 
@@ -854,7 +855,7 @@ export class Integrations implements OnInit {
       this.confirming.set(null);
       await this.reload();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { AgentId, Approval, FileDiff, Place } from './protocol';
 import { Run, RunsService } from './runs.service';
+import { errorText } from '../shared/errors';
 
 export interface PipelineStep {
   name: string;
@@ -123,7 +124,7 @@ export class PipelineService {
       const runId = await this.runs.startTask(step.agent, prompt, p.repo, { singleTurn: true, thread: id, reuse: previousId ?? undefined, title: `${step.name} · ${p.task}`, place: where.place, base: where.base, approval: where.approval });
       this.patch(id, { runIds: this.get(id)!.runIds.map((r, i) => (i === index ? runId : r)) });
     } catch (e) {
-      this.patch(id, { status: 'failed', error: `Không chạy được bước ${step.name}: ${e instanceof Error ? e.message : String(e)}` });
+      this.patch(id, { status: 'failed', error: `Không chạy được bước ${step.name}: ${errorText(e)}` });
     }
   }
 }

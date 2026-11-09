@@ -133,3 +133,23 @@ describe('Markdown reveal', () => {
     expect(frames.size).toBe(0);
   });
 });
+
+describe('Markdown copy button', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('says "Đã chép" only when the clipboard took the code', async () => {
+    const writeText = vi.fn().mockRejectedValueOnce(new Error('denied')).mockResolvedValueOnce(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const fixture = TestBed.createComponent(Markdown);
+    fixture.componentRef.setInput('text', '```ts\nconst a = 1;\n```');
+    fixture.detectChanges();
+    const button = (fixture.nativeElement as HTMLElement).querySelector('.copy-code') as HTMLElement;
+    button.click();
+    await new Promise((r) => setTimeout(r));
+    expect(button.textContent).not.toContain('Đã chép');
+    button.click();
+    await new Promise((r) => setTimeout(r));
+    expect(button.textContent).toContain('Đã chép');
+    expect(writeText).toHaveBeenCalledWith('const a = 1;\n');
+  });
+});

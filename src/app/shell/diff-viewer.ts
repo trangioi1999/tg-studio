@@ -4,6 +4,7 @@ import { RunsService } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { FileIcon } from './file-icon';
+import { errorText } from '../shared/errors';
 
 /**
  * A run's changes as git sees them, like an editor's Source Control view: commit or revert
@@ -265,7 +266,7 @@ export class DiffViewer {
     try {
       await work();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

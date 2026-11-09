@@ -11,6 +11,7 @@ import {
 } from '../core/usage-report';
 import { AgentAvatar } from './agent-avatar';
 import { UsagePanel } from './usage-panel';
+import { errorText } from '../shared/errors';
 
 export { niceMax, toCsv } from '../core/usage-report';
 
@@ -417,7 +418,7 @@ export class UsageScreen {
       this.error.set(null);
     } catch (e) {
       if (ticket !== this.loads) return;
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     }
   }
 
@@ -536,7 +537,7 @@ export class UsageScreen {
     try {
       await work();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

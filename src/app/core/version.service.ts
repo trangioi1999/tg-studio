@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { AppVersion, LatestVersion } from './protocol';
+import { errorText } from '../shared/errors';
 
 /** How often a running app looks for a newer release. */
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
@@ -49,7 +50,7 @@ export class VersionService {
       this.latest.set(await this.backend.latestVersion());
       this.error.set(null);
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.checking.set(false);
     }

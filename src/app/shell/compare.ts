@@ -5,6 +5,7 @@ import { AGENT_META, AgentId, FileDiff } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
 import { Mixer } from './mixer';
+import { errorText } from '../shared/errors';
 
 interface Summary {
   files: FileDiff[];
@@ -230,7 +231,7 @@ export class Compare {
     try {
       await work();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

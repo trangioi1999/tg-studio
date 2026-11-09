@@ -2,6 +2,7 @@ import { Component, computed, inject, input, signal } from '@angular/core';
 import { AGENT_IDS, AGENT_META, AgentId, CheckResult, FileDiff, Hunk } from '../core/protocol';
 import { Run, RunsService } from '../core/runs.service';
 import { AgentAvatar } from './agent-avatar';
+import { errorText } from '../shared/errors';
 
 interface Entry {
   key: string;
@@ -189,7 +190,7 @@ export class Mixer {
     try {
       await work();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

@@ -1,6 +1,7 @@
 import { Component, DestroyRef, ElementRef, afterRenderEffect, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { marked } from 'marked';
 import { nextReveal } from '../core/reveal';
+import { copyText } from '../shared/clipboard';
 
 /**
  * An agent's message as rendered Markdown. Angular sanitizes the HTML bound to
@@ -74,7 +75,7 @@ export class Markdown {
     const copy = target?.closest('.copy-code');
     if (copy) {
       const code = copy.parentElement?.querySelector('code')?.textContent ?? '';
-      void copyText(code).then(() => flash(copy as HTMLElement));
+      void copyText(code).then((ok) => ok && flash(copy as HTMLElement));
       return;
     }
     const link = target?.closest('a');
@@ -99,15 +100,6 @@ export function plainText(markdown: string): string {
   doc.querySelectorAll('li').forEach((li) => li.prepend('• '));
   doc.querySelectorAll('p, li, pre, h1, h2, h3, h4, tr, blockquote').forEach((el) => el.append('\n'));
   return (doc.body.textContent ?? '').replace(/\n\s*\n+/g, '\n').trim();
-}
-
-export async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function flash(button: HTMLElement): void {

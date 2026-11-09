@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { AgentCommand, AgentId, AgentOptions, DetectedAgent, SessionPrefs } from './protocol';
+import { errorText } from '../shared/errors';
 
 const PREFS_KEY = 'tg.prefs';
 
@@ -104,7 +105,7 @@ export class AgentsService {
       this.options.update((o) => ({ ...o, [agent]: found }));
     } catch (e) {
       console.warn('Không đọc được model của agent', e);
-      this.optionsError.update((m) => ({ ...m, [agent]: e instanceof Error ? e.message : String(e) }));
+      this.optionsError.update((m) => ({ ...m, [agent]: errorText(e) }));
       this.options.update((o) => ({ ...o, [agent]: 'error' }));
     }
   }

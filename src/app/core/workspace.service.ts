@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
 import { FileDiff, Project, RepoInfo } from './protocol';
 import { RunsService } from './runs.service';
+import { errorText } from '../shared/errors';
 
 /** What the center area shows. Files and reviews belong to a run's worktree. */
 export type Tab =
@@ -83,7 +84,7 @@ export class WorkspaceService {
       this.apply(project);
       return true;
     } catch (e) {
-      if (ticket === this.openTicket) this.folderError.set(e instanceof Error ? e.message : String(e));
+      if (ticket === this.openTicket) this.folderError.set(errorText(e));
       return false;
     }
   }
@@ -93,7 +94,7 @@ export class WorkspaceService {
     try {
       picked = await this.backend.pickFolder();
     } catch (e) {
-      this.folderError.set(e instanceof Error ? e.message : String(e));
+      this.folderError.set(errorText(e));
       return;
     }
     if (picked) await this.setFolder(picked);
@@ -137,7 +138,7 @@ export class WorkspaceService {
       (e) => {
         if (ticket !== this.filesTicket) return;
         this.projectFiles.set([]);
-        this.projectFilesError.set(e instanceof Error ? e.message : String(e));
+        this.projectFilesError.set(errorText(e));
       },
     );
   }
@@ -205,7 +206,7 @@ export class WorkspaceService {
     } catch (e) {
       if (ticket !== this.loads[runId]) return;
       // A Git lock or a read error is not "no changes": keep what was last read.
-      this.refreshErrors.update((all) => ({ ...all, [runId]: e instanceof Error ? e.message : String(e) }));
+      this.refreshErrors.update((all) => ({ ...all, [runId]: errorText(e) }));
     }
   }
 

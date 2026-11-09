@@ -5,6 +5,7 @@ import { Run, RunsService } from '../core/runs.service';
 import { ConsoleView, UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
+import { errorText } from '../shared/errors';
 
 interface QueueItem {
   key: string;
@@ -139,7 +140,7 @@ export class MissionControl implements OnDestroy {
       const runId = await this.runs.acceptHandoff(id, repo);
       this.ui.openRun(runId);
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

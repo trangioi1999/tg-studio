@@ -4,6 +4,7 @@ import { AgentBackend } from '../core/backend';
 import { fmtBytes, fmtCpu } from '../core/format';
 import { AGENT_META, ResourceReport, UsageGroup } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
+import { errorText } from '../shared/errors';
 
 /** Every 3 s while the window is visible, every 15 s while it is hidden. */
 const VISIBLE_MS = 3_000;
@@ -102,7 +103,7 @@ export class ResourceMeter {
       this.report.set(await this.backend.resourceUsage());
       this.error.set(null);
     } catch (e) {
-      this.error.set(`Không đo được: ${e instanceof Error ? e.message : String(e)}`);
+      this.error.set(`Không đo được: ${errorText(e)}`);
     }
   }
 
@@ -113,7 +114,7 @@ export class ResourceMeter {
       else for (const p of group.processes.filter((x) => !group.processes.some((y) => y.pid === x.parent))) await this.backend.killProcess(p.pid);
       await this.refresh();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     } finally {
       this.busy.set(false);
     }

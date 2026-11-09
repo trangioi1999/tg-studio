@@ -7,6 +7,7 @@ import { AGENT_META, AgentId, Hunk } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
 import { WorkspaceService, tabKey } from '../core/workspace.service';
 import { EditorStatusBar } from './editor-status';
+import { errorText } from '../shared/errors';
 
 interface Buffer {
   model: Monaco.editor.ITextModel;
@@ -152,7 +153,7 @@ export class CodeEditor implements OnDestroy {
     try {
       this.monaco = await loadMonaco();
     } catch (e) {
-      this.error.set(`Không tải được editor: ${e instanceof Error ? e.message : String(e)}`);
+      this.error.set(`Không tải được editor: ${errorText(e)}`);
       return;
     }
     if (this.editor) return;
@@ -354,7 +355,7 @@ export class CodeEditor implements OnDestroy {
       await work();
       return true;
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
       return false;
     } finally {
       this.busy.set(false);

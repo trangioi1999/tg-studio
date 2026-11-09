@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { AgentBackend } from './backend';
+import { errorText } from '../shared/errors';
 
 const MAX_ERRORS = 50;
 
@@ -23,7 +24,7 @@ export class DiagnosticsService {
       if (isResizeNoise(e.message)) e.stopImmediatePropagation();
     }, { capture: true });
     window.addEventListener('error', (e) => this.record(e.message || String(e.error)));
-    window.addEventListener('unhandledrejection', (e) => this.record(e.reason instanceof Error ? e.reason.message : String(e.reason)));
+    window.addEventListener('unhandledrejection', (e) => this.record(errorText(e.reason)));
   }
 
   record(message: string): void {
@@ -42,7 +43,7 @@ export class DiagnosticsService {
       this.saved.set(path);
       return path;
     } catch (e) {
-      this.failed.set(e instanceof Error ? e.message : String(e));
+      this.failed.set(errorText(e));
       return null;
     }
   }

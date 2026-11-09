@@ -7,6 +7,7 @@ import { THREAD_STATUS_LABEL, Thread, ThreadsService } from '../core/threads.ser
 import { Screen, UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
+import { errorText } from '../shared/errors';
 
 /** Left column: projects and their conversations, then the screens beyond the chat. */
 @Component({
@@ -173,7 +174,7 @@ export class ThreadList {
     try {
       await this.threads.remove(t.id);
     } catch (e) {
-      this.failed.set({ id: t.id, message: e instanceof Error ? e.message : String(e) });
+      this.failed.set({ id: t.id, message: errorText(e) });
     } finally {
       this.removing.set(false);
       this.confirming.set(null);

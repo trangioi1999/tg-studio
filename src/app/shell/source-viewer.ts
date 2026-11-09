@@ -3,6 +3,8 @@ import type * as Monaco from 'monaco-editor/editor/editor.api.js';
 import { AgentBackend } from '../core/backend';
 import { EDITOR_OPTIONS, EditorStatus, MonacoApi, addWrapToggle, loadMonaco, trackStatus } from '../core/monaco';
 import { EditorStatusBar } from './editor-status';
+import { errorText } from '../shared/errors';
+import { copyText } from '../shared/clipboard';
 
 /** Read-only Monaco on a file of the opened project. Changes go through an agent's draft. */
 @Component({
@@ -67,12 +69,13 @@ export class SourceViewer implements OnDestroy {
       this.toggleWrap = addWrapToggle(this.monaco, this.editor, (on) => this.wrap.set(on));
       await this.show();
     } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorText(e));
     }
   }
 
   protected copyPath(): void {
-    void navigator.clipboard?.writeText(this.path()).then(() => {
+    void copyText(this.path()).then((ok) => {
+      if (!ok) return;
       this.copied.set(true);
       setTimeout(() => this.copied.set(false), 1200);
     });
@@ -91,7 +94,7 @@ export class SourceViewer implements OnDestroy {
       this.editor.setModel(this.model);
       this.error.set(null);
     } catch (e) {
-      if (ticket === this.ticket) this.error.set(e instanceof Error ? e.message : String(e));
+      if (ticket === this.ticket) this.error.set(errorText(e));
     }
   }
 }

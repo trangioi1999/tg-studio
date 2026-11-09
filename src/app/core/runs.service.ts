@@ -5,6 +5,7 @@ import { AgentsService } from './agents.service';
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from './describe-line';
 import { estimateCost } from './pricing';
 import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Delegation, Pick, PlanEntry, AgentId, FileDiff, OwnChanges, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { errorText } from '../shared/errors';
 
 export type { RunStatus };
 
@@ -449,7 +450,7 @@ export class RunsService {
     try {
       await this.backend.deleteRuns(ids);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorText(e);
       // A failed cleanup still hid the history; anything else changed nothing.
       if (!message.startsWith('Đã xoá cuộc trò chuyện')) {
         for (const id of ids) this.deleted.delete(id);
@@ -649,10 +650,6 @@ export class RunsService {
 /** Where the shown duration of a run counts from: its current question. */
 export function turnStart(r: Run): number {
   return r.turnAt ?? r.startedAt;
-}
-
-function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }
 
 type Json = Record<string, unknown>;
