@@ -334,6 +334,10 @@ export class CodeEditor implements OnDestroy {
 
   private async act(action: 'accept' | 'reject', h: Hunk): Promise<void> {
     if (this.busy()) return;
+    if (this.running()) {
+      this.error.set('Agent đang sửa tệp này. Hãy chờ agent xong rồi mới giữ hay bỏ đoạn sửa.');
+      return;
+    }
     await this.guard(async () => {
       if (action === 'accept') await this.runs.acceptHunk(this.runId(), this.path(), h.id);
       else await this.runs.rejectHunk(this.runId(), this.path(), h.id);

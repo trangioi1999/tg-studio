@@ -14,7 +14,22 @@ impl TaskRuns {
     fn busy(&self, run_id: &str) -> Result<bool, String> {
         Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(run_id).is_some_and(|s| s.is_busy()))
     }
+
+    /// Some agent is writing in this folder now: this run, or another one working in the same
+    /// place (every direct run of a repo works in the repo itself; pipeline steps share a draft).
+    fn writing_in(&self, run_id: &str, dir: &Path) -> Result<bool, String> {
+        let same = |p: &Path| p == dir || (dunce::canonicalize(p).ok().is_some() && dunce::canonicalize(p).ok() == dunce::canonicalize(dir).ok());
+        Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.iter()
+            .any(|(id, s)| s.is_busy() && (id == run_id || same(s.root()))))
+    }
+
+    /// Refuses a change to files while an agent writes in the same folder.
+    fn guard_writes(&self, run_id: &str, dir: &Path, why: &str) -> Result<(), String> {
+        if self.writing_in(run_id, dir)? { Err(why.to_owned()) } else { Ok(()) }
+    }
 }
+
+const BUSY_EDITING: &str = "Agent đang sửa trong thư mục này. Hãy dừng hoặc chờ agent xong rồi mới giữ hay bỏ đoạn sửa.";
 
 /// Where the next message of each open session goes.
 #[derive(Default)]
@@ -754,8 +769,9 @@ pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>
     diff::exclusive(&wt, || diff::pending(&wt))
 }
 #[tauri::command(async)]
-pub fn accept_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
+pub fn accept_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
+    tasks.guard_writes(&run_id, &wt.path, BUSY_EDITING)?;
     diff::exclusive(&wt, || diff::accept_hunk(&repo, &wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
@@ -764,11 +780,14 @@ pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: S
         return Err("Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.".into());
     }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
+    // Applying writes into the user's folder: not while an agent works there.
+    tasks.guard_writes(&run_id, &repo, "Một agent đang sửa trong thư mục của bạn. Hãy chờ nó xong rồi mới áp bản này.")?;
     diff::exclusive(&wt, || diff::accept_all(&repo, &wt))
 }
 #[tauri::command(async)]
-pub fn reject_hunk(store: State<'_, Store>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
+pub fn reject_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
+    tasks.guard_writes(&run_id, &wt.path, BUSY_EDITING)?;
     diff::exclusive(&wt, || diff::reject_hunk(&wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
@@ -789,20 +808,16 @@ pub fn own_changes(store: State<'_, Store>, run_id: String) -> Result<diff::OwnC
 }
 #[tauri::command(async)]
 pub fn revert_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, paths: Vec<String>) -> Result<(), String> {
-    if tasks.busy(&run_id)? {
-        return Err("Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới hoàn tác.".into());
-    }
     let (_, wt) = stored_worktree(&store, &run_id)?;
+    tasks.guard_writes(&run_id, &wt.path, "Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới hoàn tác.")?;
     diff::exclusive(&wt, || diff::revert_files(&wt, &paths))
 }
 /// Commits the chosen files from the user's folder. Every direct run of the repository then
 /// counts them as done, so they leave its list of changes.
 #[tauri::command(async)]
 pub fn commit_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, paths: Vec<String>, message: String) -> Result<String, String> {
-    if tasks.busy(&run_id)? {
-        return Err("Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.".into());
-    }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
+    tasks.guard_writes(&run_id, &wt.path, "Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.")?;
     // Every direct run of the repo shares its folder, so one lock covers their bookkeeping.
     diff::exclusive(&wt, || {
         let hash = diff::commit_files(&repo, &paths, &message)?;
@@ -826,10 +841,8 @@ pub fn read_worktree_file(store: State<'_, Store>, run_id: String, path: String)
 #[tauri::command(async)]
 pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, content: String) -> Result<(), String> {
     // The agent may be writing the same file; edits wait until it is done.
-    if tasks.busy(&run_id)? {
-        return Err("Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.".into());
-    }
     let (_, wt) = stored_worktree(&store, &run_id)?;
+    tasks.guard_writes(&run_id, &wt.path, "Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.")?;
     workspace::write_file(&wt, &path, &content)
 }
 #[tauri::command]
@@ -955,6 +968,23 @@ mod tests {
         assert_eq!(std::fs::read_to_string(repo.0.join("file.txt")).unwrap(), "user changes");
         assert_eq!(std::fs::read_to_string(repo.0.join("untracked.txt")).unwrap(), "keep");
         for path in [worktree::direct_files(&wt).unwrap().0, worktree::direct_files(&wt).unwrap().1] { assert!(!path.exists()); }
+    }
+
+    #[test]
+    fn edits_wait_for_any_agent_writing_in_the_same_folder() {
+        let repo = Repo::new();
+        let tasks = TaskRuns::default();
+        let writer = Arc::new(TaskSession::new("writer", AgentKind::Codex, &repo.0, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+        tasks.0.lock().unwrap().insert("writer".into(), writer.clone());
+        // An idle sibling direct run in the same repo: its edits wait while the writer works.
+        writer.set_busy(true);
+        assert!(tasks.guard_writes("idle-sibling", &repo.0, "bận").is_err());
+        assert!(tasks.guard_writes("writer", &repo.0, "bận").is_err());
+        // Another folder is not affected.
+        let elsewhere = Repo::new();
+        assert!(tasks.guard_writes("idle-sibling", &elsewhere.0, "bận").is_ok());
+        writer.set_busy(false);
+        assert!(tasks.guard_writes("idle-sibling", &repo.0, "bận").is_ok());
     }
 
     #[tokio::test]

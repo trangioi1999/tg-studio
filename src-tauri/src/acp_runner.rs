@@ -133,6 +133,8 @@ impl TaskSession {
     pub fn set_muted(&self, muted:bool) { self.muted.store(muted,Ordering::SeqCst); }
     pub fn set_cost_base(&self, base:f64) { *self.cost_base.lock().unwrap()=base; }
     pub fn is_busy(&self) -> bool { self.busy.load(Ordering::SeqCst) }
+    /// The folder the agent works in.
+    pub fn root(&self) -> &Path { &self.cwd }
     pub fn set_busy(&self, busy:bool) { self.busy.store(busy,Ordering::SeqCst); }
     /// True for the one caller that may start the next turn.
     pub fn claim_turn(&self) -> bool { self.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_ok() }
