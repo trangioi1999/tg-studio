@@ -4,6 +4,17 @@
 
 ## [Chưa phát hành]
 
+### Thêm
+- Agent giao một phần việc cho agent khác (Codex, Claude, Gemini, Kiro) để làm song song. Agent con hiện lồng ngay dưới câu đã giao; bấm vào để xem nó đang làm gì.
+- Thanh dưới hiện phiên bản và mã commit của bản đang chạy (`v0.6.0 · abc1234`). App kiểm tra bản mới nhất trên GitHub lúc mở, mỗi 6 giờ và khi bấm vào, rồi báo khi có bản mới.
+
+### Thay đổi
+- Tab Thay đổi làm việc theo tệp như Git: chọn tệp để commit hoặc hoàn tác, thay cho duyệt từng đoạn.
+- Agent con làm cùng chỗ với cuộc trò chuyện: đang làm thẳng trên thư mục thì agent con cũng làm thẳng ở đó, không tạo bản nháp trong `.tg/`. Chỉ khi chọn Bản nháp thì agent con mới có bản nháp riêng và được gộp về khi xong.
+
+### Sửa lỗi
+- Lỗi "The following paths are ignored by one of your .gitignore files: .tg" khi bắt đầu task, khi xem thay đổi hoặc khi giao việc cho agent thứ hai, sau khi thư mục `.tg/` đã có trong repo.
+
 ## [0.5.1] - 2026-11-07
 
 ### Thay đổi
