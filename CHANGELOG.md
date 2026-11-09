@@ -4,6 +4,22 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Khi một agent con làm thẳng trên thư mục chạy xong, cuộc trò chuyện cha và mọi cuộc trò chuyện khác của repo mất thông tin nơi làm việc (tab Thay đổi, commit, đọc tệp hỏng). Lỗi có từ 0.6.0.
+- Bấm vào một cuộc trò chuyện không còn chọn nhầm agent con (Codex) thay cho agent bạn đang chat.
+- Lượt chạy lỗi, bị từ chối hoặc bị dừng không còn hiện là "Xong".
+- Editor không còn ghi đè chữ bạn vừa gõ khi tải lại tệp.
+- Mở tab Thay đổi không còn báo lỗi `index.lock`; giữ/bỏ đoạn sửa, hoàn tác, commit và lưu tệp bị chặn khi có agent đang ghi vào cùng thư mục.
+- Bản nháp đã "Áp vào thư mục" vẫn commit được sau khi đóng rồi mở lại tab Thay đổi.
+- Ngân sách dừng mọi lượt vượt mức của một phiên, không chỉ lượt đầu; lần dừng thất bại được thử lại.
+- Chọn agent hay quyền trong ô chat không còn bị đặt lại khi agent đang chạy.
+- CLI treo khi dò phiên bản bị dừng sau 8 giây, không còn chạy ngầm.
+- Lỗi khi tải lại tệp hay thay đổi không còn hiện thành "không có thay đổi"; kết quả cũ, chậm hơn không đè lên kết quả mới.
+- Nút chép trong tin nhắn không còn báo "Đã chép" khi clipboard từ chối.
+
+### Thay đổi
+- Sắp xếp lại mã nguồn theo tính năng (giao diện và lõi Rust), chia các màn lớn thành component nhỏ, bỏ mã không còn dùng. Claude và Codex cùng review trước khi làm.
+
 ## [0.6.0] - 2026-11-09
 
 ### Thêm
