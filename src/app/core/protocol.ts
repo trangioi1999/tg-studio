@@ -291,6 +291,18 @@ export interface FileDiff {
   hunks: Hunk[];
 }
 
+/** An uncommitted file in the user's folder that the run did not change (`own_changes`). */
+export interface OwnChange {
+  path: string;
+  status: string;
+}
+
+/** `own_changes`: whether the run works in the user's folder, and the user's own files there. */
+export interface OwnChanges {
+  direct: boolean;
+  files: OwnChange[];
+}
+
 /** One hunk picked from a run for a composite. */
 export interface Pick {
   runId: string;

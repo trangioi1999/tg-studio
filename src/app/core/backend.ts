@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -50,6 +50,12 @@ export abstract class AgentBackend {
   /** Every staged file of the run's repository: what a commit would include. */
   abstract stagedFiles(runId: string): Promise<string[]>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
+  /** Uncommitted files of a direct run's folder that the agent did not change. */
+  abstract ownChanges(runId: string): Promise<OwnChanges>;
+  /** Files back to how they were before the agent changed them; new files are deleted. */
+  abstract revertFiles(runId: string, paths: string[]): Promise<void>;
+  /** Commits exactly these files from the user's folder; returns the commit hash. */
+  abstract commitFiles(runId: string, paths: string[], message: string): Promise<string>;
   abstract discardWorktree(runId: string): Promise<void>;
   /** Hides a conversation's runs from history and removes their drafts; usage stays counted. */
   abstract deleteRuns(runIds: string[]): Promise<void>;
@@ -181,6 +187,15 @@ export class TauriBackend extends AgentBackend {
   }
   commitAccepted(runId: string, message: string) {
     return invoke<string>('commit_accepted', { runId, message });
+  }
+  ownChanges(runId: string) {
+    return invoke<OwnChanges>('own_changes', { runId });
+  }
+  revertFiles(runId: string, paths: string[]) {
+    return invoke<void>('revert_files', { runId, paths });
+  }
+  commitFiles(runId: string, paths: string[], message: string) {
+    return invoke<string>('commit_files', { runId, paths, message });
   }
   discardWorktree(runId: string) {
     return invoke<void>('discard_worktree', { runId });

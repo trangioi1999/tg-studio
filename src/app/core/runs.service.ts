@@ -4,7 +4,7 @@ import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, OwnChanges, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -414,6 +414,18 @@ export class RunsService {
 
   commitAccepted(runId: string, message: string): Promise<string> {
     return this.backend.commitAccepted(runId, message);
+  }
+
+  ownChanges(runId: string): Promise<OwnChanges> {
+    return this.backend.ownChanges(runId);
+  }
+
+  revertFiles(runId: string, paths: string[]): Promise<void> {
+    return this.backend.revertFiles(runId, paths);
+  }
+
+  commitFiles(runId: string, paths: string[], message: string): Promise<string> {
+    return this.backend.commitFiles(runId, paths, message);
   }
 
   async discardWorktree(runId: string): Promise<void> {

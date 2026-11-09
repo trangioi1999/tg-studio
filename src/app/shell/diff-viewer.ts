@@ -1,68 +1,101 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { AGENT_META, AgentId, FileDiff, Hunk } from '../core/protocol';
-import { KEYS } from '../core/keys';
+import { AGENT_META, AgentId, FileDiff, OwnChange } from '../core/protocol';
 import { RunsService } from '../core/runs.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
+import { FileIcon } from './file-icon';
 
-/** Reviews a task's worktree one hunk at a time; only accepted hunks reach the user's repo. */
+/**
+ * A run's changes as git sees them, like an editor's Source Control view: commit or revert
+ * whole files, no step per hunk. A direct run's changes are already in the user's folder;
+ * a draft's are applied to the folder in one go first.
+ */
 @Component({
   selector: 'tg-diff-viewer',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, FileIcon],
   template: `
     <div class="review" [style.--agent]="color()">
       <div class="review-bar">
         <span class="dim">{{ summary() }}</span>
         <span class="spacer"></span>
         <button class="btn ghost sm" [disabled]="busy()" (click)="load()">Tải lại</button>
-        @if (!running()) {
+        @if (direct() === true && files().length) {
+          @if (confirmingRevertAll()) {
+            <button class="btn ghost sm" [disabled]="busy()" (click)="confirmingRevertAll.set(false)">Giữ lại</button>
+            <button class="btn warn sm" [disabled]="busy() || running()" (click)="revert(paths())">Xác nhận hoàn tác {{ files().length }} tệp</button>
+          } @else {
+            <button class="btn ghost sm" [disabled]="busy() || running()" (click)="confirmingRevertAll.set(true)">Hoàn tác tất cả</button>
+          }
+        }
+        @if (direct() === false && !running()) {
           @if (confirmingDiscard()) {
             <button class="btn ghost sm" [disabled]="busy()" (click)="confirmingDiscard.set(false)">Giữ lại</button>
             <button class="btn warn sm" [disabled]="busy()" (click)="discard()">Xác nhận bỏ bản nháp</button>
           } @else {
             <button class="btn ghost sm" [disabled]="busy()" (click)="confirmingDiscard.set(true)">Bỏ bản nháp</button>
           }
+          @if (files().length) {
+            <button class="btn primary sm" [disabled]="busy()" (click)="apply()">Áp vào thư mục</button>
+          }
         }
       </div>
+      @if (running()) { <p class="dim chg-note" role="status">{{ agentName() }} đang sửa. Dừng hoặc đợi xong để commit hay hoàn tác.</p> }
       @if (error()) { <p class="error-text" role="alert">{{ error() }}</p> }
       @if (committed()) { <p class="ok-text" role="status">Đã commit {{ committed() }}</p> }
+      @if (applied().length) { <p class="ok-text" role="status">Đã đưa {{ applied().length }} tệp vào thư mục của bạn.</p> }
 
-      @if (staged().length) {
-        <section class="commit-box" aria-label="Commit các thay đổi đã chấp nhận">
-          <p class="dim">Commit sẽ gồm mọi tệp đang staged trong dự án, kể cả tệp bạn tự stage:</p>
-          <ul class="commit-files mono">
-            @for (path of staged(); track path) { <li>{{ path }}</li> }
-          </ul>
+      @if (commitPaths().length || (direct() === true && (files().length || own().length))) {
+        <section class="commit-box" aria-label="Commit">
           <label class="field">
             <span>Nội dung commit</span>
             <textarea rows="2" [value]="message()" (input)="edited.set($any($event.target).value)"></textarea>
           </label>
-          <div><button class="btn primary sm" [disabled]="busy() || !message().trim()" (click)="commit()">Commit</button></div>
+          <div class="chg-commit-row">
+            <span class="dim">Chỉ các tệp được chọn vào commit; phần bạn đã tự stage ở tệp khác vẫn giữ nguyên.</span>
+            <button class="btn primary sm" [disabled]="busy() || running() || !commitPaths().length || !message().trim()" (click)="commit()">
+              Commit {{ commitPaths().length }} tệp
+            </button>
+          </div>
         </section>
       }
 
-      @for (f of files(); track f.path) {
-        <section class="review-file">
-          <div class="review-file-head">
-            <span class="file-status" [attr.data-status]="f.status" [attr.aria-label]="statusLabel[f.status]">{{ f.status }}</span>
-            <span class="mono ellipsis">{{ f.path }}</span>
-          </div>
-          @if (f.binary) { <p class="dim pad">Tệp nhị phân: không xem và duyệt được ở đây.</p> }
-          @for (h of f.hunks; track h.id) {
-            <div class="hunk" tabindex="0" [attr.aria-label]="'Thay đổi trong ' + f.path"
-              (keydown.meta.enter)="act('accept', f, h)" (keydown.control.enter)="act('accept', f, h)"
-              (keydown.meta.backspace)="act('reject', f, h)" (keydown.control.backspace)="act('reject', f, h)">
-              <div class="hunk-bar">
-                <tg-agent-avatar [agent]="agent()" [size]="16" />
-                <span class="mono dim ellipsis">{{ h.header }}</span>
-                <span class="spacer"></span>
-                <span class="hunk-count"><span class="plus">+{{ h.added }}</span> <span class="minus">−{{ h.removed }}</span></span>
-                <button class="btn ghost sm" [disabled]="busy()" (click)="act('reject', f, h)">{{ direct() ? 'Hoàn tác' : 'Bỏ' }}<span class="kbd">{{ keys.backspace }}</span></button>
-                <button class="btn primary sm" [disabled]="busy()" (click)="act('accept', f, h)">{{ direct() ? 'Giữ' : 'Nhận' }}<span class="kbd">{{ keys.enter }}</span></button>
-              </div>
-              <div class="hunk-body">
-                @for (line of h.lines; track $index) { <div class="diff-line" [attr.data-kind]="kindOf(line)">{{ line }}</div> }
-              </div>
+      @if (files().length) {
+        <section class="chg-group" aria-label="Thay đổi của agent">
+          <h3 class="chg-group-head">{{ direct() === false ? 'Trong bản nháp' : 'Của agent' }} <span class="dim">{{ files().length }}</span></h3>
+          @for (f of files(); track f.path) {
+            <div class="chg-row">
+              @if (direct() === true) {
+                <input type="checkbox" [checked]="picked().has(f.path)" (change)="toggle(f.path)" [attr.aria-label]="'Chọn ' + f.path + ' để commit'" />
+              }
+              <span class="file-status" [attr.data-status]="f.status" [attr.title]="statusLabel[f.status]">{{ f.status }}</span>
+              <button class="chg-path" (click)="openFile(f.path)" [title]="f.path">
+                <tg-file-icon [name]="f.path" />
+                <span class="chg-name">{{ base(f.path) }}</span>
+                <span class="chg-dir dim">{{ dir(f.path) }}</span>
+              </button>
+              <tg-agent-avatar [agent]="agent()" [size]="14" />
+              @if (f.binary) { <span class="hunk-count dim">nhị phân</span> }
+              @else { <span class="hunk-count"><span class="plus">+{{ count(f, '+') }}</span> <span class="minus">−{{ count(f, '-') }}</span></span> }
+              <button class="btn ghost sm icon" [disabled]="busy() || running()" (click)="revert([f.path])"
+                [title]="direct() === false ? 'Bỏ thay đổi của tệp này trong bản nháp' : 'Hoàn tác: trả tệp về như trước khi agent sửa'"
+                [attr.aria-label]="'Hoàn tác ' + f.path">↶</button>
+            </div>
+          }
+        </section>
+      }
+
+      @if (own().length) {
+        <section class="chg-group" aria-label="Bạn tự sửa">
+          <h3 class="chg-group-head">Bạn tự sửa <span class="dim">{{ own().length }}</span></h3>
+          @for (f of own(); track f.path) {
+            <div class="chg-row">
+              <input type="checkbox" [checked]="picked().has(f.path)" (change)="toggle(f.path)" [attr.aria-label]="'Chọn ' + f.path + ' để commit'" />
+              <span class="file-status" [attr.data-status]="f.status" [attr.title]="statusLabel[f.status]">{{ f.status }}</span>
+              <button class="chg-path" (click)="workspace.openSource(f.path)" [title]="f.path">
+                <tg-file-icon [name]="f.path" />
+                <span class="chg-name">{{ base(f.path) }}</span>
+                <span class="chg-dir dim">{{ dir(f.path) }}</span>
+              </button>
             </div>
           }
         </section>
@@ -71,85 +104,152 @@ import { AgentAvatar } from './agent-avatar';
   `,
 })
 export class DiffViewer {
-  protected readonly keys = KEYS;
   private readonly runs = inject(RunsService);
-  private readonly workspace = inject(WorkspaceService);
+  protected readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
-  /** The agent worked in the user's folder: changes are already there, so keep or undo them. */
-  protected readonly direct = computed(() => this.runs.runs().find((r) => r.id === this.runId())?.place === 'direct');
   readonly running = input(false);
   readonly suggestion = input('');
 
   protected readonly files = signal<FileDiff[]>([]);
+  protected readonly own = signal<OwnChange[]>([]);
+  /** Null until the core says where the run works. */
+  protected readonly direct = signal<boolean | null>(null);
+  /** Files that go into the commit. */
+  protected readonly picked = signal<Set<string>>(new Set());
+  /** Files the user ticked or unticked, so a reload keeps their choice. */
+  private readonly touched = new Set<string>();
+  /** A draft's files once applied to the folder: what its commit takes. */
+  protected readonly applied = signal<string[]>([]);
   protected readonly busy = signal(false);
   protected readonly loaded = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly committed = signal<string | null>(null);
-  /** From the repository, so changes accepted in the editor or before a tab switch count too. */
-  protected readonly staged = signal<string[]>([]);
   protected readonly edited = signal<string | null>(null);
   protected readonly confirmingDiscard = signal(false);
+  protected readonly confirmingRevertAll = signal(false);
   protected readonly message = computed(() => this.edited() ?? this.suggestion());
   protected readonly color = computed(() => AGENT_META[this.agent()].color);
+  protected readonly agentName = computed(() => AGENT_META[this.agent()].name);
   protected readonly statusLabel: Record<string, string> = { M: 'Đã sửa', A: 'Tệp mới', D: 'Đã xóa' };
+  protected readonly paths = computed(() => this.files().map((f) => f.path));
+  protected readonly commitPaths = computed(() => {
+    if (this.direct() === false) return this.applied();
+    const picked = this.picked();
+    return [...this.files().map((f) => f.path), ...this.own().map((f) => f.path)].filter((p) => picked.has(p));
+  });
   protected readonly summary = computed(() => {
     if (!this.loaded()) return 'Đang tải…';
-    const hunks = this.files().reduce((n, f) => n + f.hunks.length, 0);
-    if (hunks) return `${hunks} thay đổi chờ duyệt trong ${this.files().length} tệp`;
-    return this.running() ? 'Agent đang làm, chưa có thay đổi nào.' : 'Không còn thay đổi nào chờ duyệt.';
+    const files = this.files();
+    if (!files.length) return this.running() ? 'Agent đang làm, chưa sửa tệp nào.' : 'Agent không còn thay đổi nào chưa commit.';
+    const added = files.reduce((n, f) => n + this.count(f, '+'), 0);
+    const removed = files.reduce((n, f) => n + this.count(f, '-'), 0);
+    return `${files.length} tệp · +${added} −${removed}`;
   });
 
   constructor() {
     // Reload for a different run, and once more when the agent finishes.
     effect(() => {
-      this.runId();
+      const id = this.runId();
       this.running();
       untracked(() => {
-        this.edited.set(null);
-        this.committed.set(null);
+        if (id !== this.loadedFor) {
+          this.loadedFor = id;
+          this.touched.clear();
+          this.applied.set([]);
+          this.edited.set(null);
+          this.committed.set(null);
+        }
         void this.load();
       });
     });
   }
+  private loadedFor: string | null = null;
 
-  protected kindOf(line: string): string {
-    return line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('\\') ? 'meta' : 'ctx';
+  protected count(f: FileDiff, sign: '+' | '-'): number {
+    return f.hunks.reduce((n, h) => n + (sign === '+' ? h.added : h.removed), 0);
+  }
+
+  protected base(path: string): string {
+    return path.slice(path.lastIndexOf('/') + 1);
+  }
+
+  protected dir(path: string): string {
+    const i = path.lastIndexOf('/');
+    return i < 0 ? '' : path.slice(0, i);
+  }
+
+  protected toggle(path: string): void {
+    this.touched.add(path);
+    this.picked.update((s) => {
+      const next = new Set(s);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  protected openFile(path: string): void {
+    this.workspace.openFile(this.runId(), path);
   }
 
   protected async load(): Promise<void> {
+    const id = this.runId();
     await this.guard(async () => {
-      const [files, staged] = await Promise.all([this.runs.getDiff(this.runId()), this.runs.stagedFiles(this.runId())]);
+      const [files, own] = await Promise.all([this.runs.getDiff(id), this.runs.ownChanges(id)]);
+      if (id !== this.runId()) return;
       this.files.set(files);
-      this.staged.set(staged);
+      this.own.set(own.files);
+      this.direct.set(own.direct);
+      // The agent's files go into the commit unless unticked; the user's own only when ticked.
+      const prev = this.picked();
+      const next = new Set<string>();
+      for (const f of files) if (!this.touched.has(f.path) || prev.has(f.path)) next.add(f.path);
+      for (const f of own.files) if (this.touched.has(f.path) && prev.has(f.path)) next.add(f.path);
+      this.picked.set(next);
       this.loaded.set(true);
     });
   }
 
-  protected async act(action: 'accept' | 'reject', file: FileDiff, hunk: Hunk): Promise<void> {
-    if (this.busy()) return;
+  protected async revert(paths: string[]): Promise<void> {
+    if (!paths.length) return;
     const id = this.runId();
+    this.confirmingRevertAll.set(false);
     await this.guard(async () => {
-      if (action === 'accept') {
-        await this.runs.acceptHunk(id, file.path, hunk.id);
-      } else {
-        await this.runs.rejectHunk(id, file.path, hunk.id);
-      }
+      await this.runs.revertFiles(id, paths);
       this.committed.set(null);
-      const [files, staged] = await Promise.all([this.runs.getDiff(id), this.runs.stagedFiles(id)]);
-      this.files.set(files);
-      this.staged.set(staged);
-      void this.workspace.refresh(id);
     });
+    await this.load();
+    void this.workspace.refresh(id);
+  }
+
+  protected async apply(): Promise<void> {
+    const id = this.runId();
+    const paths = this.paths();
+    let ok = false;
+    await this.guard(async () => {
+      await this.runs.acceptAll(id);
+      ok = true;
+    });
+    if (ok) this.applied.set(paths);
+    await this.load();
+    void this.workspace.refresh(id);
   }
 
   protected async commit(): Promise<void> {
+    const id = this.runId();
+    const paths = this.commitPaths();
+    let hash: string | null = null;
     await this.guard(async () => {
-      const hash = await this.runs.commitAccepted(this.runId(), this.message().trim());
-      this.committed.set(hash.slice(0, 7));
-      this.staged.set(await this.runs.stagedFiles(this.runId()));
-      this.edited.set(null);
+      hash = await this.runs.commitFiles(id, paths, this.message().trim());
     });
+    if (!hash) return;
+    this.committed.set((hash as string).slice(0, 7));
+    this.applied.set([]);
+    this.edited.set(null);
+    for (const p of paths) this.touched.delete(p);
+    await this.load();
+    void this.workspace.refresh(id);
   }
 
   protected async discard(): Promise<void> {

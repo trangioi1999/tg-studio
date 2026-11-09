@@ -585,6 +585,35 @@ pub fn commit_accepted(store: State<'_, Store>, run_id: String, message: String)
     let (repo, _) = stored_worktree(&store, &run_id)?;
     diff::commit(&repo, &message)
 }
+/// Whether the run works in the user's folder, and the uncommitted files there it did not change.
+#[tauri::command(async)]
+pub fn own_changes(store: State<'_, Store>, run_id: String) -> Result<diff::OwnChanges, String> {
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    diff::own_changes(&wt)
+}
+#[tauri::command(async)]
+pub fn revert_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, paths: Vec<String>) -> Result<(), String> {
+    if tasks.busy(&run_id)? {
+        return Err("Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới hoàn tác.".into());
+    }
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    diff::revert_files(&wt, &paths)
+}
+/// Commits the chosen files from the user's folder. Every direct run of the repository then
+/// counts them as done, so they leave its list of changes.
+#[tauri::command(async)]
+pub fn commit_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, paths: Vec<String>, message: String) -> Result<String, String> {
+    if tasks.busy(&run_id)? {
+        return Err("Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.".into());
+    }
+    let (repo, _) = stored_worktree(&store, &run_id)?;
+    let hash = diff::commit_files(&repo, &paths, &message)?;
+    let runs = store.direct_worktrees(&repo.to_string_lossy()).map_err(|e| format!("Đã commit {} nhưng không đọc được lịch sử: {e}", &hash[..7.min(hash.len())]))?;
+    for wt in runs {
+        if let Err(e) = diff::mark_committed(&wt, &paths) { eprintln!("Không cập nhật được thay đổi của {}: {e}", wt.run_id); }
+    }
+    Ok(hash)
+}
 #[tauri::command(async)]
 pub fn list_worktree_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;

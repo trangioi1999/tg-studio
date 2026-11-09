@@ -14,7 +14,7 @@ TG Studio trở thành **phòng chỉ huy agent**: mở ra đơn giản như m�
 
 **[Chủ repo] Mục tiêu trước mắt:** sớm nhất có thể, chủ repo dùng chính app này để xem và điều phối Claude cùng Codex xây tiếp chính project này. Vì vậy thứ tự làm ưu tiên mốc **M-D** (mục 11): sửa vừa đủ để dùng thật trên giao diện hiện tại, rồi làm các mốc lớn ngay trong app.
 
-Lời hứa cốt lõi vẫn giữ: nhiều agent cùng làm một việc, so sánh và ghép kết quả, code thật chỉ đổi khi người dùng duyệt, chi phí trung thực.
+Lời hứa cốt lõi vẫn giữ: nhiều agent cùng làm một việc, so sánh và ghép kết quả, chi phí trung thực. **[Chủ repo, 2026-11-09]** "Code thật chỉ đổi khi người dùng duyệt" được thay bằng: không có gì vào git khi bạn chưa commit, mọi thay đổi của agent hoàn tác được tới đúng trạng thái trước khi nó sửa (xem `2026-11-09-subagents-and-git-changes-design.md` §4.6).
 
 ## 2. Mục tiêu và giới hạn
 
