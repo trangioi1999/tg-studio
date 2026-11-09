@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.6.1] - 2026-11-09
+
 ### Sửa lỗi
 - Khi một agent con làm thẳng trên thư mục chạy xong, cuộc trò chuyện cha và mọi cuộc trò chuyện khác của repo mất thông tin nơi làm việc (tab Thay đổi, commit, đọc tệp hỏng). Lỗi có từ 0.6.0.
 - Bấm vào một cuộc trò chuyện không còn chọn nhầm agent con (Codex) thay cho agent bạn đang chat.
