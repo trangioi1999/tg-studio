@@ -23,6 +23,13 @@ pub struct SessionInboxes(Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSend
 struct AppSink(AppHandle);
 impl EventSink for AppSink {
     fn emit(&self, ev: AgentEvent) { runner::publish(&self.0, ev); }
+    fn child_run(&self, id: &str, parent: &str, agent: AgentKind, title: &str) {
+        if let Err(e) = self.0.state::<Store>().insert_child_run(id, parent, agent, title, runner::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
+    }
+    fn child_finished(&self, id: &str, status: &str) {
+        let code = (status == "done").then_some(0);
+        if let Err(e) = self.0.state::<Store>().finish_run(id, status, code, runner::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
+    }
 }
 struct RepoRules { app: AppHandle, repo: String, agent: AgentKind }
 impl RuleMemory for RepoRules {
@@ -46,6 +53,24 @@ struct TaskEnv {
     wt: Worktree,
     sink: Arc<dyn EventSink>,
     session: Arc<TaskSession>,
+    repo: PathBuf,
+    thread: Option<String>,
+    subfolder: Option<String>,
+    /// Working on a piece another agent delegated: it cannot delegate further.
+    child: bool,
+}
+
+impl TaskEnv {
+    /// A delegation event in the parent's log, for the UI's nested block.
+    fn emit_delegation(&self, kind: &str, d: &crate::delegate::Delegation) {
+        let mut data = serde_json::to_value(d).unwrap_or_default();
+        data["tool"] = kind.into();
+        let line = match kind {
+            "delegate" => format!("◆ tg-bridge · giao cho {}: {}", d.agent.display_name(), d.task.chars().take(120).collect::<String>()),
+            _ => format!("◆ tg-bridge · {} {}: {}", d.agent.display_name(), d.status, d.task.chars().take(80).collect::<String>()),
+        };
+        self.emit(data, line);
+    }
 }
 
 impl ToolEnv for TaskEnv {
@@ -70,9 +95,135 @@ impl ToolEnv for TaskEnv {
             "task": self.prompt, "agent": self.agent, "runId": self.run_id, "worktree": self.wt.path,
             "parallelGroup": self.group, "sharedWithPipelineStepsOf": (self.wt.run_id != self.run_id).then_some(&self.wt.run_id),
             "changedFiles": changed,
-            "rules": "Chỉ sửa tệp trong worktree. Không push hay merge. Chuyển việc và việc ngoài phạm vi phải qua người dùng (handoff_to, request_approval).",
+            "rules": if self.child {
+                "Chỉ làm đúng phần được giao, trong thư mục này. Không push hay merge. Không giao việc tiếp cho agent khác."
+            } else {
+                "Chỉ sửa tệp trong worktree. Không push hay merge. Việc ngoài phạm vi phải qua người dùng (request_approval). Phần việc độc lập có thể giao cho agent khác bằng delegate."
+            },
         })
     }
+    fn delegate(&self, agent: AgentKind, task: String, files: Vec<String>) -> bridge::BoxFuture<Result<Value, String>> {
+        use crate::delegate::{Delegation, Delegations, MAX_RUNNING};
+        if self.child { return Box::pin(async { Err("Agent được giao việc không giao tiếp cho agent khác được.".to_string()) }); }
+        let approval = self.session.approval();
+        if approval == Approval::Deny { return Box::pin(async { Err("Ở chế độ Chỉ hỏi không giao việc cho agent khác được.".to_string()) }); }
+        let all = self.app.state::<Arc<Delegations>>().inner().clone();
+        let mut d = Delegation {
+            id: uuid::Uuid::new_v4().to_string(), parent: self.run_id.clone(), child: None, agent, task: task.clone(),
+            status: if approval == Approval::Ask { "waiting_approval" } else { "running" }.into(),
+            summary: None, files_changed: vec![], conflicts: vec![], worktree: None, child_wt: None,
+        };
+        if all.running(&self.run_id) >= MAX_RUNNING {
+            d.status = "refused".into();
+            d.summary = Some(format!("Đã có {MAX_RUNNING} việc con đang chạy. Hãy chờ bớt (wait_delegated) hoặc tự làm phần này."));
+            return Box::pin(async move { Ok(d.report()) });
+        }
+        if agent.acp_command(env::which).is_none() {
+            d.status = "refused".into();
+            d.summary = Some(format!("{} chưa cài trên máy này; hãy tự làm phần này.", agent.display_name()));
+            return Box::pin(async move { Ok(d.report()) });
+        }
+        let me = TaskEnv { app: self.app.clone(), run_id: self.run_id.clone(), agent: self.agent, scope: self.scope.clone(), prompt: self.prompt.clone(),
+            group: self.group.clone(), wt: self.wt.clone(), sink: self.sink.clone(), session: self.session.clone(), repo: self.repo.clone(),
+            thread: self.thread.clone(), subfolder: self.subfolder.clone(), child: false };
+        Box::pin(async move {
+            all.insert(d.clone());
+            me.emit_delegation("delegate", &d);
+            let fail = |status: &str, why: String| {
+                let d = all.update(&d.id, |x| { x.status = status.into(); x.summary = Some(why); });
+                if let Some(d) = &d { me.emit_delegation("delegate_done", d); }
+                Ok(d.map(|d| d.report()).unwrap_or_default())
+            };
+            if approval == Approval::Ask {
+                let short: String = task.chars().take(200).collect();
+                if !me.session.ask(format!("Giao cho {}: {short}", agent.display_name()), "agent muốn chia việc để làm song song".into()).await {
+                    return fail("refused", "Người dùng không cho giao việc này; hãy tự làm phần này.".into());
+                }
+                all.update(&d.id, |x| x.status = "running".into());
+            }
+            let base = match crate::delegate::snapshot(&me.wt.path) {
+                Ok(c) => c,
+                Err(e) => return fail("failed", e),
+            };
+            let listed = if files.is_empty() { String::new() } else { format!("\n\nTệp liên quan: {}", files.join(", ")) };
+            let prompt = format!("{task}{listed}\n\n(Việc được {} giao qua TG Studio. Chỉ làm đúng phần này, trong thư mục hiện tại. Xong thì tóm tắt ngắn những gì đã làm.)", me.agent.display_name());
+            let (done_tx, done_rx) = oneshot::channel();
+            let spec = ChildSpec { parent: me.run_id.clone(), snapshot: base.clone(), done: done_tx };
+            let started = start_task_with(me.app.clone(), agent, prompt, me.repo.to_string_lossy().into_owned(), None, None, Some(true), None,
+                me.thread.clone(), me.subfolder.clone(), None, None, None, Some(approval), Some(spec)).await;
+            let child_id = match started {
+                Ok(id) => id,
+                Err(e) => return fail("failed", e),
+            };
+            let child_wt = me.app.state::<Store>().run_worktree(&child_id).map(|(_, wt)| wt).ok();
+            let d = all.update(&d.id, |x| { x.child = Some(child_id.clone()); x.worktree = child_wt.as_ref().map(|w| w.path.clone()); x.child_wt = child_wt.clone(); })
+                .ok_or("Không tìm thấy việc đã giao.")?;
+            me.emit_delegation("delegate", &d);
+            let report = d.report();
+            let id = d.id.clone();
+            tauri::async_runtime::spawn(async move {
+                let (status, reply) = done_rx.await.unwrap_or_else(|_| ("failed".into(), String::new()));
+                let summary: String = reply.trim().chars().take(crate::delegate::MAX_SUMMARY).collect();
+                let summary = (!summary.is_empty()).then_some(summary);
+                let outcome = match (&child_wt, status.as_str()) {
+                    (Some(wt), "done") => match crate::delegate::merge_back(&me.wt.path, wt, &base) {
+                        Ok(merged) if merged.conflicts.is_empty() => {
+                            if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
+                            let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
+                            ("done", merged.applied, vec![], None)
+                        }
+                        Ok(merged) => ("conflict", merged.applied, merged.conflicts, None),
+                        Err(e) => ("failed", vec![], vec![], Some(format!("Không gộp được kết quả: {e}"))),
+                    },
+                    (wt, other) => {
+                        if let Some(wt) = wt {
+                            if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
+                            let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
+                        }
+                        (if other == "stopped" { "stopped" } else { "failed" }, vec![], vec![], None)
+                    }
+                };
+                let (st, applied, conflicts, error) = outcome;
+                let d = all.update(&id, |x| {
+                    x.status = st.into();
+                    x.files_changed = applied;
+                    x.conflicts = conflicts;
+                    x.summary = error.or(summary);
+                    if st != "conflict" { x.worktree = None; x.child_wt = None; }
+                });
+                if let Some(d) = d { me.emit_delegation("delegate_done", &d); }
+            });
+            Ok(report)
+        })
+    }
+    fn wait_delegated(&self, ids: Vec<String>, timeout: Duration) -> bridge::BoxFuture<Result<Value, String>> {
+        let all = self.app.state::<Arc<crate::delegate::Delegations>>().inner().clone();
+        let parent = self.run_id.clone();
+        Box::pin(async move {
+            let list = all.wait(&parent, &ids, timeout).await;
+            if list.is_empty() { return Err("Chưa giao việc nào (hoặc mã việc không đúng).".into()); }
+            Ok(Value::Array(list.iter().map(|d| d.report()).collect()))
+        })
+    }
+    fn resolve_delegated(&self, id: String) -> Result<String, String> {
+        let all = self.app.state::<Arc<crate::delegate::Delegations>>().inner().clone();
+        let d = all.get(&id).filter(|d| d.parent == self.run_id).ok_or("Không có việc con này.")?;
+        if d.status != "conflict" { return Ok("Việc này không có xung đột cần gộp.".into()); }
+        if let Some(wt) = &d.child_wt { worktree::remove(&self.repo, wt, true)?; }
+        if let Some(child) = &d.child { let _ = self.app.state::<Store>().clear_run_worktree(child); }
+        let d = all.update(&id, |x| { x.status = "done".into(); x.worktree = None; x.child_wt = None; }).ok_or("Không có việc con này.")?;
+        self.emit_delegation("delegate_done", &d);
+        Ok("Đã dọn bản nháp của việc con.".into())
+    }
+}
+
+/// A run another agent started through tg-bridge `delegate`.
+pub(crate) struct ChildSpec {
+    parent: String,
+    /// The snapshot of the parent's folder its draft starts from.
+    snapshot: String,
+    /// Status and last message, once the run has ended.
+    done: oneshot::Sender<(String, String)>,
 }
 
 /// tg-bridge is on unless the user turned it off in Integrations.
@@ -86,7 +237,7 @@ pub(crate) fn bridge_enabled(store: &Store) -> bool {
 /// `reuse`: run in an existing worktree (a later pipeline step); it is never removed here.
 /// Where a new task works: the user's folder, or a draft (worktree) from a branch (`None`: HEAD).
 #[derive(Debug, Clone, PartialEq)]
-pub enum Place { Direct, Draft(Option<String>) }
+pub enum Place { Direct, Draft(Option<String>), Snapshot(String) }
 
 /// The ACP adapter process, with piped stdio, started in `dir`.
 pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Result<Child, String> {
@@ -99,11 +250,13 @@ pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Res
 }
 
 /// The tg-bridge MCP server entry of one session.
-pub(crate) fn bridge_server(agent: AgentKind, exe: String, addr: String, token: String) -> McpServer {
+pub(crate) fn bridge_server(agent: AgentKind, exe: String, addr: String, token: String, child: bool) -> McpServer {
+    let mut env = vec![mcp::NameValue { name: "TG_BRIDGE_ADDR".into(), value: addr }, mcp::NameValue { name: "TG_BRIDGE_TOKEN".into(), value: token }];
+    if child { env.push(mcp::NameValue { name: "TG_BRIDGE_CHILD".into(), value: "1".into() }); }
     McpServer {
         id: bridge::SERVER_NAME.into(), name: bridge::SERVER_NAME.into(), transport: "stdio".into(),
         command: Some(exe), args: vec![bridge::FLAG.into()],
-        env: vec![mcp::NameValue { name: "TG_BRIDGE_ADDR".into(), value: addr }, mcp::NameValue { name: "TG_BRIDGE_TOKEN".into(), value: token }],
+        env,
         url: None, headers: vec![], agents: vec![agent],
     }
 }
@@ -125,6 +278,8 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
             }
             worktree::create_at(repo, agent_name.as_str().unwrap(), prompt, &id, base.as_deref())
         }
+        // A delegated agent: a draft from a snapshot of its parent's folder.
+        (None, Place::Snapshot(commit)) => worktree::create_at(repo, agent_name.as_str().unwrap(), prompt, &id, Some(&commit)),
     })();
     let wt = match made {
         Ok(wt) => wt,
@@ -317,15 +472,25 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
 
 #[tauri::command]
 pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>, place: Option<String>, base: Option<String>, approval: Option<Approval>) -> Result<String, String> {
+    start_task_with(app, agent, prompt, repo, group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, None).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>, place: Option<String>, base: Option<String>, approval: Option<Approval>, child: Option<ChildSpec>) -> Result<String, String> {
     let approval = approval.unwrap_or_default();
+    let single_turn = Some(single_turn.unwrap_or(false) || child.is_some());
+    let (parent, child_done) = match child {
+        Some(c) => (Some((c.parent, c.snapshot)), Some(c.done)),
+        None => (None, None),
+    };
     // A question to an agent without a read-only CLI flag runs in a throwaway draft.
-    let place = match (approval, place.as_deref()) {
+    let place = if let Some((_, snapshot)) = &parent { Place::Snapshot(snapshot.clone()) } else { match (approval, place.as_deref()) {
         (Approval::Deny, _) => Place::Draft(None),
         (_, Some("draft")) => Place::Draft(base.filter(|b| !b.is_empty())),
         (_, Some("direct")) => Place::Direct,
         (_, None) => Place::Draft(None),
         (_, Some(other)) => return Err(format!("Nơi làm việc không hợp lệ: {other}")),
-    };
+    } };
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -374,6 +539,9 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     if let Some(thread) = &thread {
         if let Err(e) = app.state::<Store>().set_run_thread(&id, thread, scope.as_deref()) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
     }
+    if let Some((parent, _)) = &parent {
+        if let Err(e) = app.state::<Store>().set_run_parent(&id, parent) { eprintln!("Không lưu được run cha: {e}"); }
+    }
     let start_dir = match env::scoped_dir(&wt.path, scope.as_deref()) {
         Ok(dir) => dir,
         Err(e) => {
@@ -415,6 +583,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     };
     let mut started = AgentEvent::new(&id, agent, "started");
     started.line = Some(format!("{} · {}", agent.display_name(), wt.path.display()));
+    if let Some((parent, _)) = &parent { started.data = Some(json!({ "parent": parent })); }
     sink.emit(started);
     if opened.is_none() && timeout == Duration::from_secs(300) {
         session.note("Đang chuẩn bị adapter. Lần đầu có thể mất vài phút để tải.".into());
@@ -434,8 +603,11 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
     };
     let task_id = id.clone();
     let (cleanup_repo, cleanup_wt) = (repo.clone(), wt.clone());
+    let scope_name = scope.clone();
     let scope = group.clone().unwrap_or_else(|| wt.run_id.clone());
-    let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone() };
+    let is_child = parent.is_some();
+    let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone(),
+        repo: repo.clone(), thread: thread.clone(), subfolder: scope_name.clone(), child: is_child };
     tauri::async_runtime::spawn(async move {
         let mut servers: Vec<McpServer> = crate::warm::user_servers(&app.state::<Store>());
         let hub = app.state::<Arc<BridgeHub>>().inner().clone();
@@ -452,7 +624,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
             match (hub.address().await, bridge::executable()) {
                 (Ok(addr), Some(exe)) => {
                     let t = hub.register(Arc::new(env));
-                    servers.push(bridge_server(agent, exe, addr, t.clone()));
+                    servers.push(bridge_server(agent, exe, addr, t.clone(), is_child));
                     token = Some(t);
                 }
                 (Err(e), _) => session.note(format!("tg-bridge không bật được: {e}")),
@@ -498,6 +670,7 @@ pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: 
         if let Err(e) = app.state::<Store>().finish_run(&task_id, status, code, runner::now_ms()) {
             eprintln!("Không lưu được trạng thái lượt chạy: {e}");
         }
+        if let Some(done) = child_done { let _ = done.send((status.to_string(), session.last_reply())); }
         app.state::<TaskRuns>().0.lock().unwrap().remove(&task_id);
         app.state::<Runs>().0.lock().unwrap().remove(&task_id);
         if throwaway {

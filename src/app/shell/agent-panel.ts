@@ -14,6 +14,7 @@ import { UiService } from '../core/ui.service';
 import { WorkspaceService } from '../core/workspace.service';
 import { AgentAvatar } from './agent-avatar';
 import { PermissionCard } from './permission-card';
+import { Delegations } from './delegations';
 import { Markdown, copyText, plainText } from './markdown';
 import { NgTemplateOutlet } from '@angular/common';
 import { segmentsOf, Segment } from '../core/timeline';
@@ -32,7 +33,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
  */
 @Component({
   selector: 'tg-agent-panel',
-  imports: [AgentAvatar, PermissionCard, Markdown, NgTemplateOutlet],
+  imports: [AgentAvatar, PermissionCard, Markdown, NgTemplateOutlet, Delegations],
   template: `
     <ng-template #composer>
       <section class="cmp" [class.big]="!run()" aria-label="Giao việc">
@@ -402,6 +403,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                       </div>
                     }
                   }
+                  <tg-delegations [parent]="tr" />
                   @if (tr.status === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
                 </article>
               }
@@ -471,9 +473,13 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
       </div>
       <div class="chat-dock"><div class="dock-col">
         <!-- Pinned above the composer: an approval must never scroll out of sight. -->
-        @if (r.permissions.length) {
+        @if (r.permissions.length || childApprovals().length) {
           <div class="ap-approvals">
             @for (p of r.permissions; track p.requestId) { <tg-permission-card [runId]="r.id" [agent]="r.agent" [request]="p" /> }
+            @for (c of childApprovals(); track c.id) {
+              <p class="dim ap-child-label"><tg-agent-avatar [agent]="c.agent" [size]="14" /> {{ meta[c.agent].name }} (việc con) cần bạn duyệt:</p>
+              @for (p of c.permissions; track p.requestId) { <tg-permission-card [runId]="c.id" [agent]="c.agent" [request]="p" /> }
+            }
           </div>
         }
         @if (r.proposal && r.perm === 'read' && r.status !== 'running') {
@@ -593,7 +599,8 @@ export class AgentPanel {
     const r = this.run();
     if (!r) return [];
     if (r.group) return [r];
-    return this.runs.runs().filter((x) => x.thread === r.thread).sort((a, b) => a.startedAt - b.startedAt);
+    // Delegated runs show nested in their parent's message, not as turns of their own.
+    return this.runs.runs().filter((x) => x.thread === r.thread && !x.parent).sort((a, b) => a.startedAt - b.startedAt);
   });
   protected readonly taskRuns = computed(() => {
     const r = this.run();
@@ -615,7 +622,15 @@ export class AgentPanel {
   protected readonly handoffBusy = signal(false);
   protected readonly notes = signal<BridgeNote[]>([]);
   protected readonly pipelineOf = computed(() => this.pipelines.of(this.run()?.id));
-  protected readonly otherApprovals = computed(() => this.runs.runs().filter((r) => r.permissions.length && r.id !== this.run()?.id));
+  /** Agents this conversation delegated to that wait for an approval: pinned with the rest. */
+  protected readonly childApprovals = computed(() => {
+    const ids = new Set(this.threadRuns().map((r) => r.id));
+    return this.runs.runs().filter((r) => r.parent && ids.has(r.parent) && r.permissions.length);
+  });
+  protected readonly otherApprovals = computed(() => {
+    const mine = new Set(this.childApprovals().map((r) => r.id));
+    return this.runs.runs().filter((r) => r.permissions.length && r.id !== this.run()?.id && !mine.has(r.id));
+  });
 
   // Composer
   protected readonly mode = signal<Mode>('task');

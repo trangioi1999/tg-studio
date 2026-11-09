@@ -4,7 +4,7 @@ import { AgentBackend } from './backend';
 import { AgentsService } from './agents.service';
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from './describe-line';
 import { estimateCost } from './pricing';
-import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Pick, PlanEntry, AgentId, FileDiff, OwnChanges, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
+import { AGENT_IDS, AGENT_META, AccountLimits, AgentCommand, Approval, Place, AgentEvent, CheckResult, Composite, Delegation, Pick, PlanEntry, AgentId, FileDiff, OwnChanges, PermissionRequest, RunStatus, StoredRun, Usage } from './protocol';
 
 export type { RunStatus };
 
@@ -50,6 +50,10 @@ export interface Run {
   place?: Place;
   /** Chỉ hỏi: the plan the agent wrote instead of editing, until the next question. Live runs only. */
   proposal?: string | null;
+  /** The run that delegated this one (tg-bridge `delegate`): it shows nested in the parent. */
+  parent?: string | null;
+  /** What this run delegated, as tg-bridge reported it. Live runs only. */
+  delegations?: Delegation[];
 }
 
 /** A tg-bridge `handoff_to` proposal waiting for the user. */
@@ -481,6 +485,12 @@ export class RunsService {
       }
       return;
     }
+    // The core starts a delegated run without a prompt: the task its parent gave is it.
+    const d = e.kind === 'bridge' ? dataOf(e) : {};
+    if (d['tool'] === 'delegate' && typeof d['child'] === 'string' && typeof d['task'] === 'string') {
+      const [child, task] = [d['child'], d['task']];
+      this.runs.update((all) => all.map((r) => (r.id === child && !r.prompt ? { ...r, prompt: task } : r)));
+    }
     this.upsert(e.runId, e.agent, (run) => {
       switch (e.kind) {
         case 'message': {
@@ -515,6 +525,16 @@ export class RunsService {
         case 'started':
         case 'log':
         case 'stderr': {
+          const parentId = e.kind === 'started' ? dataOf(e)['parent'] : undefined;
+          if (typeof parentId === 'string') {
+            // A delegated run belongs to its parent's conversation, nested in it.
+            // An agent's own subagent (ACP child session) has no draft of its own; a delegated agent does.
+            const parent = this.runs().find((r) => r.id === parentId);
+            const sub = dataOf(e)['subagent'] === true;
+            const title = dataOf(e)['title'];
+            run = { ...run, parent: parentId, task: !sub, thread: parent?.thread ?? run.thread, project: parent?.project ?? run.project, scope: parent?.scope ?? run.scope,
+              perm: parent?.perm, place: sub ? parent?.place : 'draft', prompt: run.prompt || (typeof title === 'string' ? title : '') };
+          }
           const line = toConsoleLine(run.agent, e.kind, e.line);
           const proposal = e.kind === 'log' && run.perm === 'read' ? planProposal(run.agent, e.line) : null;
           const next = proposal ? { ...run, proposal } : run;
@@ -535,6 +555,14 @@ export class RunsService {
           if (d['tool'] === 'report_progress' && typeof d['step'] === 'string') {
             const pct = typeof d['pct'] === 'number' ? d['pct'] : null;
             return { ...run, lines, progress: { step: d['step'], pct, note: typeof d['note'] === 'string' ? d['note'] : null, at: e.atMs } };
+          }
+          if ((d['tool'] === 'delegate' || d['tool'] === 'delegate_done') && typeof d['id'] === 'string' && AGENT_IDS.includes(d['agent'] as AgentId)) {
+            const { tool: _, ...rest } = d;
+            const delegation = rest as unknown as Delegation;
+            const list = run.delegations ?? [];
+            const delegations = list.some((x) => x.id === delegation.id) ? list.map((x) => (x.id === delegation.id ? delegation : x)) : [...list, delegation];
+            // The nested block shows it; the work log does not repeat it.
+            return { ...run, delegations };
           }
           if (d['tool'] === 'handoff_to' && typeof d['id'] === 'string' && typeof d['task'] === 'string' && AGENT_IDS.includes(d['agent'] as AgentId)) {
             const handoff: Handoff = { id: d['id'], runId: run.id, from: run.agent, agent: d['agent'] as AgentId, task: d['task'],
@@ -708,6 +736,8 @@ function reattach(saved: Run, live: Run): Run {
     permissions: live.permissions,
     lastMessage: live.lastMessage || saved.lastMessage,
     group: saved.group ?? live.group,
+    parent: saved.parent ?? live.parent,
+    delegations: live.delegations ?? saved.delegations,
     waits: live.waits,
     plan: live.plan,
     progress: live.progress,

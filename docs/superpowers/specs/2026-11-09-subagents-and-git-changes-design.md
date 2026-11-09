@@ -1,7 +1,8 @@
 # TG Studio — Agent con và thay đổi theo kiểu git
 
 - **Ngày:** 2026-11-09
-- **Trạng thái:** chủ repo đã duyệt (cả ba câu ở mục 8: đồng ý theo đề xuất). Phần B (mục 4.1–4.4, 4.6) đã làm; phần A và mục 4.5 chưa.
+- **Trạng thái:** chủ repo đã duyệt (cả ba câu ở mục 8: đồng ý theo đề xuất). Phần B (mục 4.1–4.4, 4.6) và phần A (mục 3) đã làm; mục 4.5 chưa.
+- **Phần A làm khác thiết kế / còn thiếu:** tool `delegate` vẫn có trong danh sách ở Chỉ hỏi nhưng bị từ chối khi gọi (quyền đổi được giữa phiên, danh sách tool thì không); chưa kiểm ngân sách trước khi giao; khối agent con nằm cuối tin nhắn của cha, không đúng vị trí lúc giao; câu tiếp theo gửi cho cha chưa tự kèm tóm tắt kết quả; kết quả của agent con chỉ lấy từ tin nhắn cuối của nó. Subagent có sẵn của Claude và đường mở agent con thật chưa chạy với adapter thật (container không có tài khoản Claude); chỉ có test với dữ liệu giả lập.
 - **Phần B làm khác thiết kế ở ba chỗ:** commit dùng `git commit --only` thay vì index tạm (cùng kết quả: giữ phần người dùng tự stage); tệp "của agent" là tệp khác tree đã nhận của run, chưa theo dõi từng lần ghi (mục 4.3); "Áp vào thư mục" của bản nháp vẫn stage như `accept_all` cũ. Chưa có dòng báo "agent đã tự commit".
 - **Code tham chiếu:** `main` tại `be10201` (v0.5.1)
 

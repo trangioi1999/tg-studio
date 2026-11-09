@@ -3,8 +3,9 @@
 //!
 //! The agent spawns this same executable with `--mcp-bridge` (stdio MCP). That
 //! process forwards each tool call over a loopback TCP socket to the app, with a
-//! token issued per run. The app answers from the run's own context. Tools only
-//! propose: a handoff waits for the user, and `request_approval` shows a card.
+//! token issued per run. The app answers from the run's own context. A handoff only
+//! proposes and `request_approval` shows a card; `delegate` starts another agent on part
+//! of the task, asking the user first unless the session runs in Tự động.
 
 use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, Mutex}};
 
@@ -31,6 +32,28 @@ pub trait ToolEnv: Send + Sync {
     /// Shows an approval card; resolves to true only if the user allowed it.
     fn approve(&self, action: String, reason: String) -> BoxFuture<bool>;
     fn context(&self) -> Value;
+    /// Starts another agent on part of the task; resolves to its report (`Delegation::report`).
+    fn delegate(&self, _agent: AgentKind, _task: String, _files: Vec<String>) -> BoxFuture<Result<Value, String>> {
+        Box::pin(async { Err("Phiên này không giao việc cho agent khác được.".to_string()) })
+    }
+    /// Reports of this run's delegations (only `ids` if given), once none is still going or after `timeout`.
+    fn wait_delegated(&self, _ids: Vec<String>, _timeout: std::time::Duration) -> BoxFuture<Result<Value, String>> {
+        Box::pin(async { Err("Phiên này không giao việc cho agent khác được.".to_string()) })
+    }
+    /// The parent settled a delegation's conflicts itself: its draft can go.
+    fn resolve_delegated(&self, _id: String) -> Result<String, String> {
+        Err("Phiên này không giao việc cho agent khác được.".into())
+    }
+}
+
+/// Tools only a top-level agent has: a delegated agent cannot delegate or hand off further.
+const PARENT_ONLY: [&str; 4] = ["delegate", "wait_delegated", "resolve_delegated", "handoff_to"];
+
+/// The tools a session lists; `child` for an agent working on a delegated piece.
+pub fn tools_for(child: bool) -> Value {
+    let all = tools();
+    if !child { return all; }
+    Value::Array(all.as_array().unwrap().iter().filter(|t| !PARENT_ONLY.contains(&t["name"].as_str().unwrap_or(""))).cloned().collect())
 }
 
 pub fn tools() -> Value {
@@ -48,6 +71,12 @@ pub fn tools() -> Value {
           "inputSchema": obj(json!({ "action": {"type":"string"}, "reason": {"type":"string"} }), &["action", "reason"]) },
         { "name": "get_task_context", "description": "The task description, pipeline step and files changed so far in this worktree.",
           "inputSchema": obj(json!({}), &[]) },
+        { "name": "delegate", "description": "Start another agent (claude, codex, gemini, kiro) on an independent part of your task, in parallel with you. It works in its own copy of your folder; when it finishes its files are merged back into yours. Returns at once with an id; call wait_delegated for the result. Give a self-contained task and list the files it should touch. At most 3 at a time. In the user's Hỏi trước mode the user is asked first.",
+          "inputSchema": obj(json!({ "agent": {"type":"string","enum":["claude","codex","gemini","kiro"]}, "task": {"type":"string"}, "files": {"type":"array","items":{"type":"string"}} }), &["agent", "task"]) },
+        { "name": "wait_delegated", "description": "Wait (at most timeout_s, max 50) until your delegated tasks finish, then get each one's status, summary, files_changed and conflicts. Call again while any is still running. A conflict means that file was not merged: read child_worktree/<file>, merge it into your file yourself, then call resolve_delegated.",
+          "inputSchema": obj(json!({ "ids": {"type":"array","items":{"type":"string"}}, "timeout_s": {"type":"number","minimum":1,"maximum":50} }), &[]) },
+        { "name": "resolve_delegated", "description": "After you merged a delegated task's conflicting files yourself: removes its copy of the folder.",
+          "inputSchema": obj(json!({ "id": {"type":"string"} }), &["id"]) },
     ])
 }
 
@@ -97,6 +126,21 @@ pub async fn call_tool(env: &dyn ToolEnv, tool: &str, args: &Value) -> Result<St
             Ok(if env.approve(action, reason).await { "approved".into() } else { "denied".into() })
         }
         "get_task_context" => Ok(serde_json::to_string_pretty(&env.context()).unwrap_or_default()),
+        "delegate" => {
+            let agent = text_arg(args, "agent", 20)?;
+            let kind = serde_json::from_value::<AgentKind>(Value::String(agent.into())).map_err(|_| format!("Không có agent {agent}."))?;
+            let task = text_arg(args, "task", MAX_TEXT)?.to_string();
+            let files: Vec<String> = args.get("files").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).take(50).map(String::from).collect()).unwrap_or_default();
+            let report = env.delegate(kind, task, files).await?;
+            Ok(serde_json::to_string_pretty(&report).unwrap_or_default())
+        }
+        "wait_delegated" => {
+            let ids: Vec<String> = args.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
+            let secs = args.get("timeout_s").and_then(Value::as_f64).filter(|s| s.is_finite()).unwrap_or(50.0).clamp(1.0, 50.0);
+            let reports = env.wait_delegated(ids, std::time::Duration::from_secs_f64(secs)).await?;
+            Ok(serde_json::to_string_pretty(&reports).unwrap_or_default())
+        }
+        "resolve_delegated" => env.resolve_delegated(text_arg(args, "id", 100)?.to_string()),
         _ => Err(format!("Không có tool {tool}.")),
     }
 }
@@ -190,7 +234,7 @@ async fn forward(addr: &str, token: &str, tool: &str, args: &Value) -> Result<St
 }
 
 /// The stdio MCP server an agent talks to. Newline-delimited JSON-RPC 2.0.
-pub async fn serve_stdio<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, addr: &str, token: &str) -> std::io::Result<()> {
+pub async fn serve_stdio<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(reader: R, mut writer: W, addr: &str, token: &str, child: bool) -> std::io::Result<()> {
     let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await? {
         let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
@@ -202,7 +246,7 @@ pub async fn serve_stdio<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(reader: R,
                 "serverInfo": { "name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": tools() })),
+            "tools/list" => Ok(json!({ "tools": tools_for(child) })),
             "tools/call" => {
                 let name = msg["params"]["name"].as_str().unwrap_or("");
                 let args = msg["params"].get("arguments").cloned().unwrap_or(json!({}));
@@ -233,7 +277,8 @@ pub fn run_process() -> i32 {
         Ok(rt) => rt,
         Err(e) => { eprintln!("tg-bridge: {e}"); return 1; }
     };
-    match runtime.block_on(serve_stdio(tokio::io::stdin(), tokio::io::stdout(), &addr, &token)) {
+    let child = std::env::var("TG_BRIDGE_CHILD").is_ok_and(|v| v == "1");
+    match runtime.block_on(serve_stdio(tokio::io::stdin(), tokio::io::stdout(), &addr, &token, child)) {
         Ok(()) => 0,
         Err(e) => { eprintln!("tg-bridge: {e}"); 1 }
     }
@@ -285,6 +330,51 @@ mod tests {
         assert!(call_tool(&env, "rm_rf", &json!({})).await.is_err());
     }
 
+    /// A parent agent that can delegate: records the calls, answers like the app would.
+    #[derive(Default)]
+    struct Parent { calls: Mutex<Vec<String>> }
+    impl ToolEnv for Parent {
+        fn emit(&self, _: Value, _: String) {}
+        fn add_note(&self, _: &str, _: &str) -> Result<(), String> { Ok(()) }
+        fn notes(&self, _: Option<&str>) -> Result<Vec<(String, String, u64, String)>, String> { Ok(vec![]) }
+        fn approve(&self, _: String, _: String) -> BoxFuture<bool> { Box::pin(async { true }) }
+        fn context(&self) -> Value { json!({}) }
+        fn delegate(&self, agent: AgentKind, task: String, files: Vec<String>) -> BoxFuture<Result<Value, String>> {
+            self.calls.lock().unwrap().push(format!("delegate {agent:?} {task} {files:?}"));
+            Box::pin(async { Ok(json!({"id": "d1", "status": "running"})) })
+        }
+        fn wait_delegated(&self, ids: Vec<String>, timeout: std::time::Duration) -> BoxFuture<Result<Value, String>> {
+            self.calls.lock().unwrap().push(format!("wait {ids:?} {}", timeout.as_secs()));
+            Box::pin(async { Ok(json!([{"id": "d1", "status": "done", "summary": "xong"}])) })
+        }
+        fn resolve_delegated(&self, id: String) -> Result<String, String> { Ok(format!("resolved {id}")) }
+    }
+
+    #[tokio::test]
+    async fn delegate_tools_validate_and_reach_the_env() {
+        let env = Parent::default();
+        assert!(call_tool(&env, "delegate", &json!({"agent":"cursor","task":"x"})).await.unwrap_err().contains("cursor"));
+        assert!(call_tool(&env, "delegate", &json!({"agent":"codex"})).await.unwrap_err().contains("task"));
+        assert!(call_tool(&env, "delegate", &json!({"agent":"codex","task":"Viết test","files":["a.ts"]})).await.unwrap().contains("\"running\""));
+        assert!(call_tool(&env, "wait_delegated", &json!({"timeout_s": 500})).await.unwrap().contains("xong"));
+        call_tool(&env, "wait_delegated", &json!({"ids": ["d1"], "timeout_s": 0})).await.unwrap();
+        assert_eq!(call_tool(&env, "resolve_delegated", &json!({"id":"d1"})).await.unwrap(), "resolved d1");
+        assert_eq!(*env.calls.lock().unwrap(), ["delegate Codex Viết test [\"a.ts\"]", "wait [] 50", "wait [\"d1\"] 1"]);
+        // An env that cannot delegate (a delegated agent, or tests) refuses.
+        let plain = Fake::default();
+        assert!(call_tool(&plain, "delegate", &json!({"agent":"codex","task":"x"})).await.is_err());
+    }
+
+    #[test]
+    fn a_delegated_agent_lists_no_tools_to_delegate_or_hand_off() {
+        let names = |v: Value| v.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+        let parent = names(tools_for(false));
+        assert!(["delegate", "wait_delegated", "resolve_delegated", "handoff_to"].iter().all(|t| parent.contains(&t.to_string())));
+        let child = names(tools_for(true));
+        assert!(!child.iter().any(|t| PARENT_ONLY.contains(&t.as_str())));
+        assert!(child.contains(&"report_progress".to_string()) && child.contains(&"get_task_context".to_string()));
+    }
+
     #[tokio::test]
     async fn reserved_token_only_runs_tools_after_binding() {
         let hub = Arc::new(BridgeHub::default());
@@ -330,7 +420,7 @@ mod tests {
         let (client, server) = tokio::io::duplex(1 << 16);
         let (server_read, server_write) = tokio::io::split(server);
         let (addr2, token2) = (addr.clone(), token.clone());
-        tokio::spawn(async move { serve_stdio(server_read, server_write, &addr2, &token2).await });
+        tokio::spawn(async move { serve_stdio(server_read, server_write, &addr2, &token2, false).await });
         let (client_read, mut client_write) = tokio::io::split(client);
         let mut replies = BufReader::new(client_read).lines();
         for msg in [
@@ -347,7 +437,7 @@ mod tests {
         let mut out = Vec::new();
         for _ in 0..6 { out.push(serde_json::from_str::<Value>(&replies.next_line().await.unwrap().unwrap()).unwrap()); }
         assert_eq!(out[0]["result"]["protocolVersion"], "2025-03-26");
-        assert_eq!(out[1]["result"]["tools"].as_array().unwrap().len(), 6);
+        assert_eq!(out[1]["result"]["tools"].as_array().unwrap().len(), 9);
         assert_eq!(out[2]["result"]["content"][0]["text"], "Đã lưu ghi chú \"plan\".");
         assert_eq!(out[3]["result"]["content"][0]["text"], "approved");
         assert_eq!(out[4]["result"]["isError"], true);

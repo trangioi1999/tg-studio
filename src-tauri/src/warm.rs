@@ -180,7 +180,7 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
         match (hub.address().await, bridge::executable()) {
             (Ok(addr), Some(exe)) => {
                 let t = hub.reserve();
-                servers.push(crate::acp_tasks::bridge_server(key.agent, exe, addr, t.clone()));
+                servers.push(crate::acp_tasks::bridge_server(key.agent, exe, addr, t.clone(), false));
                 token = Some(t);
             }
             (Err(e), _) => notes.push(format!("tg-bridge không bật được: {e}")),
