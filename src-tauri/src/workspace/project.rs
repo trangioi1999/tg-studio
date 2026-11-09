@@ -101,7 +101,7 @@ fn path_error(path: &Path, error: io::Error) -> String {
 }
 
 pub fn open(input: &str) -> Result<Project, String> {
-    let home = crate::detect::home_dir();
+    let home = crate::agents::detect::home_dir();
     let path = normalize_path(input, home.as_deref().map(Path::new));
     let metadata = fs::metadata(&path).map_err(|e| path_error(&path, e))?;
     let is_file = metadata.is_file();
@@ -119,18 +119,18 @@ pub fn open(input: &str) -> Result<Project, String> {
         uncommitted: 0,
         git_user: false,
     };
-    if let Ok(repo) = crate::worktree::info(folder) {
+    if let Ok(repo) = crate::workspace::worktree::info(folder) {
         if !is_file && Path::new(&repo.root) != folder {
             project.adjusted = Some("subfolder");
         }
-        project.git = if crate::worktree::git(Path::new(&repo.root), &["rev-parse", "--verify", "HEAD^{commit}"], None).is_ok() {
+        project.git = if crate::workspace::worktree::git(Path::new(&repo.root), &["rev-parse", "--verify", "HEAD^{commit}"], None).is_ok() {
             "ready"
         } else {
             "no_commits"
         };
         let root = Path::new(&repo.root);
         if project.git == "ready" {
-            project.uncommitted = crate::worktree::git(root, &["status", "--porcelain", "-z"], None)
+            project.uncommitted = crate::workspace::worktree::git(root, &["status", "--porcelain", "-z"], None)
                 .map_or(0, |out| out.split('\0').filter(|line| !line.is_empty()).count());
         }
         project.git_user = has_identity(root);
@@ -155,7 +155,7 @@ impl OpenedProjects {
 }
 
 fn has_identity(root: &Path) -> bool {
-    let set = |key: &str| crate::worktree::git(root, &["config", key], None).is_ok_and(|v| !v.trim().is_empty());
+    let set = |key: &str| crate::workspace::worktree::git(root, &["config", key], None).is_ok_and(|v| !v.trim().is_empty());
     set("user.name") && set("user.email")
 }
 
@@ -172,15 +172,15 @@ fn sensitive_pattern(path: &str) -> Option<String> {
 
 /// Files Git would add, from a folder that may not be a repository yet.
 fn untracked(root: &Path) -> Result<Vec<String>, String> {
-    if crate::worktree::git(root, &["rev-parse", "--git-dir"], None).is_ok() {
-        let out = crate::worktree::git(root, &["ls-files", "-z", "--others", "--exclude-standard"], None)?;
+    if crate::workspace::worktree::git(root, &["rev-parse", "--git-dir"], None).is_ok() {
+        let out = crate::workspace::worktree::git(root, &["ls-files", "-z", "--others", "--exclude-standard"], None)?;
         return Ok(out.split('\0').filter(|p| !p.is_empty()).map(String::from).collect());
     }
     // Not a repository: `.git` does not exist, and only a real init could read `.gitignore`.
     let probe = std::env::temp_dir().join(format!("tg-git-probe-{}", uuid::Uuid::new_v4()));
     let git_dir = probe.to_string_lossy().into_owned();
-    crate::worktree::git(root, &["--git-dir", &git_dir, "init", "-q"], None)?;
-    let listed = crate::worktree::git(root, &["--git-dir", &git_dir, "--work-tree", ".", "ls-files", "-z", "--others", "--exclude-standard"], None);
+    crate::workspace::worktree::git(root, &["--git-dir", &git_dir, "init", "-q"], None)?;
+    let listed = crate::workspace::worktree::git(root, &["--git-dir", &git_dir, "--work-tree", ".", "ls-files", "-z", "--others", "--exclude-standard"], None);
     let _ = fs::remove_dir_all(&probe);
     Ok(listed?.split('\0').filter(|p| !p.is_empty()).map(String::from).collect())
 }
@@ -198,7 +198,7 @@ pub fn plan_git(root: &Path) -> Result<GitPlan, String> {
 /// dependencies found are ignored first, so they cannot end up in the commit.
 pub fn prepare_git(root: &Path, name: Option<&str>, email: Option<&str>) -> Result<Project, String> {
     let plan = plan_git(root)?;
-    let git = |args: &[&str]| crate::worktree::git(root, args, None);
+    let git = |args: &[&str]| crate::workspace::worktree::git(root, args, None);
     if git(&["rev-parse", "--git-dir"]).is_err() { git(&["init"])?; }
     if let (Some(name), Some(email)) = (name.filter(|v| !v.trim().is_empty()), email.filter(|v| !v.trim().is_empty())) {
         git(&["config", "--local", "user.name", name.trim()])?;
@@ -245,14 +245,14 @@ pub async fn open_project(opened: State<'_, OpenedProjects>, path: String) -> Re
 #[tauri::command]
 pub async fn list_project_files(opened: State<'_, OpenedProjects>, root: String) -> Result<Vec<String>, String> {
     let root = opened.root(&root)?;
-    tauri::async_runtime::spawn_blocking(move || crate::workspace::list_root(&root)).await
+    tauri::async_runtime::spawn_blocking(move || crate::workspace::files::list_root(&root)).await
         .map_err(|e| format!("Không liệt kê được tệp dự án: {e}"))?
 }
 
 #[tauri::command]
 pub async fn read_project_file(opened: State<'_, OpenedProjects>, root: String, path: String) -> Result<String, String> {
     let root = opened.root(&root)?;
-    tauri::async_runtime::spawn_blocking(move || crate::workspace::read_root(&root, &path)).await
+    tauri::async_runtime::spawn_blocking(move || crate::workspace::files::read_root(&root, &path)).await
         .map_err(|e| format!("Không đọc được tệp dự án: {e}"))?
 }
 
@@ -261,7 +261,7 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
     use std::fs;
-    use crate::worktree::{git, tests::Repo};
+    use crate::workspace::worktree::{git, tests::Repo};
 
     struct Folder(PathBuf);
     impl Folder {
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn open_rejects_unreadable_folder() {
         use std::os::unix::fs::PermissionsExt;
-        let uid = crate::env::std_command("id").arg("-u").output().unwrap();
+        let uid = crate::system::env::std_command("id").arg("-u").output().unwrap();
         assert!(uid.status.success());
         if String::from_utf8(uid.stdout).unwrap().trim() == "0" { return; }
         let folder = Folder::new();

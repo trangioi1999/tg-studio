@@ -97,7 +97,7 @@ pub fn install_into(root: &Path, name: &str, content: &str, stamp: u64) -> Resul
 fn roots(app: &AppHandle, repo: Option<&str>) -> Result<Vec<(String, PathBuf)>, String> {
     let mut roots = Vec::new();
     if let Some(repo) = repo.filter(|r| !r.trim().is_empty()) {
-        let info = crate::worktree::info(Path::new(repo))?;
+        let info = crate::workspace::worktree::info(Path::new(repo))?;
         roots.push(("project".to_string(), PathBuf::from(info.root).join(".claude/skills")));
     }
     roots.push(("user".to_string(), app.path().home_dir().map_err(|e| e.to_string())?.join(".claude/skills")));
@@ -133,7 +133,7 @@ pub fn skill_targets(app: AppHandle, name: String, repo: Option<String>) -> Resu
 pub fn install_skill(app: AppHandle, name: String, scope: String, repo: Option<String>) -> Result<Installed, String> {
     let skill = list_in(&library(&app)?).into_iter().find(|s| s.name == name).ok_or("Không có skill này trong thư viện.")?;
     let (_, root) = roots(&app, repo.as_deref())?.into_iter().find(|(s, _)| *s == scope).ok_or("Chọn một repo Git để cài ở mức project.")?;
-    install_into(&root, &skill.name, &skill.content, crate::clock::now_ms())
+    install_into(&root, &skill.name, &skill.content, crate::system::clock::now_ms())
 }
 
 #[cfg(test)]

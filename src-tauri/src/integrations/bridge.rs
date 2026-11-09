@@ -12,7 +12,7 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::{Arc, Mutex}};
 use serde_json::{json, Value};
 use tokio::{io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader}, net::{TcpListener, TcpStream}};
 
-use crate::adapters::AgentKind;
+use crate::agents::adapters::AgentKind;
 
 pub const FLAG: &str = "--mcp-bridge";
 pub const SERVER_NAME: &str = "tg-bridge";

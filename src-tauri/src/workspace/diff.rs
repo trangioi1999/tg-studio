@@ -1,4 +1,4 @@
-use crate::worktree::{git, Worktree};
+use crate::workspace::worktree::{git, Worktree};
 use serde::Serialize;
 use std::path::Path;
 
@@ -115,7 +115,7 @@ pub fn parse_unified(text: &str) -> Vec<FileDiff> {
 }
 
 fn accepted_path(wt: &Worktree) -> Result<std::path::PathBuf, String> {
-    if wt.is_direct() { return Ok(crate::worktree::direct_files(wt)?.1); }
+    if wt.is_direct() { return Ok(crate::workspace::worktree::direct_files(wt)?.1); }
     let path = git(&wt.path, &["rev-parse", "--git-path", "tg-accepted"], None)?;
     Ok(wt.path.join(path.trim()))
 }
@@ -124,8 +124,8 @@ fn accepted_path(wt: &Worktree) -> Result<std::path::PathBuf, String> {
 /// user's index only changes when they keep a change.
 fn run_git(wt: &Worktree, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
     if wt.is_direct() {
-        let (index, _) = crate::worktree::direct_files(wt)?;
-        crate::worktree::git_index(&wt.path, &index, args, stdin)
+        let (index, _) = crate::workspace::worktree::direct_files(wt)?;
+        crate::workspace::worktree::git_index(&wt.path, &index, args, stdin)
     } else {
         git(&wt.path, args, stdin)
     }
@@ -167,7 +167,7 @@ pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
         run_git(wt, &["read-tree", accepted.trim()], None)?;
     }
     // Without --ignore-removal, add -N stages deletions before the user approves.
-    crate::worktree::add_all_but_tg(|args| run_git(wt, args, None), &["-N", "--ignore-removal"])?;
+    crate::workspace::worktree::add_all_but_tg(|args| run_git(wt, args, None), &["-N", "--ignore-removal"])?;
     let patch = run_git(wt, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3"], None)?;
     Ok(parse_unified(&patch))
 }
@@ -334,7 +334,7 @@ pub fn revert_files(wt: &Worktree, paths: &[String]) -> Result<(), String> {
         if known {
             run_git(wt, &["--literal-pathspecs", "checkout", &accepted, "--", path], None)?;
         } else {
-            let file = crate::workspace::resolve(&wt.path, path)?;
+            let file = crate::workspace::files::resolve(&wt.path, path)?;
             if let Err(e) = std::fs::remove_file(&file) {
                 if e.kind() != std::io::ErrorKind::NotFound { return Err(format!("Không xoá được {path}: {e}")); }
             }
@@ -380,7 +380,7 @@ pub fn mark_committed(wt: &Worktree, paths: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worktree::{tests::Repo, git};
+    use crate::workspace::worktree::{tests::Repo, git};
     use std::fs;
     fn change(w: &Worktree) {
         let p = w.path.join("file.txt");
@@ -391,7 +391,7 @@ mod tests {
     #[test] fn reviews_of_one_worktree_at_once_do_not_collide() {
         // The Changes tab asks for the diff and the user's own changes together.
         let r = Repo::new();
-        let w = crate::worktree::direct(&r.0, "direct-run-race").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-race").unwrap();
         for i in 0..20 { r.write(&format!("f{i}.txt"), "agent\n"); }
         let handles: Vec<_> = (0..8).map(|i| {
             let w = w.clone();
@@ -405,7 +405,7 @@ mod tests {
         let r = Repo::new();
         r.wt();
         assert!(r.0.join(".tg").exists());
-        let w = crate::worktree::direct(&r.0, "direct-run-tg").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-tg").unwrap();
         r.write("new.txt", "agent\n");
         let files = pending(&w).unwrap();
         assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["new.txt"]);
@@ -413,7 +413,7 @@ mod tests {
 
     #[test] fn direct_run_leaves_out_tg_even_when_it_is_not_ignored() {
         let r = Repo::new();
-        let w = crate::worktree::direct(&r.0, "direct-run-tg2").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-tg2").unwrap();
         r.write(".tg/worktrees/x/file.txt", "draft\n");
         r.write("new.txt", "agent\n");
         assert_eq!(pending(&w).unwrap().iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["new.txt"]);
@@ -429,7 +429,7 @@ mod tests {
         r.write("staged.txt", "staged\n");
         git(&r.0, &["add", "staged.txt"], None).unwrap();
         r.write("notes.txt", "untracked\n");
-        let w = crate::worktree::direct(&r.0, "direct-run-1").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-1").unwrap();
         assert!(w.is_direct());
         assert_eq!(dunce::canonicalize(&w.path).unwrap(), dunce::canonicalize(&r.0).unwrap());
         assert!(pending(&w).unwrap().is_empty(), "the user's own changes are not the agent's");
@@ -456,9 +456,9 @@ mod tests {
         assert_eq!(fs::read_to_string(r.0.join("mine.txt")).unwrap(), "mine, edited\n");
         assert_eq!(fs::read_to_string(r.0.join("notes.txt")).unwrap(), "untracked\n");
         // Discarding a direct run removes only the app's bookkeeping.
-        crate::worktree::remove(&r.0, &w, true).unwrap();
+        crate::workspace::worktree::remove(&r.0, &w, true).unwrap();
         assert!(r.0.join("file.txt").exists() && r.0.join("mine.txt").exists());
-        assert!(!crate::worktree::direct_files(&w).unwrap().0.exists());
+        assert!(!crate::workspace::worktree::direct_files(&w).unwrap().0.exists());
     }
 
     /// The user's work before the run: an edited tracked file, a staged file, an untracked file.
@@ -477,7 +477,7 @@ mod tests {
     #[test] fn own_changes_are_the_users_files_the_agent_did_not_touch() {
         let r = Repo::new();
         users_work(&r);
-        let w = crate::worktree::direct(&r.0, "own-1").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "own-1").unwrap();
         change(&w);
         r.write("new.txt", "agent\n");
         // The agent also edits a file the user had already changed: it is the agent's now.
@@ -492,7 +492,7 @@ mod tests {
     #[test] fn revert_goes_back_to_before_the_agent_not_to_head() {
         let r = Repo::new();
         users_work(&r);
-        let w = crate::worktree::direct(&r.0, "revert-1").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "revert-1").unwrap();
         change(&w);
         r.write("mine.txt", "agent rewrote it\n");
         r.write("new/deep.txt", "agent\n");
@@ -521,7 +521,7 @@ mod tests {
     #[test] fn commit_files_takes_only_the_chosen_files_and_keeps_the_users_staging() {
         let r = Repo::new();
         users_work(&r);
-        let w = crate::worktree::direct(&r.0, "commit-1").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "commit-1").unwrap();
         change(&w);
         r.write("new.txt", "agent\n");
         r.write("other.txt", "agent, not chosen\n");
@@ -543,7 +543,7 @@ mod tests {
 
     #[test] fn commit_files_commits_a_deletion() {
         let r = Repo::new();
-        let w = crate::worktree::direct(&r.0, "commit-2").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "commit-2").unwrap();
         fs::remove_file(r.0.join("file.txt")).unwrap();
         commit_files(&r.0, &s(&["file.txt"]), "remove").unwrap();
         assert!(git(&r.0, &["ls-files"], None).unwrap().trim().is_empty());
@@ -553,7 +553,7 @@ mod tests {
 
     #[test] fn direct_accept_all_stages_everything_pending() {
         let r = Repo::new();
-        let w = crate::worktree::direct(&r.0, "direct-run-2").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-2").unwrap();
         change(&w);
         r.write("new.txt", "agent\n");
         assert_eq!(accept_all(&r.0, &w).unwrap(), 2);
@@ -563,7 +563,7 @@ mod tests {
 
     #[test] fn direct_keep_accepts_a_change_the_agent_already_committed() {
         let r = Repo::new();
-        let w = crate::worktree::direct(&r.0, "direct-run-3").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-3").unwrap();
         // The agent writes a file, then stages and commits it on its own.
         r.write("docs/mock.html", "<html></html>\n");
         git(&r.0, &["add", "docs/mock.html"], None).unwrap();
@@ -574,7 +574,7 @@ mod tests {
         accept_hunk(&r.0, &w, "docs/mock.html", &hunk).unwrap();
         assert!(pending(&w).unwrap().is_empty());
         // Keep all works the same way.
-        let w = crate::worktree::direct(&r.0, "direct-run-4").unwrap();
+        let w = crate::workspace::worktree::direct(&r.0, "direct-run-4").unwrap();
         r.write("b.txt", "b\n");
         git(&r.0, &["add", "b.txt"], None).unwrap();
         assert_eq!(accept_all(&r.0, &w).unwrap(), 1);
@@ -585,7 +585,7 @@ mod tests {
         let r = Repo::new();
         let _ = r.wt();
         git(&r.0, &["branch", "feature/x"], None).unwrap();
-        let mut b = crate::worktree::branches(&r.0).unwrap();
+        let mut b = crate::workspace::worktree::branches(&r.0).unwrap();
         b.sort();
         assert!(b.contains(&"feature/x".to_string()));
         assert!(b.iter().all(|x| !x.starts_with("tg/")), "{b:?}");
@@ -845,7 +845,7 @@ mod tests {
         git(&w.path, &["add", "."], None).unwrap();
         git(&w.path, &["commit", "-m", "agent"], None).unwrap();
         assert_eq!(pending(&w).unwrap()[0].hunks.len(), 2);
-        assert_eq!(crate::worktree::list(&r.0).unwrap()[0].base, w.base);
+        assert_eq!(crate::workspace::worktree::list(&r.0).unwrap()[0].base, w.base);
     }
     #[test] fn commit_only_contains_accepted_hunks() {
         let r = Repo::new(); let w = r.wt(); change(&w);

@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
-use crate::{detect, mcp, store::Store};
+use crate::{agents::detect, integrations::mcp, store::Store};
 
 const RUNS: usize = 30;
 const STDERR_PER_RUN: usize = 20;
@@ -39,17 +39,17 @@ pub async fn diagnostics(app: AppHandle, store: State<'_, Store>) -> Result<Valu
     let mut report = summarize(&store);
     report["app"] = json!({ "name": "TG Studio", "version": env!("CARGO_PKG_VERSION") });
     report["os"] = json!({ "family": std::env::consts::OS, "arch": std::env::consts::ARCH });
-    report["generatedAt"] = json!(crate::clock::now_ms());
+    report["generatedAt"] = json!(crate::system::clock::now_ms());
     report["dataDir"] = json!(app.path().app_data_dir().ok().map(|p| p.to_string_lossy().into_owned()));
     report["agents"] = serde_json::to_value(detect::detect_agents().await).map_err(|e| e.to_string())?;
     // Why an agent is not found is almost always the PATH. The home folder is shortened to ~.
     let home = detect::home_dir().unwrap_or_default();
     let tilde = |p: &str| if !home.is_empty() && p.starts_with(&home) { format!("~{}", &p[home.len()..]) } else { p.to_string() };
-    let source = crate::env::path_source();
+    let source = crate::system::env::path_source();
     report["path"] = json!({
         "shell": source.shell, "outcome": source.outcome, "millis": source.millis,
         "added": source.added.iter().map(|p| tilde(p)).collect::<Vec<_>>(),
-        "entries": std::env::split_paths(&crate::env::login_path()).map(|p| tilde(&p.to_string_lossy())).collect::<Vec<_>>(),
+        "entries": std::env::split_paths(&crate::system::env::login_path()).map(|p| tilde(&p.to_string_lossy())).collect::<Vec<_>>(),
     });
     Ok(report)
 }
@@ -57,7 +57,7 @@ pub async fn diagnostics(app: AppHandle, store: State<'_, Store>) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{adapters::AgentKind, mcp::{McpServer, NameValue}, store::NewRun};
+    use crate::{agents::adapters::AgentKind, integrations::mcp::{McpServer, NameValue}, store::NewRun};
 
     #[test]
     fn report_keeps_recent_stderr_and_drops_secrets() {

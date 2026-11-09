@@ -6,7 +6,7 @@ use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::{adapters::AgentKind, env, store::{AccountLimits, Store}, usage::LimitWindow};
+use crate::{agents::adapters::AgentKind, system::env, store::{AccountLimits, Store}, usage::LimitWindow};
 
 // Hold the lock through the request so concurrent refreshes share its saved result.
 static LAST_REFRESH: Mutex<Option<Instant>> = Mutex::const_new(None);
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn real_fixture_has_local_reset_times() {
         let windows = parse_usage_output(
-            include_str!("../tests/fixtures/claude/2.1.319/usage-command.json"),
+            include_str!("../../tests/fixtures/claude/2.1.319/usage-command.json"),
             local(2026, 11, 7, 12, 0),
         ).unwrap();
         assert_eq!(windows, vec![
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn only_successful_local_usage_results_are_accepted() {
-        let fixture = include_str!("../tests/fixtures/claude/2.1.319/usage-command.json");
+        let fixture = include_str!("../../tests/fixtures/claude/2.1.319/usage-command.json");
         for (key, value) in [("is_error", serde_json::json!(true)),
             ("type", serde_json::json!("system")), ("local_command", serde_json::json!("help")),
             ("result", serde_json::json!("You are using an API key."))] {

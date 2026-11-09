@@ -3,10 +3,13 @@
 //! Normalization: `input_tokens` is always the *uncached* input. Agents that
 //! report total prompt tokens (Codex, Gemini) have the cached part subtracted.
 
+pub(crate) mod claude;
+pub(crate) mod ledger;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::adapters::AgentKind;
+use crate::agents::adapters::AgentKind;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -249,7 +252,7 @@ mod tests {
     #[test]
     fn acp_claude_fixture_usage() {
         // Recorded from @agentclientprotocol/claude-agent-acp@0.100.0: one edit, one shell command.
-        let fixture = include_str!("../tests/fixtures/claude-agent-acp/0.100.0/edit-session.jsonl");
+        let fixture = include_str!("../../tests/fixtures/claude-agent-acp/0.100.0/edit-session.jsonl");
         let messages: Vec<Value> = fixture.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()["msg"].clone()).collect();
         let cost = messages.iter().filter_map(|m| parse_acp(&m["params"]["update"])).last().and_then(|u| u.cost_usd);
         let result = messages.iter().find(|m| m["result"]["stopReason"].is_string()).unwrap();
@@ -261,7 +264,7 @@ mod tests {
 
     #[test]
     fn claude_fixture_usage() {
-        let fixture = include_str!("../tests/fixtures/claude/2.1.317/readonly.jsonl");
+        let fixture = include_str!("../../tests/fixtures/claude/2.1.317/readonly.jsonl");
         let events: Vec<_> = fixture.lines()
             .filter_map(|line| parse_line(AgentKind::Claude, line))
             .collect();
@@ -279,7 +282,7 @@ mod tests {
 
     #[test]
     fn codex_fixture_usage() {
-        let fixture = include_str!("../tests/fixtures/codex/0.166.0/readonly.jsonl");
+        let fixture = include_str!("../../tests/fixtures/codex/0.166.0/readonly.jsonl");
         let events: Vec<_> = fixture.lines()
             .filter_map(|line| parse_line(AgentKind::Codex, line))
             .collect();
@@ -308,7 +311,7 @@ mod tests {
     /// process's running cost. Partial-message `stream_event`s carry usage too; never counted.
     #[test]
     fn claude_ask_session_fixture_usage() {
-        let fixture = include_str!("../tests/fixtures/claude/2.1.318/ask-session.jsonl");
+        let fixture = include_str!("../../tests/fixtures/claude/2.1.318/ask-session.jsonl");
         let turns: Vec<Usage> = fixture.lines().filter_map(|l| parse_line(AgentKind::Claude, l)).collect();
         assert_eq!(turns.len(), 2, "mỗi câu đúng một usage");
         let results: Vec<Value> = fixture.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|v| v["type"] == "result").collect();

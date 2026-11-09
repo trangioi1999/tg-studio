@@ -9,7 +9,7 @@ use rusqlite::{params, types::Type, Connection, Error, Result};
 use serde::Serialize;
 use tauri::State;
 
-use crate::{adapters::AgentKind, usage::{LimitWindow, Usage}, worktree::Worktree};
+use crate::{agents::adapters::AgentKind, usage::{LimitWindow, Usage}, workspace::worktree::Worktree};
 
 const RESTORED_RUNS: usize = 100;
 
@@ -574,7 +574,7 @@ pub async fn account_limits(store: State<'_, Store>) -> std::result::Result<Vec<
     // Codex keeps its plan limits in its session logs, so they are current even when it ran elsewhere.
     let found = tauri::async_runtime::spawn_blocking(|| {
         let sessions = std::env::var_os("CODEX_HOME").map(std::path::PathBuf::from)
-            .or_else(|| crate::detect::home_dir().map(|home| std::path::Path::new(&home).join(".codex")))?
+            .or_else(|| crate::agents::detect::home_dir().map(|home| std::path::Path::new(&home).join(".codex")))?
             .join("sessions");
         crate::usage::latest_codex_limits(&sessions)
     }).await.ok().flatten();
@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn later_runs_can_share_a_worktree_and_clearing_any_clears_all() {
         let store = Store::open_in_memory().unwrap();
-        let wt = crate::worktree::Worktree { run_id: "a".into(), path: "/wt/a".into(), branch: "b".into(), base: "c".into() };
+        let wt = crate::workspace::worktree::Worktree { run_id: "a".into(), path: "/wt/a".into(), branch: "b".into(), base: "c".into() };
         store.insert_run_with_worktree(&NewRun { id: "a", agent: AgentKind::Claude, prompt: "plan", cwd: "/wt/a", started_at: 1 }, "/repo", &wt, None).unwrap();
         store.insert_run_with_worktree(&NewRun { id: "b", agent: AgentKind::Codex, prompt: "build", cwd: "/wt/a", started_at: 2 }, "/repo", &wt, None).unwrap();
         // The second run resolves to the owner's worktree, so removal finds it.
@@ -753,7 +753,7 @@ mod tests {
     fn direct_runs_in_one_repo_do_not_share_their_worktree() {
         // Direct runs all have the repository as their path, but each has its own baseline.
         let store = Store::open_in_memory().unwrap();
-        let direct = |id: &str| crate::worktree::Worktree { run_id: id.into(), path: "/repo".into(), branch: String::new(), base: format!("tree-{id}") };
+        let direct = |id: &str| crate::workspace::worktree::Worktree { run_id: id.into(), path: "/repo".into(), branch: String::new(), base: format!("tree-{id}") };
         for (id, at) in [("parent", 1), ("child", 2), ("other", 3)] {
             store.insert_run_with_worktree(&NewRun { id, agent: AgentKind::Claude, prompt: "p", cwd: "/repo", started_at: at }, "/repo", &direct(id), None).unwrap();
         }
@@ -781,8 +781,8 @@ mod tests {
     #[test]
     fn direct_worktrees_lists_each_direct_run_of_the_repo_once() {
         let store = Store::open_in_memory().unwrap();
-        let direct = |id: &str| crate::worktree::Worktree { run_id: id.into(), path: "/repo".into(), branch: String::new(), base: format!("tree-{id}") };
-        let draft = crate::worktree::Worktree { run_id: "c".into(), path: "/wt/c".into(), branch: "tg/c".into(), base: "c".into() };
+        let direct = |id: &str| crate::workspace::worktree::Worktree { run_id: id.into(), path: "/repo".into(), branch: String::new(), base: format!("tree-{id}") };
+        let draft = crate::workspace::worktree::Worktree { run_id: "c".into(), path: "/wt/c".into(), branch: "tg/c".into(), base: "c".into() };
         let run = |id: &'static str| NewRun { id, agent: AgentKind::Claude, prompt: "p", cwd: "/repo", started_at: 1 };
         store.insert_run_with_worktree(&run("a"), "/repo", &direct("a"), None).unwrap();
         // A later run that reuses a's place resolves to a, so a is listed once.
@@ -868,7 +868,7 @@ mod tests {
     fn reopen_keeps_scoped_rules_and_worktree() {
         let dir = std::env::temp_dir().join(format!("tg-store-{}", uuid::Uuid::new_v4()));
         let path = dir.join("history.db");
-        let wt = crate::worktree::Worktree { run_id: "a".into(), path: dir.join("work tree ✓"), branch: "tg/codex/task".into(), base: "abc123".into() };
+        let wt = crate::workspace::worktree::Worktree { run_id: "a".into(), path: dir.join("work tree ✓"), branch: "tg/codex/task".into(), base: "abc123".into() };
         {
             let store = Store::open(&path).unwrap();
             insert(&store, "a", 1);
@@ -893,7 +893,7 @@ mod tests {
     fn insert_with_worktree_is_atomic_and_checks_identity() {
         let store = Store::open_in_memory().unwrap();
         let run = NewRun { id: "a", agent: AgentKind::Codex, prompt: "task", cwd: "/wt", started_at: 1 };
-        let mut wt = crate::worktree::Worktree { run_id: "wrong".into(), path: "/wt".into(), branch: "branch".into(), base: "base".into() };
+        let mut wt = crate::workspace::worktree::Worktree { run_id: "wrong".into(), path: "/wt".into(), branch: "branch".into(), base: "base".into() };
         assert!(store.insert_run_with_worktree(&run, "/repo", &wt, None).is_err());
         assert!(store.list_runs(1).unwrap().is_empty());
         wt.run_id = "a".into();

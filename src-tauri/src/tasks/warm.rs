@@ -7,7 +7,7 @@
 use std::{collections::VecDeque, path::{Path, PathBuf}, sync::{Arc, Mutex}, time::Duration};
 use tauri::{AppHandle, Manager};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, task::JoinHandle};
-use crate::{acp::{client::AcpClient, late::LateHandler}, acp_runner::EventSink, adapters::{setup_timeout, AgentKind}, bridge::{self, BridgeHub}, env, mcp::{self, McpServer}, runner::AgentEvent, store::Store};
+use crate::{acp::{client::AcpClient, late::LateHandler}, tasks::session::EventSink, agents::adapters::{setup_timeout, AgentKind}, integrations::bridge::{self, BridgeHub}, system::env, integrations::mcp::{self, McpServer}, tasks::headless::AgentEvent, store::Store};
 
 /// Unclaimed sessions are closed after this long.
 pub const WARM_TTL: Duration = Duration::from_secs(10 * 60);
@@ -34,7 +34,7 @@ pub fn key_of(agent: AgentKind, cwd: &Path, servers: &[McpServer], bridge: bool)
 }
 
 pub fn key_for(store: &Store, agent: AgentKind, cwd: &Path) -> WarmKey {
-    key_of(agent, cwd, &user_servers(store), crate::acp_tasks::bridge_enabled(store))
+    key_of(agent, cwd, &user_servers(store), crate::tasks::bridge_enabled(store))
 }
 
 /// Adapter stderr: kept as a short tail until a run owns the session, then streamed as events.
@@ -92,7 +92,7 @@ impl Warm {
     fn alive(&mut self) -> bool { !self.parts.late.is_closed() && matches!(self.child.try_wait(), Ok(None)) }
 
     pub async fn close(mut self) {
-        crate::acp_tasks::terminate_adapter(&mut self.child, self.pid).await;
+        crate::tasks::terminate_adapter(&mut self.child, self.pid).await;
         self.parts.release();
     }
 
@@ -151,9 +151,9 @@ impl WarmPool {
 async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -> Result<Warm, String> {
     let command = key.agent.acp_command(env::which).ok_or("Không tìm thấy adapter.")?;
     let timeout = setup_timeout(&command.0);
-    let mut child = crate::acp_tasks::spawn_adapter(&command, &key.cwd)?;
+    let mut child = crate::tasks::spawn_adapter(&command, &key.cwd)?;
     let pid = child.id();
-    if let Some(pid) = pid { crate::resources::register(pid, crate::resources::Owner::Warm); }
+    if let Some(pid) = pid { crate::system::resources::register(pid, crate::system::resources::Owner::Warm); }
     let relay = Arc::new(Mutex::new(Relay::default()));
     let stderr = child.stderr.take().expect("piped stderr");
     let stderr_task = {
@@ -180,7 +180,7 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
         match (hub.address().await, bridge::executable()) {
             (Ok(addr), Some(exe)) => {
                 let t = hub.reserve();
-                servers.push(crate::acp_tasks::bridge_server(key.agent, exe, addr, t.clone(), false));
+                servers.push(crate::tasks::bridge_server(key.agent, exe, addr, t.clone(), false));
                 token = Some(t);
             }
             (Err(e), _) => notes.push(format!("tg-bridge không bật được: {e}")),
@@ -205,10 +205,10 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
 /// Opens a session for the next message of a new conversation in `repo` (`scope`: its subfolder).
 #[tauri::command]
 pub async fn warm_task(app: AppHandle, agent: AgentKind, repo: String, scope: Option<String>) -> Result<(), String> {
-    let root = crate::worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)?;
+    let root = crate::workspace::worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| e.to_string())?;
     let cwd = env::scoped_dir(&repo, scope.as_deref())?;
-    let (servers, bridge) = { let store = app.state::<Store>(); (user_servers(&store), crate::acp_tasks::bridge_enabled(&store)) };
+    let (servers, bridge) = { let store = app.state::<Store>(); (user_servers(&store), crate::tasks::bridge_enabled(&store)) };
     let key = key_of(agent, &cwd, &servers, bridge);
     let Some((generation, mut guard)) = app.state::<WarmPool>().install(&key) else { return Ok(()) };
     let hub = app.state::<Arc<BridgeHub>>().inner().clone();

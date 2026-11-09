@@ -3,7 +3,7 @@ use std::{collections::{HashMap, VecDeque}, path::Path, sync::{Arc, Mutex}};
 use std::sync::atomic::{AtomicBool,Ordering};
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
-use crate::{acp::{client::{ClientHandler, HandlerFuture, method_not_found}, handlers::{Sandbox, Terminals}}, adapters::AgentKind, policy::{self, Verdict}, runner::AgentEvent};
+use crate::{acp::{client::{ClientHandler, HandlerFuture, method_not_found}, handlers::{Sandbox, Terminals}}, agents::adapters::AgentKind, integrations::policy::{self, Verdict}, tasks::headless::AgentEvent};
 
 pub trait EventSink: Send + Sync + 'static {
     fn emit(&self, ev: AgentEvent);
@@ -68,7 +68,7 @@ impl TaskSession {
     pub fn last_reply(&self) -> String { self.reply.lock().unwrap().0.clone() }
     pub fn agent(&self) -> AgentKind { self.agent }
     /// An approval card for something an agent asked through tg-bridge. True only if allowed.
-    pub fn ask(&self, action:String, reason:String) -> crate::bridge::BoxFuture<bool> {
+    pub fn ask(&self, action:String, reason:String) -> crate::integrations::bridge::BoxFuture<bool> {
         let card = self.permission(json!({
             "toolCall": {"title": format!("{action} — lý do: {reason}"), "kind": "other", "rawInput": {"source": "tg-bridge"}},
             "options": [{"optionId":"allow","name":"Cho phép","kind":"allow_once"},{"optionId":"deny","name":"Từ chối","kind":"reject_once"}],
@@ -307,7 +307,7 @@ impl ClientHandler for TaskSession {
                 }
             }
             Some("tool_call" | "tool_call_update") => { self.reply.lock().unwrap().1=true; self.queue_data("tool",update.clone()) }
-            Some("available_commands_update") => self.queue_data("commands", json!({"commands": crate::options::parse_commands(self.agent, update, Some(&self.cwd))})),
+            Some("available_commands_update") => self.queue_data("commands", json!({"commands": crate::agents::options::parse_commands(self.agent, update, Some(&self.cwd))})),
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
                 if let Some(windows) = crate::usage::parse_rate_limit(&update["_meta"]["_claude/rateLimit"]) {
@@ -368,7 +368,7 @@ mod tests {
         std::fs::write(skill.join("SKILL.md"), "test").unwrap();
         let sink = Arc::new(Recorder::default());
         let session = TaskSession::new("run", AgentKind::Codex, &root, sink.clone(), Arc::new(Memory::default())).unwrap();
-        let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/codex-acp/2.5.0/available-commands.json")).unwrap();
+        let fixture: Value = serde_json::from_str(include_str!("../../tests/fixtures/codex-acp/2.5.0/available-commands.json")).unwrap();
         session.on_notification("session/update", fixture["params"].clone());
         session.on_notification("session/update", json!({"update":{"sessionUpdate":"available_commands_update", "availableCommands":[]}}));
         let events = sink.0.lock().unwrap();

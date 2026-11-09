@@ -117,7 +117,7 @@ impl Terminals {
         let command = string(params, "command")?;
         if command.is_empty() { return Err(invalid("Lệnh không được để trống")); }
         // Windows only finds .exe by itself, and CLIs installed through npm are .cmd shims.
-        let mut cmd = crate::env::command(crate::env::which(command).unwrap_or_else(|| command.into()));
+        let mut cmd = crate::system::env::command(crate::system::env::which(command).unwrap_or_else(|| command.into()));
         if let Some(args) = params.get("args") {
             for arg in args.as_array().ok_or_else(|| invalid("args phải là mảng"))? {
                 cmd.arg(arg.as_str().filter(|s| !s.contains('\0')).ok_or_else(|| invalid("Mỗi argument phải là chuỗi hợp lệ"))?);
@@ -135,9 +135,9 @@ impl Terminals {
             Some(_) => self.sandbox.resolve(string(params, "cwd")?)?,
         };
         let limit = number(params, "outputByteLimit", 1024 * 1024)?;
-        cmd.current_dir(cwd).env("PATH", crate::env::login_path())
+        cmd.current_dir(cwd).env("PATH", crate::system::env::login_path())
             .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-        crate::env::isolate(&mut cmd);
+        crate::system::env::isolate(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| failed(format!("Không khởi chạy được terminal: {e}")))?;
         let pid = child.id();
         let output = Arc::new(Mutex::new(Output { text: String::new(), truncated: false, limit }));
@@ -154,7 +154,7 @@ impl Terminals {
                 status = child.wait() => status,
                 _ = kill_rx.recv() => {
                     killed = true;
-                    if let Some(pid) = pid { crate::env::kill_tree(pid).await; }
+                    if let Some(pid) = pid { crate::system::env::kill_tree(pid).await; }
                     let _ = child.start_kill();
                     child.wait().await
                 }
@@ -369,7 +369,7 @@ mod tests {
         let p = shell(&t, "printf '%s' \"$TG_TEST\"; printf 'stderr' >&2; pwd; printf '%s' \"$PATH\"; exit 7", json!({"env":[{"name":"TG_TEST","value":"hello"},{"name":"PATH","value":"bad"}]})).await;
         assert_eq!(wait(&t,&p).await, json!({"exitCode":7,"signal":null}));
         let o = t.output(&p).await.unwrap(); let text = o["output"].as_str().unwrap();
-        for expected in ["hello", "stderr", f.0.to_str().unwrap(), &crate::env::login_path()] { assert!(text.contains(expected), "{text}"); }
+        for expected in ["hello", "stderr", f.0.to_str().unwrap(), &crate::system::env::login_path()] { assert!(text.contains(expected), "{text}"); }
         assert_eq!(o["truncated"], false);
         assert_eq!(o["exitStatus"]["exitCode"], 7);
     }

@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::acp::client::{method_not_found, AcpClient, ClientHandler, HandlerFuture};
-use crate::adapters::{setup_timeout, AgentKind};
-use crate::env;
+use crate::agents::adapters::{setup_timeout, AgentKind};
+use crate::system::env;
 
 /// What the user picked in the composer. `None` keeps the agent's own default.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -295,8 +295,8 @@ mod tests {
 
     fn commands_fixture(agent: AgentKind) -> Value {
         let raw = match agent {
-            AgentKind::Claude => include_str!("../tests/fixtures/claude-agent-acp/0.100.0/available-commands.json"),
-            _ => include_str!("../tests/fixtures/codex-acp/2.5.0/available-commands.json"),
+            AgentKind::Claude => include_str!("../../tests/fixtures/claude-agent-acp/0.100.0/available-commands.json"),
+            _ => include_str!("../../tests/fixtures/codex-acp/2.5.0/available-commands.json"),
         };
         serde_json::from_str::<Value>(raw).unwrap()["params"]["update"].clone()
     }

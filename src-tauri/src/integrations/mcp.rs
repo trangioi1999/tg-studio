@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tauri::State;
 
-use crate::{adapters::AgentKind, store::Store};
+use crate::{agents::adapters::AgentKind, store::Store};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

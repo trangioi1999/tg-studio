@@ -3,7 +3,7 @@
 
 use std::{fs, path::{Component, Path, PathBuf}};
 
-use crate::{acp::handlers::Sandbox, worktree::{self, Worktree}};
+use crate::{acp::handlers::Sandbox, workspace::worktree::{self, Worktree}};
 
 pub const MAX_FILES: usize = 5000;
 pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
@@ -93,7 +93,7 @@ pub fn write_file(wt: &Worktree, path: &str, content: &str) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{diff, worktree::tests::Repo};
+    use crate::{workspace::diff, workspace::worktree::tests::Repo};
 
     struct Folder(PathBuf);
     impl Folder {

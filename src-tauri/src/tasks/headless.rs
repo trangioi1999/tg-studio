@@ -12,8 +12,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::oneshot;
 
-use crate::adapters::AgentKind;
-use crate::env;
+use crate::agents::adapters::AgentKind;
+use crate::system::env;
 use crate::store::{NewRun, Store};
 use crate::usage::{self, Usage};
 
@@ -125,7 +125,7 @@ impl AgentEvent {
     }
 }
 
-use crate::clock::now_ms;
+use crate::system::clock::now_ms;
 
 /// Claude's partial-message line (`--include-partial-messages`).
 fn is_stream_chunk(line: &str) -> bool {
@@ -185,7 +185,7 @@ pub async fn start_agent(
     thread: Option<String>,
     resume_from: Option<String>,
     scope: Option<String>,
-    prefs: Option<crate::options::SessionPrefs>,
+    prefs: Option<crate::agents::options::SessionPrefs>,
 ) -> Result<String, String> {
     let unsupported = || format!("{} chưa hỗ trợ quyền Chỉ hỏi. Chọn quyền Sửa code để dùng agent này.", agent.display_name());
     if agent.headless_args(&prompt).is_none() { return Err(unsupported()); }
@@ -205,11 +205,11 @@ pub async fn start_agent(
         }
     }
     // Model and effort go right after the first word (`-p` / `exec`), before any subcommand or prompt.
-    let flags = crate::options::headless_flags(agent, &prefs.unwrap_or_default());
+    let flags = crate::agents::options::headless_flags(agent, &prefs.unwrap_or_default());
     if !flags.is_empty() { args.splice(1..1, flags); }
     // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
     if agent == AgentKind::Claude {
-        if let Some(config) = crate::mcp::claude_config(&crate::mcp::load(&app.state::<Store>())) {
+        if let Some(config) = crate::integrations::mcp::claude_config(&crate::integrations::mcp::load(&app.state::<Store>())) {
             args.extend(["--mcp-config".to_string(), config]);
         }
     }
@@ -220,7 +220,7 @@ pub async fn start_agent(
     env::isolate(&mut command);
     let mut child = command.spawn().map_err(|e| format!("Không chạy được {}: {e}", bin.display()))?;
     let run_id = uuid::Uuid::new_v4().to_string();
-    let registration = crate::resources::Registration::new(child.id(), crate::resources::Owner::Run(run_id.clone()));
+    let registration = crate::system::resources::Registration::new(child.id(), crate::system::resources::Owner::Run(run_id.clone()));
     // A live session keeps stdin open and writes each question as it comes.
     let live = agent.headless_input("").is_some();
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -367,7 +367,7 @@ pub async fn start_agent(
 }
 
 #[tauri::command(async)]
-pub fn stop_agent(runs: State<'_, Runs>, delegations: State<'_, std::sync::Arc<crate::delegate::Delegations>>, run_id: String) -> Result<(), String> {
+pub fn stop_agent(runs: State<'_, Runs>, delegations: State<'_, std::sync::Arc<crate::tasks::delegate::Delegations>>, run_id: String) -> Result<(), String> {
     // Stopping an agent stops the agents it delegated to as well.
     for d in delegations.of_parent(&run_id).into_iter().filter(|d| d.active()) {
         if let Some(child) = &d.child {
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn streamed_chunks_are_shown_but_not_saved() {
         let store = store_with_run();
-        let fixture = include_str!("../tests/fixtures/claude/2.1.318/ask-session.jsonl");
+        let fixture = include_str!("../../tests/fixtures/claude/2.1.318/ask-session.jsonl");
         for line in fixture.lines() { save_event(&store, &event("log", Some(line))).unwrap(); }
         let saved = store.list_runs(1).unwrap().remove(0).lines;
         assert!(saved.iter().all(|l| !l.line.contains("\"stream_event\"")));
@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn every_result_ends_one_answer_of_the_fixture() {
-        let fixture = include_str!("../tests/fixtures/claude/2.1.318/ask-session.jsonl");
+        let fixture = include_str!("../../tests/fixtures/claude/2.1.318/ask-session.jsonl");
         assert_eq!(fixture.lines().filter_map(turn_status).collect::<Vec<_>>(), ["done", "done"]);
         assert_eq!(turn_status(r#"{"type":"result","is_error":true}"#), Some("failed"));
         assert_eq!(turn_status("không phải json"), None);

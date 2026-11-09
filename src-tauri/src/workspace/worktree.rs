@@ -53,11 +53,11 @@ fn git_env(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>
 /// Runs git and returns its raw output whatever the exit code: for bytes that are not text
 /// (a blob) or an exit code that is not an error (`merge-file` counts conflicts).
 pub fn git_output(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>) -> Result<std::process::Output, String> {
-    let mut command = crate::env::std_command("git");
+    let mut command = crate::system::env::std_command("git");
     if let Some(index) = index { command.env("GIT_INDEX_FILE", index); }
     let mut child = command
         .current_dir(cwd)
-        .env("PATH", crate::env::login_path())
+        .env("PATH", crate::system::env::login_path())
         .args(["-c", "core.quotepath=false"])
         .args(args)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })

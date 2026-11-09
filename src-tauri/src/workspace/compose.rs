@@ -6,7 +6,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::{diff::{self, FileDiff}, env, store::Store, worktree::{self, Worktree}};
+use crate::{workspace::diff::{self, FileDiff}, system::env, store::Store, workspace::worktree::{self, Worktree}};
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
 const OUTPUT_LIMIT: usize = 64 * 1024;
@@ -197,7 +197,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::worktree::tests::Repo;
+    use crate::workspace::worktree::tests::Repo;
     use std::fs;
 
     fn edit(wt: &Worktree, from: &str, to: &str) {

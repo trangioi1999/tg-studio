@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::adapters::AgentKind;
-use crate::env;
+use crate::agents::adapters::AgentKind;
+use crate::system::env;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

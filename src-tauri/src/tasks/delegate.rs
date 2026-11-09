@@ -11,7 +11,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, sync::Mutex, time::Durati
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{adapters::AgentKind, worktree::{git, Worktree}};
+use crate::{agents::adapters::AgentKind, workspace::worktree::{git, Worktree}};
 
 /// Children one parent may have running at once.
 pub const MAX_RUNNING: usize = 3;
@@ -28,8 +28,8 @@ pub fn snapshot(dir: &Path) -> Result<String, String> {
     let real = git_path("index")?;
     let made = (|| {
         if real.exists() { std::fs::copy(&real, &index).map_err(|e| format!("Không chụp được thư mục: {e}"))?; }
-        crate::worktree::add_all_but_tg(|args| crate::worktree::git_index(dir, &index, args, None), &["-A"])?;
-        let tree = crate::worktree::git_index(dir, &index, &["write-tree"], None)?;
+        crate::workspace::worktree::add_all_but_tg(|args| crate::workspace::worktree::git_index(dir, &index, args, None), &["-A"])?;
+        let tree = crate::workspace::worktree::git_index(dir, &index, &["write-tree"], None)?;
         let head = git(dir, &["rev-parse", "HEAD"], None)?;
         // An internal commit only: its own identity, so a repo without user.name still works.
         let commit = git(dir, &["-c", "user.name=TG Studio", "-c", "user.email=noreply@tg-studio.local",
@@ -49,7 +49,7 @@ pub struct Merged {
 
 /// Raw output of a git command, or `None` when it fails (a path missing from a tree).
 fn git_bytes(cwd: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = crate::worktree::git_output(cwd, args, None, None).ok()?;
+    let out = crate::workspace::worktree::git_output(cwd, args, None, None).ok()?;
     out.status.success().then_some(out.stdout)
 }
 
@@ -82,7 +82,7 @@ fn merge_text(dir: &Path, ours: &[u8], base: &[u8], theirs: &[u8]) -> Result<Opt
     let result = (|| {
         for (name, bytes) in files { std::fs::write(tmp.join(name), bytes).map_err(|e| e.to_string())?; }
         let [ours, base, theirs] = ["ours", "base", "theirs"].map(|n| tmp.join(n).to_string_lossy().into_owned());
-        let out = crate::worktree::git_output(dir, &["merge-file", "-p", &ours, &base, &theirs], None, None)?;
+        let out = crate::workspace::worktree::git_output(dir, &["merge-file", "-p", &ours, &base, &theirs], None, None)?;
         // The exit code is the number of conflicts; negative (as unsigned, large) is an error.
         match out.status.code() {
             Some(0) => Ok(Some(out.stdout)),
@@ -99,11 +99,11 @@ fn merge_text(dir: &Path, ours: &[u8], base: &[u8], theirs: &[u8]) -> Result<Opt
 /// both changed is merged line by line, and stays as the parent has it if that conflicts.
 pub fn merge_back(dest: &Path, child: &Worktree, base: &str) -> Result<Merged, String> {
     let mut merged = Merged::default();
-    for file in crate::diff::pending(child)? {
+    for file in crate::workspace::diff::pending(child)? {
         let path = file.path;
-        let target = crate::workspace::resolve(dest, &path)?;
+        let target = crate::workspace::files::resolve(dest, &path)?;
         let ours = read(&target)?;
-        let theirs = read(&crate::workspace::resolve(&child.path, &path)?)?;
+        let theirs = read(&crate::workspace::files::resolve(&child.path, &path)?)?;
         let original = git_bytes(&child.path, &["cat-file", "blob", &format!("{base}:{path}")]);
         if ours == theirs {
             merged.applied.push(path);
@@ -210,11 +210,11 @@ impl Delegations {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worktree::tests::Repo;
+    use crate::workspace::worktree::tests::Repo;
     use std::fs;
 
     fn child_of(r: &Repo, base: &str, id: &str) -> Worktree {
-        crate::worktree::create_at(&r.0, "codex", "child", id, Some(base)).unwrap()
+        crate::workspace::worktree::create_at(&r.0, "codex", "child", id, Some(base)).unwrap()
     }
 
     #[test] fn snapshot_includes_uncommitted_work_and_changes_nothing() {

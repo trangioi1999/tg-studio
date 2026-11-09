@@ -1,10 +1,15 @@
 //! Tauri boundary and process lifetime for ACP tasks. Session routing stays UI-independent.
 
+pub(crate) mod delegate;
+pub(crate) mod headless;
+pub(crate) mod session;
+pub(crate) mod warm;
+
 use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Arc, Mutex}, time::Duration};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, sync::oneshot};
-use crate::{acp::client::AcpClient, acp_runner::{Approval, TaskSession, EventSink, RuleMemory}, adapters::{AgentKind, setup_timeout}, diff::{self, FileDiff}, env, bridge::{self, BridgeHub, ToolEnv}, mcp::{self, McpServer}, options::{self, SessionPrefs}, runner::{self, AgentEvent, Runs}, store::{NewRun, Store}, workspace, worktree::{self, Worktree}};
+use crate::{acp::client::AcpClient, tasks::session::{Approval, TaskSession, EventSink, RuleMemory}, agents::adapters::{AgentKind, setup_timeout}, workspace::diff::{self, FileDiff}, system::env, integrations::bridge::{self, BridgeHub, ToolEnv}, integrations::mcp::{self, McpServer}, agents::options::{self, SessionPrefs}, tasks::headless::{AgentEvent, Runs}, store::{NewRun, Store}, workspace::files, workspace::worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -37,13 +42,13 @@ pub struct SessionInboxes(Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSend
 
 struct AppSink(AppHandle);
 impl EventSink for AppSink {
-    fn emit(&self, ev: AgentEvent) { runner::publish(&self.0, ev); }
+    fn emit(&self, ev: AgentEvent) { headless::publish(&self.0, ev); }
     fn child_run(&self, id: &str, parent: &str, agent: AgentKind, title: &str) {
-        if let Err(e) = self.0.state::<Store>().insert_child_run(id, parent, agent, title, crate::clock::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
+        if let Err(e) = self.0.state::<Store>().insert_child_run(id, parent, agent, title, crate::system::clock::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
     }
     fn child_finished(&self, id: &str, status: &str) {
         let code = (status == "done").then_some(0);
-        if let Err(e) = self.0.state::<Store>().finish_run(id, status, code, crate::clock::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
+        if let Err(e) = self.0.state::<Store>().finish_run(id, status, code, crate::system::clock::now_ms()) { eprintln!("Không lưu được subagent: {e}"); }
     }
 }
 struct RepoRules { app: AppHandle, repo: String, agent: AgentKind }
@@ -77,7 +82,7 @@ struct TaskEnv {
 
 impl TaskEnv {
     /// A delegation event in the parent's log, for the UI's nested block.
-    fn emit_delegation(&self, kind: &str, d: &crate::delegate::Delegation) {
+    fn emit_delegation(&self, kind: &str, d: &crate::tasks::delegate::Delegation) {
         let mut data = serde_json::to_value(d).unwrap_or_default();
         data["tool"] = kind.into();
         let line = match kind {
@@ -96,7 +101,7 @@ impl ToolEnv for TaskEnv {
         self.sink.emit(event);
     }
     fn add_note(&self, topic: &str, text: &str) -> Result<(), String> {
-        self.app.state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, crate::clock::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
+        self.app.state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, crate::system::clock::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
     }
     fn notes(&self, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>, String> {
         self.app.state::<Store>().notes(&self.scope, topic).map_err(|e| format!("Không đọc được ghi chú: {e}"))
@@ -118,7 +123,7 @@ impl ToolEnv for TaskEnv {
         })
     }
     fn delegate(&self, agent: AgentKind, task: String, files: Vec<String>) -> bridge::BoxFuture<Result<Value, String>> {
-        use crate::delegate::{Delegation, Delegations, MAX_RUNNING};
+        use crate::tasks::delegate::{Delegation, Delegations, MAX_RUNNING};
         if self.child { return Box::pin(async { Err("Agent được giao việc không giao tiếp cho agent khác được.".to_string()) }); }
         let approval = self.session.approval();
         if approval == Approval::Deny { return Box::pin(async { Err("Ở chế độ Chỉ hỏi không giao việc cho agent khác được.".to_string()) }); }
@@ -160,7 +165,7 @@ impl ToolEnv for TaskEnv {
             // Only a conversation in a draft gives the child a draft of its own, merged back after.
             let in_place = me.wt.is_direct();
             let base = if in_place { None } else {
-                match crate::delegate::snapshot(&me.wt.path) {
+                match crate::tasks::delegate::snapshot(&me.wt.path) {
                     Ok(c) => Some(c),
                     Err(e) => return fail("failed", e),
                 }
@@ -186,7 +191,7 @@ impl ToolEnv for TaskEnv {
             let id = d.id.clone();
             tauri::async_runtime::spawn(async move {
                 let (status, reply) = done_rx.await.unwrap_or_else(|_| ("failed".into(), String::new()));
-                let summary: String = reply.trim().chars().take(crate::delegate::MAX_SUMMARY).collect();
+                let summary: String = reply.trim().chars().take(crate::tasks::delegate::MAX_SUMMARY).collect();
                 let summary = (!summary.is_empty()).then_some(summary);
                 if let Some(wt) = child_wt.as_ref().filter(|w| w.is_direct()) {
                     // Only its bookkeeping goes; the parent's review already shows these edits.
@@ -195,7 +200,7 @@ impl ToolEnv for TaskEnv {
                 }
                 let outcome = match (&draft, status.as_str(), &base) {
                     (None, "done", _) => ("done", vec![], vec![], None),
-                    (Some(wt), "done", Some(base)) => match crate::delegate::merge_back(&me.wt.path, wt, base) {
+                    (Some(wt), "done", Some(base)) => match crate::tasks::delegate::merge_back(&me.wt.path, wt, base) {
                         Ok(merged) if merged.conflicts.is_empty() => {
                             if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
                             let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
@@ -226,7 +231,7 @@ impl ToolEnv for TaskEnv {
         })
     }
     fn wait_delegated(&self, ids: Vec<String>, timeout: Duration) -> bridge::BoxFuture<Result<Value, String>> {
-        let all = self.app.state::<Arc<crate::delegate::Delegations>>().inner().clone();
+        let all = self.app.state::<Arc<crate::tasks::delegate::Delegations>>().inner().clone();
         let parent = self.run_id.clone();
         Box::pin(async move {
             let list = all.wait(&parent, &ids, timeout).await;
@@ -235,7 +240,7 @@ impl ToolEnv for TaskEnv {
         })
     }
     fn resolve_delegated(&self, id: String) -> Result<String, String> {
-        let all = self.app.state::<Arc<crate::delegate::Delegations>>().inner().clone();
+        let all = self.app.state::<Arc<crate::tasks::delegate::Delegations>>().inner().clone();
         let d = all.get(&id).filter(|d| d.parent == self.run_id).ok_or("Không có việc con này.")?;
         if d.status != "conflict" { return Ok("Việc này không có xung đột cần gộp.".into()); }
         if let Some(wt) = &d.child_wt { worktree::remove(&self.repo, wt, true)?; }
@@ -307,9 +312,9 @@ pub(crate) fn bridge_server(agent: AgentKind, exe: String, addr: String, token: 
 
 /// How a task gets its adapter: start one, or take a session opened ahead of time.
 /// `Warm` keeps the command: an adapter that died while waiting is replaced by a fresh one.
-enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::warm::Warm>, (PathBuf, Vec<String>)) }
+enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::tasks::warm::Warm>, (PathBuf, Vec<String>)) }
 
-async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::warm::Claimed>), String> {
+async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
     let id = uuid::Uuid::new_v4().to_string();
     let agent_name = serde_json::to_value(agent).unwrap();
     let shared = reuse.is_some();
@@ -358,8 +363,8 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
         },
     };
     let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
-    if let Some(pid) = pid { crate::resources::register(pid, crate::resources::Owner::Run(id.clone())); }
-    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: crate::clock::now_ms() }, &repo.to_string_lossy(), &wt, group);
+    if let Some(pid) = pid { crate::system::resources::register(pid, crate::system::resources::Owner::Run(id.clone())); }
+    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: crate::system::clock::now_ms() }, &repo.to_string_lossy(), &wt, group);
     if let Err(e) = saved {
         let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
         terminate_adapter(&mut child, pid).await;
@@ -375,7 +380,7 @@ pub(crate) async fn terminate_adapter(child: &mut Child, pid: Option<u32>) {
     if let Some(pid) = pid { env::kill_tree(pid).await; }
     let _ = child.kill().await;
     let _ = child.wait().await;
-    if let Some(pid) = pid { crate::resources::unregister(pid); }
+    if let Some(pid) = pid { crate::system::resources::unregister(pid); }
 }
 
 fn turn_outcome(result: &Value) -> (&'static str, Option<String>) {
@@ -564,8 +569,8 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
     // Not for a delegated agent: a session opened ahead of time has the parent's tg-bridge tools.
     let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
         (Place::Direct, None, None, Ok(cwd)) if parent.is_none() => {
-            let key = crate::warm::key_for(&app.state::<Store>(), agent, &cwd);
-            match app.state::<crate::warm::WarmPool>().take(&key).await {
+            let key = crate::tasks::warm::key_for(&app.state::<Store>(), agent, &cwd);
+            match app.state::<crate::tasks::warm::WarmPool>().take(&key).await {
                 Some(warm) => Adapter::Warm(Box::new(warm), command),
                 None => Adapter::Spawn(command),
             }
@@ -585,7 +590,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
             if let Some(warm) = warm { warm.release(); }
-            let _ = app.state::<Store>().finish_run(&id, "failed", None, crate::clock::now_ms());
+            let _ = app.state::<Store>().finish_run(&id, "failed", None, crate::system::clock::now_ms());
             return Err(e);
         }
     };
@@ -596,7 +601,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
             if let Some(warm) = warm { warm.release(); }
-            let _ = app.state::<Store>().finish_run(&id, "failed", None, crate::clock::now_ms());
+            let _ = app.state::<Store>().finish_run(&id, "failed", None, crate::system::clock::now_ms());
             return Err(e);
         }
     };
@@ -647,7 +652,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
     let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone(),
         repo: repo.clone(), thread: thread.clone(), subfolder: scope_name.clone(), child: is_child };
     tauri::async_runtime::spawn(async move {
-        let mut servers: Vec<McpServer> = crate::warm::user_servers(&app.state::<Store>());
+        let mut servers: Vec<McpServer> = crate::tasks::warm::user_servers(&app.state::<Store>());
         let hub = app.state::<Arc<BridgeHub>>().inner().clone();
         let mut token = None;
         let mut opened_id = None;
@@ -705,7 +710,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
             sink.emit(event);
         }
         let code = if status == "done" { Some(0) } else { None };
-        if let Err(e) = app.state::<Store>().finish_run(&task_id, status, code, crate::clock::now_ms()) {
+        if let Err(e) = app.state::<Store>().finish_run(&task_id, status, code, crate::system::clock::now_ms()) {
             eprintln!("Không lưu được trạng thái lượt chạy: {e}");
         }
         if let Some(done) = child_done { let _ = done.send((status.to_string(), session.last_reply())); }
@@ -740,7 +745,7 @@ pub fn list_branches(repo: String) -> Result<Vec<String>, String> {
 #[tauri::command(async)]
 pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'_, SessionInboxes>, store: State<'_, Store>, run_id: String, prompt: String) -> Result<(), String> {
     if prompt.trim().is_empty() { return Err("Hãy nhập nội dung tin nhắn.".into()); }
-    if let Some(sent) = runner::send_headless(&app, &run_id, &prompt) { return sent; }
+    if let Some(sent) = headless::send_headless(&app, &run_id, &prompt) { return sent; }
     let inbox = inboxes.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let (Some(inbox), Some(session)) = (inbox, session) else { return Err("Phiên này đã đóng.".into()); };
@@ -826,19 +831,19 @@ pub fn commit_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id:
 #[tauri::command(async)]
 pub fn list_worktree_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
-    workspace::list_files(&wt)
+    files::list_files(&wt)
 }
 #[tauri::command(async)]
 pub fn read_worktree_file(store: State<'_, Store>, run_id: String, path: String) -> Result<String, String> {
     let (_, wt) = stored_worktree(&store, &run_id)?;
-    workspace::read_file(&wt, &path)
+    files::read_file(&wt, &path)
 }
 #[tauri::command(async)]
 pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, content: String) -> Result<(), String> {
     // The agent may be writing the same file; edits wait until it is done.
     let (_, wt) = stored_worktree(&store, &run_id)?;
     tasks.guard_writes(&run_id, &wt.path, "Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.")?;
-    workspace::write_file(&wt, &path, &content)
+    files::write_file(&wt, &path, &content)
 }
 #[tauri::command]
 pub async fn discard_worktree(store: State<'_, Store>, tasks: State<'_, TaskRuns>, runs: State<'_, Runs>, run_id: String) -> Result<(), String> {
@@ -904,7 +909,7 @@ async fn delete_runs_inner(store: &Store, tasks: &TaskRuns, runs: &Runs, run_ids
         if sharing.iter().any(|other| !run_ids.contains(other)) { continue; }
         if let Err(e) = worktree::remove(&repo, &wt, true) { errors.push(e); }
     }
-    store.delete_runs(run_ids, crate::clock::now_ms()).map_err(|e| format!("Không xoá được cuộc trò chuyện: {e}"))?;
+    store.delete_runs(run_ids, crate::system::clock::now_ms()).map_err(|e| format!("Không xoá được cuộc trò chuyện: {e}"))?;
     if errors.is_empty() { Ok(()) }
     else { Err(format!("Đã xoá cuộc trò chuyện, nhưng chưa dọn được bản nháp: {}", errors.join("; "))) }
 }
@@ -924,7 +929,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::worktree::tests::Repo;
+    use crate::workspace::worktree::tests::Repo;
 
     fn save_draft(store: &Store, repo: &Repo, wt: &Worktree, id: &str) {
         store.insert_run_with_worktree(&NewRun { id, agent: AgentKind::Codex, prompt: "p", cwd: wt.path.to_str().unwrap(), started_at: 1 }, repo.0.to_str().unwrap(), wt, None).unwrap();
@@ -1257,7 +1262,7 @@ mod tests {
     #[tokio::test]
     async fn session_new_carries_enabled_mcp_servers() {
         use crate::acp::fake::{self, Step};
-        use crate::mcp::{McpServer, NameValue};
+        use crate::integrations::mcp::{McpServer, NameValue};
         let sink = Arc::new(Recorder::default());
         let session = Arc::new(TaskSession::new("r", AgentKind::Codex, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
         let (reader, writer, log) = fake::spawn(vec![Step::End("end_turn")]);

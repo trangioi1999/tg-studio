@@ -2,32 +2,16 @@
 //! processes and streams their output (and token usage) to the UI.
 
 mod acp;
-mod acp_runner;
-mod adapters;
-mod claude_usage;
-mod clock;
-pub mod bridge;
-mod compose;
-mod delegate;
-mod acp_tasks;
-mod detect;
-mod diagnostics;
-mod diff;
-mod env;
-mod ledger;
-mod mcp;
-mod options;
-mod skills;
-mod policy;
-mod project;
-mod runner;
-mod resources;
+mod agents;
+pub mod integrations;
 mod store;
+mod system;
+mod tasks;
 mod usage;
-mod version;
-mod warm;
 mod workspace;
-mod worktree;
+
+/// The tg-bridge MCP server, run by `main.rs` before Tauri starts.
+pub use integrations::bridge;
 
 use std::path::PathBuf;
 
@@ -52,7 +36,7 @@ fn open_store(path: Option<PathBuf>) -> Store {
 pub fn run() {
     // Read the login-shell PATH in the background so the first detection is fast.
     std::thread::spawn(|| {
-        env::login_path();
+        system::env::login_path();
     });
 
     tauri::Builder::default()
@@ -65,15 +49,15 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(project::OpenedProjects::default())
-        .manage(runner::Runs::default())
-        .manage(runner::HeadlessSessions::default())
-        .manage(acp_tasks::TaskRuns::default())
-        .manage(std::sync::Arc::new(delegate::Delegations::default()))
-        .manage(acp_tasks::SessionInboxes::default())
-        .manage(warm::WarmPool::default())
-        .manage(compose::Composites::default())
-        .manage(std::sync::Arc::new(bridge::BridgeHub::default()))
+        .manage(workspace::project::OpenedProjects::default())
+        .manage(tasks::headless::Runs::default())
+        .manage(tasks::headless::HeadlessSessions::default())
+        .manage(tasks::TaskRuns::default())
+        .manage(std::sync::Arc::new(tasks::delegate::Delegations::default()))
+        .manage(tasks::SessionInboxes::default())
+        .manage(tasks::warm::WarmPool::default())
+        .manage(workspace::compose::Composites::default())
+        .manage(std::sync::Arc::new(integrations::bridge::BridgeHub::default()))
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
             app.manage(open_store(path));
@@ -86,63 +70,63 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            resources::resource_usage,
-            version::app_version,
-            version::latest_version,
-            resources::kill_process,
-            warm::warm_task,
-            detect::detect_agents,
-            runner::start_agent,
-            runner::stop_agent,
+            system::resources::resource_usage,
+            system::version::app_version,
+            system::version::latest_version,
+            system::resources::kill_process,
+            tasks::warm::warm_task,
+            agents::detect::detect_agents,
+            tasks::headless::start_agent,
+            tasks::headless::stop_agent,
             store::list_runs,
             store::account_limits,
-            claude_usage::refresh_claude_limits,
-            ledger::usage_report,
-            ledger::bridge_notes,
-            ledger::list_prices,
-            ledger::add_price,
-            ledger::get_setting,
-            ledger::set_setting,
-            ledger::save_export,
-            diagnostics::diagnostics,
-            mcp::list_mcp_servers,
-            mcp::save_mcp_server,
-            mcp::delete_mcp_server,
-            skills::list_skills,
-            skills::save_skill,
-            skills::delete_skill,
-            skills::skill_targets,
-            skills::install_skill,
-            project::open_project,
-            project::list_project_files,
-            project::read_project_file,
-            project::git_plan,
-            project::git_prepare,
-            acp_tasks::start_task,
-            options::agent_options,
-            options::agent_commands,
-            acp_tasks::set_approval,
-            acp_tasks::list_branches,
-            acp_tasks::send_message,
-            acp_tasks::respond_permission,
-            acp_tasks::get_diff,
-            acp_tasks::accept_hunk,
-            acp_tasks::accept_all,
-            acp_tasks::reject_hunk,
-            acp_tasks::commit_accepted,
-            acp_tasks::own_changes,
-            acp_tasks::revert_files,
-            acp_tasks::commit_files,
-            acp_tasks::list_worktree_files,
-            acp_tasks::read_worktree_file,
-            acp_tasks::write_worktree_file,
-            acp_tasks::discard_worktree,
-            acp_tasks::delete_runs,
-            compose::compose_runs,
-            compose::check_composite,
-            compose::apply_composite,
-            compose::commit_composite,
-            compose::discard_composite
+            usage::claude::refresh_claude_limits,
+            usage::ledger::usage_report,
+            usage::ledger::bridge_notes,
+            usage::ledger::list_prices,
+            usage::ledger::add_price,
+            usage::ledger::get_setting,
+            usage::ledger::set_setting,
+            usage::ledger::save_export,
+            system::diagnostics::diagnostics,
+            integrations::mcp::list_mcp_servers,
+            integrations::mcp::save_mcp_server,
+            integrations::mcp::delete_mcp_server,
+            integrations::skills::list_skills,
+            integrations::skills::save_skill,
+            integrations::skills::delete_skill,
+            integrations::skills::skill_targets,
+            integrations::skills::install_skill,
+            workspace::project::open_project,
+            workspace::project::list_project_files,
+            workspace::project::read_project_file,
+            workspace::project::git_plan,
+            workspace::project::git_prepare,
+            tasks::start_task,
+            agents::options::agent_options,
+            agents::options::agent_commands,
+            tasks::set_approval,
+            tasks::list_branches,
+            tasks::send_message,
+            tasks::respond_permission,
+            tasks::get_diff,
+            tasks::accept_hunk,
+            tasks::accept_all,
+            tasks::reject_hunk,
+            tasks::commit_accepted,
+            tasks::own_changes,
+            tasks::revert_files,
+            tasks::commit_files,
+            tasks::list_worktree_files,
+            tasks::read_worktree_file,
+            tasks::write_worktree_file,
+            tasks::discard_worktree,
+            tasks::delete_runs,
+            workspace::compose::compose_runs,
+            workspace::compose::check_composite,
+            workspace::compose::apply_composite,
+            workspace::compose::commit_composite,
+            workspace::compose::discard_composite
         ])
         .run(tauri::generate_context!())
         .expect("error while running TG Studio");
@@ -151,7 +135,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::AgentKind;
+    use crate::agents::adapters::AgentKind;
     use crate::store::NewRun;
 
     fn temp_db() -> PathBuf {

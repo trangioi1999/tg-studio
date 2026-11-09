@@ -144,7 +144,7 @@ pub async fn resource_usage() -> Result<ResourceReport, String> {
         let processes = sample()?;
         let (groups, webview) = group_processes(&processes, &registry_snapshot()?, std::process::id());
         Ok(ResourceReport {
-            at: crate::clock::now_ms(),
+            at: crate::system::clock::now_ms(),
             cpu: groups.iter().map(|g| g.cpu).sum(), memory: groups.iter().map(|g| g.memory).sum(),
             cores: std::thread::available_parallelism().map(usize::from).unwrap_or(1), groups,
             webview: webview && !cfg!(target_os = "macos"),
@@ -183,7 +183,7 @@ pub async fn kill_process(pid: u32) -> Result<(), String> {
         let processes = sample()?;
         validate_kill(pid, &processes, &registry_snapshot()?, std::process::id())
     }).await.map_err(|e| format!("Không kiểm tra được tiến trình: {e}"))??;
-    crate::env::kill_tree(pid).await;
+    crate::system::env::kill_tree(pid).await;
     Ok(())
 }
 
