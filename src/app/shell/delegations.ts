@@ -12,6 +12,8 @@ type State = 'needs_you' | 'running' | 'waiting' | 'failed' | 'stopped';
 
 interface Item {
   key: string;
+  /** Order among saved delegations (no report, not a subagent), matching the saved markers. */
+  ord: number | null;
   agent: AgentId;
   task: string;
   run: Run | null;
@@ -88,22 +90,37 @@ export class Delegations {
   protected readonly runs = inject(RunsService);
   private readonly workspace = inject(WorkspaceService);
   readonly parent = input.required<Run>();
+  /** Only these (a delegation id, or a saved one's order): the ones made at this point of the chat. */
+  readonly only = input<readonly (string | number)[] | null>(null);
+  /** All but these: the ones no marker placed, at the end of the run. */
+  readonly except = input<readonly (string | number)[]>([]);
   protected readonly meta = AGENT_META;
   protected readonly opened = signal<Set<string>>(new Set());
 
   protected readonly items = computed<Item[]>(() => {
+    const only = this.only();
+    const except = this.except();
+    const hit = (it: Item, refs: readonly (string | number)[]) => refs.some((r) => (typeof r === 'number' ? it.ord === r : it.key === r));
+    return this.all().filter((it) => (only ? hit(it, only) : !hit(it, except)));
+  });
+
+  private readonly all = computed<Item[]>(() => {
     const parent = this.parent();
     const children = this.runs.runs().filter((r) => r.parent === parent.id);
     const delegations = parent.delegations ?? [];
     const items: Item[] = delegations.map((d) => {
       const run = children.find((r) => r.id === d.child) ?? null;
       const [state, label] = run?.permissions.length ? (['needs_you', 'Chờ bạn duyệt'] as [State, string]) : LABEL[d.status];
-      return { key: d.id, agent: d.agent, task: d.task, run, delegation: d, state, label, now: this.nowOf(run, d) };
+      return { key: d.id, ord: null, agent: d.agent, task: d.task, run, delegation: d, state, label, now: this.nowOf(run, d) };
     });
-    // History has the child runs but not the delegation reports.
-    for (const run of children.filter((r) => !delegations.some((d) => d.child === r.id))) {
+    // History has the child runs but not the delegation reports. An agent's own subagent
+    // (`<parent>~n`) was not delegated through tg-bridge, so no marker counts it.
+    const saved = children.filter((r) => !delegations.some((d) => d.child === r.id)).sort((a, b) => a.startedAt - b.startedAt);
+    let ord = 0;
+    for (const run of saved) {
       const [state, label] = this.stateOf(run);
-      items.push({ key: run.id, agent: run.agent, task: taskOf(run.prompt), run, delegation: null, state, label, now: this.nowOf(run, null) });
+      const sub = run.id.startsWith(`${parent.id}~`);
+      items.push({ key: run.id, ord: sub ? null : ord++, agent: run.agent, task: taskOf(run.prompt), run, delegation: null, state, label, now: this.nowOf(run, null) });
     }
     return items;
   });

@@ -104,6 +104,49 @@ describe('Delegated agents', () => {
     expect(el.querySelector('.dlg-task')!.textContent!.trim()).toBe('Viết test');
   });
 
+  it('each delegation shows where it was made, once', async () => {
+    const { runs, send } = await setup();
+    send({ kind: 'started', line: 'Claude' });
+    send({ kind: 'bridge', line: '◆ tg-bridge · giao cho Codex: A', data: delegation({ id: 'd1', task: 'A' }) });
+    send({ kind: 'bridge', line: '◆', data: delegation({ id: 'd1', task: 'A', child: 'c1' }) });
+    send({ kind: 'user', line: 'Làm B' });
+    send({ kind: 'bridge', line: '◆ tg-bridge · giao cho Codex: B', data: delegation({ id: 'd2', task: 'B' }) });
+    const marks = runs.runs().find((r) => r.id === 'p')!.lines.filter((l) => l.tone === 'delegate');
+    expect(marks.map((l) => l.label)).toEqual(['d1', 'd2']);
+
+    const fixture = TestBed.createComponent(Delegations);
+    fixture.componentRef.setInput('parent', runs.runs().find((r) => r.id === 'p')!);
+    fixture.componentRef.setInput('only', ['d2']);
+    fixture.detectChanges();
+    const tasks = () => [...(fixture.nativeElement as HTMLElement).querySelectorAll('.dlg-task')].map((t) => t.textContent!.trim());
+    expect(tasks()).toEqual(['B']);
+    fixture.componentRef.setInput('only', null);
+    fixture.componentRef.setInput('except', ['d1', 'd2']);
+    fixture.detectChanges();
+    expect(tasks()).toEqual([]);
+  });
+
+  it('history: saved children match their markers in order; subagents stay unanchored', async () => {
+    const stored = (over: Partial<StoredRun>): StoredRun => ({ id: 'p', agent: 'claude', prompt: 'x', cwd: '/repo', startedAt: 1, endedAt: 9, status: 'done', exitCode: 0,
+      usage: null, lines: [], worktree: null, group: null, thread: 't', project: '/repo', scope: null, ...over });
+    const { runs } = await setup([
+      stored({ id: 'c2', agent: 'claude', prompt: 'B', parent: 'p', startedAt: 5 }),
+      stored({ id: 'p~1', agent: 'claude', prompt: 'Tìm', parent: 'p', startedAt: 2 }),
+      stored({ id: 'c1', agent: 'codex', prompt: 'A', parent: 'p', startedAt: 3 }),
+      stored({}),
+    ]);
+    const fixture = TestBed.createComponent(Delegations);
+    fixture.componentRef.setInput('parent', runs.runs().find((r) => r.id === 'p')!);
+    const tasks = () => [...(fixture.nativeElement as HTMLElement).querySelectorAll('.dlg-task')].map((t) => t.textContent!.trim());
+    fixture.componentRef.setInput('only', [1]);
+    fixture.detectChanges();
+    expect(tasks()).toEqual(['B']);
+    fixture.componentRef.setInput('only', null);
+    fixture.componentRef.setInput('except', [0, 1]);
+    fixture.detectChanges();
+    expect(tasks()).toEqual(['Tìm']);
+  });
+
   it('taskOf strips what TG Studio adds for the agent', () => {
     expect(taskOf('Viết test\n\nTệp liên quan: a.ts, b.ts\n\n(Việc được Claude giao qua TG Studio. Xong thì tóm tắt.)')).toBe('Viết test');
     expect(taskOf('Chỉ một dòng')).toBe('Chỉ một dòng');

@@ -373,7 +373,7 @@ export class MockBackend extends AgentBackend {
   }
 
   private delegateOne(parentId: string, parent: MockRun, o: { n: number; agent: AgentId; task: string; file: string; reply: string; cost: number | null; at: number; takes: number }): void {
-    const id = `dlg-${parentId}-${o.n}`;
+    const id = `dlg-${parentId}-${crypto.randomUUID().slice(0, 8)}-${o.n}`;
     const childId = crypto.randomUUID();
     const name = AGENT_META[o.agent].name;
     const root = `${this.tasks.get(parentId)?.root ?? '/mock'}/.tg/worktrees/${childId}`;
@@ -411,6 +411,13 @@ export class MockBackend extends AgentBackend {
     if (run.active) throw new Error('Agent đang chạy. Hãy chờ hoặc dừng trước.');
     run.active = true;
     this.later(runId, run, { kind: 'user', line: prompt }, 0);
+    // A later message can delegate again: its nested agents sit under that message.
+    if (run.agent === 'claude' && /chia|giao/i.test(prompt)) {
+      this.delegateMock(runId, run);
+      this.later(runId, run, { kind: 'message', data: { text: 'Đã giao lại cho **Codex** và một **Claude** phụ; cả hai xong rồi.' } }, 2300);
+      this.endTurn(runId, run, 2500);
+      return;
+    }
     const reply = `Về "${prompt.slice(0, 60)}", mình xem lại các phần liên quan:\n\n- \`src/app/app.ts\`: trạng thái và các hàm chính\n- \`src/app\`: giao diện và dịch vụ\n- \`docs/\`: tài liệu dự án`;
     this.later(runId, run, { kind: 'message', data: { text: reply } }, 300);
     this.endTurn(runId, run, 700);

@@ -560,9 +560,12 @@ export class RunsService {
             const { tool: _, ...rest } = d;
             const delegation = rest as unknown as Delegation;
             const list = run.delegations ?? [];
-            const delegations = list.some((x) => x.id === delegation.id) ? list.map((x) => (x.id === delegation.id ? delegation : x)) : [...list, delegation];
-            // The nested block shows it; the work log does not repeat it.
-            return { ...run, delegations };
+            const known = list.some((x) => x.id === delegation.id);
+            const delegations = known ? list.map((x) => (x.id === delegation.id ? delegation : x)) : [...list, delegation];
+            // The nested block shows it, where it was made; the work log does not repeat it.
+            if (known) return { ...run, delegations };
+            const mark = { text: e.line ?? delegation.task, tone: 'delegate' as const, label: delegation.id };
+            return { ...run, delegations, lines: [...run.lines, mark].slice(-MAX_LINES) };
           }
           if (d['tool'] === 'handoff_to' && typeof d['id'] === 'string' && typeof d['task'] === 'string' && AGENT_IDS.includes(d['agent'] as AgentId)) {
             const handoff: Handoff = { id: d['id'], runId: run.id, from: run.agent, agent: d['agent'] as AgentId, task: d['task'],

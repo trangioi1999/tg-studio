@@ -208,3 +208,11 @@ describe('Claude streamed messages', () => {
     expect(collect([assistant('Xin chào')])).toEqual([{ text: 'Xin chào', tone: 'text' }]);
   });
 });
+
+describe('tg-bridge lines', () => {
+  it('a saved delegation marks its place; other tg-bridge reports are work steps', () => {
+    expect(describeLine('claude', '◆ tg-bridge · giao cho Codex: Viết trang')).toEqual({ text: '◆ tg-bridge · giao cho Codex: Viết trang', tone: 'delegate' });
+    expect(describeLine('claude', '◆ tg-bridge · Claude Code done: Viết trang')!.tone).toBe('muted');
+    expect(describeLine('claude', '◆ tg-bridge · Sửa tiêu đề (60%)')!.tone).toBe('tool');
+  });
+});

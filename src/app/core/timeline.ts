@@ -12,7 +12,9 @@ export interface WorkStep {
 export type Segment =
   | { kind: 'user'; text: string }
   | { kind: 'text'; text: string }
-  | { kind: 'work'; steps: WorkStep[]; failed: number; live: boolean };
+  | { kind: 'work'; steps: WorkStep[]; failed: number; live: boolean }
+  /** Delegations made here: an id for a live one, else the saved one's order in the run. */
+  | { kind: 'delegate'; refs: (string | number)[] };
 
 /**
  * Groups a run's console lines for the chat: messages stay as they are, tool calls
@@ -29,8 +31,16 @@ export function segmentsOf(lines: ConsoleLine[], running: boolean): Segment[] {
     out.push(fresh);
     return fresh;
   };
+  let saved = 0;
   for (const line of lines) {
     switch (line.tone) {
+      case 'delegate': {
+        const ref = line.label ?? saved++;
+        const last = out.at(-1);
+        if (last?.kind === 'delegate') last.refs.push(ref);
+        else out.push({ kind: 'delegate', refs: [ref] });
+        break;
+      }
       case 'user':
         out.push({ kind: 'user', text: line.text });
         break;

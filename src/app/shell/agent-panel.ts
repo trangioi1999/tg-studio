@@ -391,6 +391,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                           </ol>
                         </details>
                       }
+                      @case ('delegate') { <tg-delegations [parent]="tr" [only]="seg.refs" /> }
                     }
                     @if (answers()[tr.id]?.[$index]; as answer) {
                       <div class="answer-actions">
@@ -403,7 +404,7 @@ const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: '
                       </div>
                     }
                   }
-                  <tg-delegations [parent]="tr" />
+                  <tg-delegations [parent]="tr" [except]="placed()[tr.id] ?? []" />
                   @if (tr.status === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
                 </article>
               }
@@ -758,6 +759,12 @@ export class AgentPanel {
     for (const r of this.threadRuns()) out[r.id] = segmentsOf(r.lines, r.status === 'running');
     return out;
   });
+  /** Delegations shown where they were made, so the block at the end of a run skips them. */
+  protected readonly placed = computed(() => {
+    const out: Record<string, (string | number)[]> = {};
+    for (const [id, segs] of Object.entries(this.segments())) out[id] = segs.flatMap((s) => (s.kind === 'delegate' ? s.refs : []));
+    return out;
+  });
   /** What the selected run is doing right now, for the status line above the composer. */
   protected readonly live = computed(() => {
     const r = this.run();
@@ -782,7 +789,7 @@ export class AgentPanel {
         if (seg.kind === 'user') texts = [];
         if (seg.kind !== 'text') return;
         texts.push(seg.text);
-        const next = segs.slice(i + 1).find((x) => x.kind !== 'work');
+        const next = segs.slice(i + 1).find((x) => x.kind !== 'work' && x.kind !== 'delegate');
         const finished = next ? next.kind === 'user' : r.status !== 'running';
         if (finished && (!next || next.kind === 'user')) {
           ends[i] = texts.join('\n\n');

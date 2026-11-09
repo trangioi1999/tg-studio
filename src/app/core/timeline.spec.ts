@@ -37,4 +37,20 @@ describe('segmentsOf', () => {
       { kind: 'work', steps: [{ text: 'Đang chuẩn bị adapter.', state: 'note' }], failed: 0, live: false },
     ]);
   });
+
+  it('keeps delegations where they were made: live ones by id, saved ones by order', () => {
+    const lines: ConsoleLine[] = [
+      L('user', 'Làm trang A'),
+      { tone: 'delegate', text: '◆ tg-bridge · giao cho Codex: A', label: 'd1' },
+      L('text', 'Đã giao A.'),
+      L('user', 'Làm trang B và C'),
+      L('delegate', '◆ tg-bridge · giao cho Codex: B'),
+      L('delegate', '◆ tg-bridge · giao cho Claude Code: C'),
+      L('tool', '› Read b.html ✓'),
+      L('delegate', '◆ tg-bridge · giao cho Codex: D'),
+    ];
+    expect(segmentsOf(lines, false).map((s) => (s.kind === 'delegate' ? s.refs : s.kind))).toEqual([
+      'user', ['d1'], 'text', 'user', [0, 1], 'work', [2],
+    ]);
+  });
 });

@@ -1,6 +1,7 @@
 import { AgentId } from './protocol';
 
-export type LineTone = 'text' | 'user' | 'tool' | 'muted' | 'error' | 'ok';
+/** `delegate` marks where a run handed work to another agent (`label`: the delegation id, live only). */
+export type LineTone = 'text' | 'user' | 'tool' | 'muted' | 'error' | 'ok' | 'delegate';
 export interface ConsoleLine {
   text: string;
   tone: LineTone;
@@ -10,6 +11,18 @@ export interface ConsoleLine {
 }
 
 export const MESSAGE_KEY = 'message';
+
+const BRIDGE = '◆ tg-bridge · ';
+
+/**
+ * A saved tg-bridge report (`emit_delegation`, `report_progress`…). A delegation keeps
+ * its place in the chat; its end is in the nested block already; the rest are work steps.
+ */
+function bridgeLine(line: string): ConsoleLine {
+  if (line.startsWith(`${BRIDGE}giao cho `)) return { text: line, tone: 'delegate' };
+  if (/ (waiting_approval|running|done|failed|stopped|refused|conflict): /.test(line)) return { text: line, tone: 'muted' };
+  return { text: line, tone: 'tool' };
+}
 export const FINAL_KEY = 'message-final';
 
 type Json = Record<string, unknown>;
@@ -25,6 +38,7 @@ export function describeLine(agent: AgentId, raw: string): ConsoleLine | null {
   const line = raw.trim();
   if (!line) return null;
   // Plain lines: a leading "›" marks a tool call (mock mode, simple CLIs); anything else is said.
+  if (line.startsWith(BRIDGE)) return bridgeLine(line);
   if (!line.startsWith('{')) return { text: line, tone: line.startsWith('›') ? 'tool' : 'text' };
   let v: Json;
   try {
