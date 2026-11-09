@@ -352,13 +352,6 @@ export interface PlanEntry {
   priority?: string;
 }
 
-export interface Worktree {
-  runId: string;
-  path: string;
-  branch: string;
-  base: string;
-}
-
 /** This build (`version::app_version`): the commit tells apart builds of one version. */
 export interface AppVersion {
   version: string;

@@ -258,6 +258,8 @@ pub fn reject_hunk(wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), Strin
     Ok(())
 }
 
+/// What the user's index holds: tests check that reviewing never touches it.
+#[cfg(test)]
 pub fn staged(repo: &Path) -> Result<Vec<String>, String> {
     let names = git(repo, &["diff", "--cached", "--name-only", "--no-renames", "-z"], None)?;
     let mut files: Vec<String> = names.split('\0').filter(|s| !s.is_empty()).map(str::to_owned).collect();

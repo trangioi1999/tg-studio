@@ -453,10 +453,6 @@ export class MockBackend extends AgentBackend {
     this.dropHunk(this.task(runId), path, hunkId);
   }
 
-  async stagedFiles(runId: string): Promise<string[]> {
-    return [...this.task(runId).staged].sort();
-  }
-
   async commitAccepted(runId: string, message: string): Promise<string> {
     const task = this.task(runId);
     if (!task.accepted) throw new Error('Chưa có thay đổi nào được chấp nhận để commit.');

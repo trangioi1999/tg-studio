@@ -283,9 +283,6 @@ export class RunsService {
   }
 
   /** Everything `git commit` would include in the run's repository. */
-  stagedFiles(runId: string): Promise<string[]> {
-    return this.backend.stagedFiles(runId);
-  }
 
   /**
    * One prompt, one worktree per agent. Agents that fail to start are reported
@@ -420,9 +417,6 @@ export class RunsService {
     return this.backend.rejectHunk(runId, path, hunkId);
   }
 
-  commitAccepted(runId: string, message: string): Promise<string> {
-    return this.backend.commitAccepted(runId, message);
-  }
 
   ownChanges(runId: string): Promise<OwnChanges> {
     return this.backend.ownChanges(runId);

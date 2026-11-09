@@ -361,11 +361,11 @@ describe('MockBackend task flow', () => {
 
     const files = await service.getDiff(run.id);
     expect(files.map((f) => f.path)).toEqual(['src/app/app.ts', 'docs/ghi chú mới.md']);
-    await expect(service.commitAccepted(run.id, 'x')).rejects.toThrow('Chưa có thay đổi');
+    await expect(TestBed.inject(AgentBackend).commitAccepted(run.id, 'x')).rejects.toThrow('Chưa có thay đổi');
     await service.acceptHunk(run.id, files[0].path, files[0].hunks[0].id);
     await service.rejectHunk(run.id, files[1].path, files[1].hunks[0].id);
     expect((await service.getDiff(run.id)).map((f) => f.hunks.length)).toEqual([1]);
-    expect(await service.commitAccepted(run.id, 'fix')).toMatch(/^[0-9a-f]+$/);
+    expect(await TestBed.inject(AgentBackend).commitAccepted(run.id, 'fix')).toMatch(/^[0-9a-f]+$/);
 
     await service.discardWorktree(run.id);
     expect(service.selected()?.task).toBe(false);

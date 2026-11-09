@@ -5,7 +5,6 @@ import { AGENT_IDS } from '../agents/agent-meta';
 export type Measure = 'cost' | 'tokens';
 export type SortKey = 'time' | 'cost' | 'tokens';
 
-export const DAY = 86_400_000;
 
 export interface DayBucket {
   /** Local midnight of the day. */

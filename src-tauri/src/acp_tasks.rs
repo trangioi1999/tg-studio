@@ -791,11 +791,6 @@ pub fn reject_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: 
     diff::exclusive(&wt, || diff::reject_hunk(&wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
-pub fn staged_files(store: State<'_, Store>, run_id: String) -> Result<Vec<String>, String> {
-    let (repo, _) = stored_worktree(&store, &run_id)?;
-    diff::staged(&repo)
-}
-#[tauri::command(async)]
 pub fn commit_accepted(store: State<'_, Store>, run_id: String, message: String) -> Result<String, String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     diff::exclusive(&wt, || diff::commit(&repo, &message))

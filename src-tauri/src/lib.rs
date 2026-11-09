@@ -130,7 +130,6 @@ pub fn run() {
             acp_tasks::accept_all,
             acp_tasks::reject_hunk,
             acp_tasks::commit_accepted,
-            acp_tasks::staged_files,
             acp_tasks::own_changes,
             acp_tasks::revert_files,
             acp_tasks::commit_files,

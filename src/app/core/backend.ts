@@ -48,7 +48,6 @@ export abstract class AgentBackend {
   abstract acceptAll(runId: string): Promise<number>;
   abstract rejectHunk(runId: string, path: string, hunkId: string): Promise<void>;
   /** Every staged file of the run's repository: what a commit would include. */
-  abstract stagedFiles(runId: string): Promise<string[]>;
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   /** Uncommitted files of a direct run's folder that the agent did not change. */
   abstract ownChanges(runId: string): Promise<OwnChanges>;
@@ -170,9 +169,6 @@ export class TauriBackend extends AgentBackend {
   }
   sendMessage(runId: string, prompt: string) {
     return invoke<void>('send_message', { runId, prompt });
-  }
-  stagedFiles(runId: string) {
-    return invoke<string[]>('staged_files', { runId });
   }
   respondPermission(runId: string, requestId: string, optionId: string, always: boolean) {
     return invoke<void>('respond_permission', { runId, requestId, optionId, always });
