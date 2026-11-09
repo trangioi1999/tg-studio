@@ -77,6 +77,12 @@ export class AgentsService {
     }
   }
 
+  /** Forgets what was read, so the next look asks the agent again (a skill was added). */
+  invalidateCommands(agent: AgentId, cwd: string | null): void {
+    const key = commandsKey(agent, cwd);
+    this.commands.update(({ [key]: _, ...rest }) => rest);
+  }
+
   setCommands(agent: AgentId, cwd: string | null, list: AgentCommand[]): void {
     this.commands.update((c) => ({ ...c, [commandsKey(agent, cwd)]: list }));
   }
