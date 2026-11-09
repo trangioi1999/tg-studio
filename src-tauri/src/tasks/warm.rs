@@ -34,7 +34,7 @@ pub fn key_of(agent: AgentKind, cwd: &Path, servers: &[McpServer], bridge: bool)
 }
 
 pub fn key_for(store: &Store, agent: AgentKind, cwd: &Path) -> WarmKey {
-    key_of(agent, cwd, &user_servers(store), crate::tasks::bridge_enabled(store))
+    key_of(agent, cwd, &user_servers(store), crate::tasks::bridge_env::bridge_enabled(store))
 }
 
 /// Adapter stderr: kept as a short tail until a run owns the session, then streamed as events.
@@ -180,7 +180,7 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
         match (hub.address().await, bridge::executable()) {
             (Ok(addr), Some(exe)) => {
                 let t = hub.reserve();
-                servers.push(crate::tasks::bridge_server(key.agent, exe, addr, t.clone(), false));
+                servers.push(crate::tasks::bridge_env::bridge_server(key.agent, exe, addr, t.clone(), false));
                 token = Some(t);
             }
             (Err(e), _) => notes.push(format!("tg-bridge không bật được: {e}")),
@@ -208,7 +208,7 @@ pub async fn warm_task(app: AppHandle, agent: AgentKind, repo: String, scope: Op
     let root = crate::workspace::worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| e.to_string())?;
     let cwd = env::scoped_dir(&repo, scope.as_deref())?;
-    let (servers, bridge) = { let store = app.state::<Store>(); (user_servers(&store), crate::tasks::bridge_enabled(&store)) };
+    let (servers, bridge) = { let store = app.state::<Store>(); (user_servers(&store), crate::tasks::bridge_env::bridge_enabled(&store)) };
     let key = key_of(agent, &cwd, &servers, bridge);
     let Some((generation, mut guard)) = app.state::<WarmPool>().install(&key) else { return Ok(()) };
     let hub = app.state::<Arc<BridgeHub>>().inner().clone();
