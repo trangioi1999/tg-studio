@@ -154,7 +154,7 @@ pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
         run_git(wt, &["read-tree", accepted.trim()], None)?;
     }
     // Without --ignore-removal, add -N stages deletions before the user approves.
-    run_git(wt, &["add", "-N", "--ignore-removal", "--", ".", ":(exclude).tg"], None)?;
+    crate::worktree::add_all_but_tg(|args| run_git(wt, args, None), &["-N", "--ignore-removal"])?;
     let patch = run_git(wt, &["diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--unified=3"], None)?;
     Ok(parse_unified(&patch))
 }
@@ -371,6 +371,25 @@ mod tests {
         let p = w.path.join("file.txt");
         let s = fs::read_to_string(&p).unwrap().replace("line 2\n", "changed 2\n").replace("line 28\n", "changed 28\n");
         fs::write(p, s).unwrap();
+    }
+
+    #[test] fn direct_run_works_once_a_draft_made_tg() {
+        // A draft (or a delegated child) leaves `.tg/` in the repo, ignored through info/exclude.
+        let r = Repo::new();
+        r.wt();
+        assert!(r.0.join(".tg").exists());
+        let w = crate::worktree::direct(&r.0, "direct-run-tg").unwrap();
+        r.write("new.txt", "agent\n");
+        let files = pending(&w).unwrap();
+        assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["new.txt"]);
+    }
+
+    #[test] fn direct_run_leaves_out_tg_even_when_it_is_not_ignored() {
+        let r = Repo::new();
+        let w = crate::worktree::direct(&r.0, "direct-run-tg2").unwrap();
+        r.write(".tg/worktrees/x/file.txt", "draft\n");
+        r.write("new.txt", "agent\n");
+        assert_eq!(pending(&w).unwrap().iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["new.txt"]);
     }
 
     #[test] fn direct_run_reviews_only_the_agents_changes_in_the_real_folder() {

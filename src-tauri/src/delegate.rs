@@ -28,10 +28,7 @@ pub fn snapshot(dir: &Path) -> Result<String, String> {
     let real = git_path("index")?;
     let made = (|| {
         if real.exists() { std::fs::copy(&real, &index).map_err(|e| format!("Không chụp được thư mục: {e}"))?; }
-        // Not `:(exclude).tg`: git refuses any pathspec naming an ignored path, and the
-        // first child's draft makes `.tg/` and ignores it. Add everything, then drop `.tg/`.
-        crate::worktree::git_index(dir, &index, &["add", "-A", "--", "."], None)?;
-        crate::worktree::git_index(dir, &index, &["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".tg"], None)?;
+        crate::worktree::add_all_but_tg(|args| crate::worktree::git_index(dir, &index, args, None), &["-A"])?;
         let tree = crate::worktree::git_index(dir, &index, &["write-tree"], None)?;
         let head = git(dir, &["rev-parse", "HEAD"], None)?;
         // An internal commit only: its own identity, so a repo without user.name still works.

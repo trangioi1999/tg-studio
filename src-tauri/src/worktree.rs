@@ -30,6 +30,18 @@ pub fn git_index(cwd: &Path, index: &Path, args: &[&str], stdin: Option<&[u8]>) 
     git_env(cwd, args, stdin, Some(index))
 }
 
+/// Stages the whole folder except the app's own `.tg/` (`flags`: e.g. `-A`, or `-N
+/// --ignore-removal`). Not with `:(exclude).tg`: git refuses any pathspec that names an
+/// ignored path, and `.tg/` is ignored as soon as a draft exists. Add everything, then drop it.
+pub fn add_all_but_tg(run: impl Fn(&[&str]) -> Result<String, String>, flags: &[&str]) -> Result<(), String> {
+    let mut add = vec!["add"];
+    add.extend_from_slice(flags);
+    add.extend_from_slice(&["--", "."]);
+    run(&add)?;
+    run(&["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".tg"])?;
+    Ok(())
+}
+
 fn git_env(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option<&Path>) -> Result<String, String> {
     let mut command = crate::env::std_command("git");
     if let Some(index) = index { command.env("GIT_INDEX_FILE", index); }
@@ -188,7 +200,7 @@ pub fn direct(repo: &Path, run_id: &str) -> Result<Worktree, String> {
     // Start from the user's index so only changed files are hashed again.
     let real = repo.join(git(&repo, &["rev-parse", "--git-path", "index"], None)?.trim());
     if real.exists() { fs::copy(&real, &index).map_err(io_error)?; }
-    git_index(&repo, &index, &["add", "-A", "--", ".", ":(exclude).tg"], None)?;
+    add_all_but_tg(|args| git_index(&repo, &index, args, None), &["-A"])?;
     let tree = git_index(&repo, &index, &["write-tree"], None)?.trim().to_owned();
     fs::write(&accepted, &tree).map_err(io_error)?;
     Ok(Worktree { base: tree, ..wt })
