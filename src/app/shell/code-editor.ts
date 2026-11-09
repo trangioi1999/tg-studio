@@ -132,15 +132,19 @@ export class CodeEditor implements OnDestroy {
   }
 
   protected async save(): Promise<boolean> {
-    const b = this.buffers.get(this.key);
+    // Fixed before the write: the user may switch tabs while it runs.
+    const key = this.key;
+    const runId = this.runId();
+    const b = this.buffers.get(key);
     if (!b || this.running() || this.busy()) return false;
     const text = b.model.getValue();
     return this.guard(async () => {
-      await this.runs.writeFile(this.runId(), this.path(), text);
+      await this.runs.writeFile(runId, this.path(), text);
       b.saved = text;
-      this.workspace.unsaved.delete(this.key);
-      this.dirty.set(b.model.getValue() !== text);
-      await this.workspace.refresh(this.runId());
+      if (b.model.isDisposed()) return;
+      if (b.model.getValue() === text) this.workspace.unsaved.delete(key);
+      if (key === this.key) this.dirty.set(b.model.getValue() !== text);
+      await this.workspace.refresh(runId);
     });
   }
 
@@ -202,13 +206,17 @@ export class CodeEditor implements OnDestroy {
 
   /** Re-reads the open file from disk, keeping unsaved edits. */
   private async reload(): Promise<void> {
-    const b = this.buffers.get(this.key);
+    const key = this.key;
+    const b = this.buffers.get(key);
     if (!b || b.model.getValue() !== b.saved) return;
+    // Typing while the file is read must not be overwritten by what was on disk.
+    const version = b.model.getVersionId();
     await this.guard(async () => {
       const text = await this.runs.readFile(this.runId(), this.path());
+      if (b.model.isDisposed() || b.model.getVersionId() !== version) return;
       b.saved = text;
       if (b.model.getValue() !== text) b.model.setValue(text);
-      this.dirty.set(false);
+      if (key === this.key) this.dirty.set(false);
     });
   }
 
