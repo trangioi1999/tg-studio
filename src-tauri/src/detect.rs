@@ -101,12 +101,18 @@ pub fn home_dir() -> Option<String> {
 }
 
 async fn version_of(path: &Path) -> Option<String> {
+    version_within(path, Duration::from_secs(8)).await
+}
+
+async fn version_within(path: &Path, limit: Duration) -> Option<String> {
     let run = env::command(path)
         .arg("--version")
         .env("PATH", env::login_path())
         .stdin(Stdio::null())
+        // A CLI that hangs on --version must not outlive the probe.
+        .kill_on_drop(true)
         .output();
-    let out = tokio::time::timeout(Duration::from_secs(8), run).await.ok()?.ok()?;
+    let out = tokio::time::timeout(limit, run).await.ok()?.ok()?;
     let text = if out.stdout.is_empty() { out.stderr } else { out.stdout };
     String::from_utf8_lossy(&text)
         .lines()
@@ -117,6 +123,31 @@ async fn version_of(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_hanging_version_probe_is_killed_at_the_timeout() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("tg-hang-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pid_file = dir.join("pid");
+        let cli = dir.join("hang");
+        std::fs::write(&cli, format!("#!/bin/sh\necho $$ > '{}'\nexec sleep 30\n", pid_file.display())).unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(super::version_within(&cli, std::time::Duration::from_millis(500)).await, None);
+        let pid = std::fs::read_to_string(&pid_file).unwrap().trim().to_owned();
+        let mut alive = true;
+        for _ in 0..40 {
+            // A killed child may linger as a zombie until it is reaped: that is not running.
+            let state = std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid]).output().unwrap();
+            alive = !String::from_utf8_lossy(&state.stdout).trim().is_empty() && !String::from_utf8_lossy(&state.stdout).contains('Z');
+            if !alive { break; }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let _ = std::process::Command::new("kill").arg(&pid).status();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(!alive, "the probe outlived its timeout");
+    }
+
     use super::*;
 
     #[test]
