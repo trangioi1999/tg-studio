@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { AgentBackend } from '../core/backend';
 import { fmtTokens, fmtUsd } from '../shared/format';
 import { IS_MAC } from '../shared/keys';
-import { estimateCost } from '../usage/pricing';
+import { costOf } from '../usage/pricing';
 import { RunsService } from '../runs/runs.service';
 import { UiService } from './ui.service';
 import { WorkspaceService } from '../workspace/workspace.service';
@@ -79,7 +79,7 @@ export class TitleBar {
     if (!r || this.ui.screen() !== 'chat') return null;
     const all = this.runs.runs().filter((x) => (r.group ? x.group === r.group : x.thread === r.thread) && x.usage);
     if (!all.length) return null;
-    const usd = all.reduce((n, x) => n + (x.usage!.costUsd ?? estimateCost(x.agent, x.usage!, x.startedAt) ?? 0), 0);
+    const usd = all.reduce((n, x) => n + (costOf(x.agent, x.usage, x.startedAt).usd ?? 0), 0);
     const tok = all.reduce((n, x) => n + x.usage!.inputTokens + x.usage!.cachedInputTokens + x.usage!.outputTokens, 0);
     return `${fmtUsd(usd)} · ${fmtTokens(tok)} tok`;
   });

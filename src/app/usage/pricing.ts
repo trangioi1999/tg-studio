@@ -20,7 +20,7 @@ export function priceAt(agent: AgentId, at: number): PriceRow | null {
 }
 
 /** Estimated USD for a run that started at `at`; null when there is no complete price. */
-export function estimateCost(agent: AgentId, u: Usage, at: number = Date.now()): number | null {
+export function estimateCost(agent: AgentId, u: Usage, at: number): number | null {
   const p = priceAt(agent, at);
   if (!p || p.input === null || p.cachedInput === null || p.output === null) return null;
   return (u.inputTokens * p.input + u.cachedInputTokens * p.cachedInput + u.outputTokens * p.output) / 1_000_000;

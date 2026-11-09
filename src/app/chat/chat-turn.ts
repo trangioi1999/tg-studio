@@ -7,7 +7,7 @@ import { AGENT_META } from '../agents/agent-meta';
 import { copyText } from '../shared/clipboard';
 import { fmtDuration, fmtUsd } from '../shared/format';
 import { Markdown, plainText } from '../shared/markdown';
-import { estimateCost } from '../usage/pricing';
+import { costOf } from '../usage/pricing';
 import { turnStart } from '../runs/run';
 import { Delegations } from './delegations';
 import { segmentsOf } from './timeline';
@@ -141,7 +141,7 @@ export class ChatTurn {
   }
 
   protected costOf(r: Run): number | null {
-    return r.usage ? (r.usage.costUsd ?? estimateCost(r.agent, r.usage, r.startedAt)) : null;
+    return costOf(r.agent, r.usage, r.startedAt).usd;
   }
 
   protected duration(r: Run): string {

@@ -4,6 +4,7 @@ import { Run } from '../runs/run';
 import { computed } from '@angular/core';
 import { UiService } from '../shell/ui.service';
 import { ChatState } from './chat.state';
+import { diffStats } from '../shared/diff-stats';
 
 /** What this conversation's agent changed, waiting on the user. */
 @Component({
@@ -38,8 +39,7 @@ export class ChangesCard {
     if (!r.task || r.perm === 'read' || r.status === 'running') return null;
     const files = this.chat.workspace.diffs()[r.id] ?? [];
     if (!files.length) return null;
-    const hunks = files.flatMap((f) => f.hunks);
-    return { files: files.length, list: files, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
+    return { files: files.length, list: files, ...diffStats(files) };
   });
 
   protected review(runId: string): void {

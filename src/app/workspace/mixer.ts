@@ -5,6 +5,7 @@ import { RunsService } from '../runs/runs.service';
 import { Run } from '../runs/run';
 import { AgentAvatar } from '../shared/agent-avatar';
 import { errorText } from '../shared/errors';
+import { diffStats } from '../shared/diff-stats';
 
 interface Entry {
   key: string;
@@ -145,8 +146,7 @@ export class Mixer {
   }
 
   protected totals(files: FileDiff[]) {
-    const hunks = files.flatMap((f) => f.hunks);
-    return { added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
+    return diffStats(files);
   }
 
   protected toggle(key: string): void {

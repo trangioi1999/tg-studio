@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { fmtDuration, fmtTokens, fmtUsd } from '../shared/format';
-import { estimateCost } from '../usage/pricing';
+import { costOf } from '../usage/pricing';
 import { AgentId, FileDiff } from '../core/protocol';
 import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../runs/runs.service';
@@ -8,6 +8,7 @@ import { Run } from '../runs/run';
 import { AgentAvatar } from '../shared/agent-avatar';
 import { Mixer } from './mixer';
 import { errorText } from '../shared/errors';
+import { diffStats } from '../shared/diff-stats';
 
 interface Summary {
   files: FileDiff[];
@@ -170,8 +171,7 @@ export class Compare {
       }
       try {
         const files = await this.runsService.getDiff(r.id);
-        const hunks = files.flatMap((f) => f.hunks);
-        next[r.id] = { files, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
+        next[r.id] = { files, ...diffStats(files) };
       } catch {
         // Not "no changes": keep the last read, and say so.
         next[r.id] = before[r.id] ?? { files: [], added: 0, removed: 0 };
@@ -215,7 +215,7 @@ export class Compare {
 
   protected cost(r: Run): string {
     if (!r.usage) return '—';
-    return fmtUsd(r.usage.costUsd ?? estimateCost(r.agent as AgentId, r.usage, r.startedAt));
+    return fmtUsd(costOf(r.agent as AgentId, r.usage, r.startedAt).usd);
   }
 
   protected duration(r: Run): string {

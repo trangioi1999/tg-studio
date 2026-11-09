@@ -155,13 +155,7 @@ pub fn pending(wt: &Worktree) -> Result<Vec<FileDiff>, String> {
         git(&wt.path, &["reset", "--soft", &wt.base], None)?;
     }
     // The agent owns its index too; only this saved tree records user approval.
-    let accepted = match std::fs::read_to_string(accepted_path(wt)?) {
-        Ok(tree) => tree,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound && wt.is_direct() => wt.base.clone(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound =>
-            git(&wt.path, &["rev-parse", &format!("{}^{{tree}}", wt.base)], None)?,
-        Err(e) => return Err(format!("Không đọc được phần thay đổi đã nhận: {e}")),
-    };
+    let accepted = accepted_tree(wt)?;
     if run_git(wt, &["write-tree"], None).map(|t| t.trim() != accepted.trim()).unwrap_or(true) {
         // Do not use -u: pending agent edits must remain on disk.
         run_git(wt, &["read-tree", accepted.trim()], None)?;

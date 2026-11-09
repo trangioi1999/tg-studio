@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { fmtDuration, fmtUsd } from '../shared/format';
-import { estimateCost } from '../usage/pricing';
+import { costOf } from '../usage/pricing';
 import { AgentId, Delegation } from '../core/protocol';
 import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../runs/runs.service';
@@ -145,7 +145,7 @@ export class Delegations {
   }
 
   protected cost(r: Run): number | null {
-    return r.usage ? (r.usage.costUsd ?? estimateCost(r.agent, r.usage, r.startedAt)) : null;
+    return costOf(r.agent, r.usage, r.startedAt).usd;
   }
 
   protected usd(n: number | null): string {
