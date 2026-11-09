@@ -30,6 +30,18 @@ describe('buildThreads', () => {
     expect(list.map((t) => t.status)).toEqual(['needs_you', 'running', 'failed', 'waiting', 'ended', 'ended']);
   });
 
+  it('continues with the agent the user talked to, not one it delegated to', () => {
+    const [t] = buildThreads([
+      run({ id: 'p', status: 'idle', startedAt: 1 }),
+      run({ id: 'c', agent: 'codex', parent: 'p', status: 'running', startedAt: 5 }),
+      run({ id: 'p~1', parent: 'p', status: 'done', startedAt: 6, prompt: 'Tìm cấu hình' }),
+    ]);
+    expect(t.latest.id).toBe('p');
+    expect(t.agents).toEqual(['claude']);
+    expect(t.status).toBe('running'); // a child still working keeps the conversation busy
+    expect(t.title).toBe('p');
+  });
+
   it('cuts a long title', () => {
     expect(buildThreads([run({ prompt: 'x'.repeat(200) })])[0].title.length).toBe(80);
   });

@@ -48,13 +48,16 @@ export function buildThreads(runs: Run[]): Thread[] {
   for (const r of runs) byThread.set(r.thread, [...(byThread.get(r.thread) ?? []), r]);
   const threads = [...byThread.entries()].map(([id, list]): Thread => {
     const sorted = [...list].sort((a, b) => a.startedAt - b.startedAt);
-    const latest = sorted.at(-1)!;
+    // The user talks to top-level runs; a delegated agent only keeps the conversation busy.
+    const main = sorted.filter((r) => !r.parent);
+    const talked = main.length ? main : sorted;
+    const latest = talked.at(-1)!;
     return {
       id,
       project: sorted.find((r) => r.project)?.project ?? '',
-      scope: sorted[0].scope,
-      title: (sorted[0].prompt || 'Cuộc trò chuyện').slice(0, 80),
-      agents: [...new Set(sorted.map((r) => r.agent))],
+      scope: talked[0].scope,
+      title: (talked[0].prompt || 'Cuộc trò chuyện').slice(0, 80),
+      agents: [...new Set(talked.map((r) => r.agent))],
       status: statusOf(sorted, latest),
       updatedAt: Math.max(...sorted.map((r) => r.endedAt ?? r.startedAt)),
       latest,
