@@ -7,7 +7,7 @@ import { BudgetService, parseBudgets } from './budget.service';
 import { MockBackend } from '../core/mock-backend';
 import { PRICE_HISTORY, costOf, estimateCost, priceAt } from './pricing';
 import { RunsService } from '../runs/runs.service';
-import { niceMax, toCsv } from './usage-screen';
+import { niceMax, toCsv } from './usage-report';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const usage = { inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 1_000_000, costUsd: null, source: 'tokens' as const, cumulative: true };

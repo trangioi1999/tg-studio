@@ -1022,4 +1022,5 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 /* Chat parts are components; their host elements must not break the column's flex layout. */
 tg-chat-turn, tg-changes-card, tg-handoff-cards, tg-pending-message, tg-pipeline-stepper, tg-plan-tab,
 tg-approvals, tg-proposal-card, tg-live-status, tg-composer, tg-chat-home, tg-command-menu, tg-pipeline-steps, tg-git-setup,
-tg-mcp-servers, tg-skill-library, tg-mcp-editor, tg-skill-editor { display: contents; }
+tg-mcp-servers, tg-skill-library, tg-mcp-editor, tg-skill-editor,
+tg-usage-kpis, tg-usage-chart, tg-usage-by-agent, tg-usage-runs, tg-usage-prices, tg-usage-price-sheet { display: contents; }
