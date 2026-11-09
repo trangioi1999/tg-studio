@@ -56,6 +56,37 @@ describe('BudgetService', () => {
     expect(budget.budgets()).toEqual({ perTask: null, daily: null });
   });
 
+  it('stops each turn of a session that is over budget, and retries a stop that failed', async () => {
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
+    const runs = TestBed.inject(RunsService);
+    const budget = TestBed.inject(BudgetService);
+    await budget.load();
+    await budget.saveBudgets({ perTask: 0.01, daily: null });
+    const stop = vi.spyOn(runs, 'stop').mockResolvedValue();
+    const run = { id: 's', agent: 'claude' as const, prompt: 'đắt', cwd: '/r', startedAt: Date.now(), endedAt: null, lines: [], exitCode: null,
+      restored: false, task: true, permissions: [], lastMessage: '', group: null, thread: 's', project: '/r', scope: null, waits: [], plan: [], progress: null,
+      usage: { ...usage, costUsd: 0.5, source: 'reported' as const } };
+    const flushEffects = async () => { TestBed.tick(); await wait(0); };
+    runs.runs.set([{ ...run, status: 'running', turnAt: 1 }]);
+    await flushEffects();
+    runs.runs.set([{ ...run, status: 'running', turnAt: 1, lines: [{ text: 'x', tone: 'text' }] }]);
+    await flushEffects();
+    expect(stop).toHaveBeenCalledTimes(1);
+    // The user sends another message in the same session: that turn is over budget too.
+    runs.runs.set([{ ...run, status: 'idle', turnAt: 1 }]);
+    await flushEffects();
+    runs.runs.set([{ ...run, status: 'running', turnAt: 2 }]);
+    await flushEffects();
+    expect(stop).toHaveBeenCalledTimes(2);
+    // A stop that failed is tried again on the next update.
+    stop.mockRejectedValueOnce(new Error('mất kết nối'));
+    runs.runs.set([{ ...run, status: 'running', turnAt: 3 }]);
+    await flushEffects();
+    runs.runs.set([{ ...run, status: 'running', turnAt: 3, lines: [{ text: 'y', tone: 'text' }] }]);
+    await flushEffects();
+    expect(stop).toHaveBeenCalledTimes(4);
+  });
+
   it('backfills only the unpriced past', async () => {
     TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useClass: MockBackend }] });
     const budget = TestBed.inject(BudgetService);

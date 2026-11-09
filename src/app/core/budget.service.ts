@@ -3,7 +3,7 @@ import { AgentBackend } from './backend';
 import { fmtUsd } from './format';
 import { PRICE_HISTORY, costOf } from './pricing';
 import { PriceRow, UsageRow } from './protocol';
-import { RunsService } from './runs.service';
+import { RunsService, turnStart } from './runs.service';
 
 export interface Budgets {
   /** USD per run; a run that goes over is stopped. */
@@ -33,6 +33,8 @@ export class BudgetService {
   readonly notices = signal<string[]>([]);
   /** Today's runs from history, so spending survives an app restart. */
   private readonly todayRows = signal<UsageRow[]>([]);
+  /** Turns already stopped for the budget (`run:turnAt`): each later turn of an open
+   * session is checked again, and a stop that failed is retried. */
   private readonly stoppedForBudget = new Set<string>();
 
   /** Start of the current day; moves at midnight even when nothing is running. */
@@ -80,12 +82,13 @@ export class BudgetService {
       const running = this.runs.running();
       untracked(() => {
         for (const r of running) {
-          if (this.stoppedForBudget.has(r.id)) continue;
+          const turn = `${r.id}:${turnStart(r)}`;
+          if (this.stoppedForBudget.has(turn)) continue;
           const spent = costOf(r.agent, r.usage, r.startedAt).usd;
           const taskOver = perTask !== null && spent !== null && spent >= perTask;
           if (!taskOver && !over) continue;
-          this.stoppedForBudget.add(r.id);
-          void this.runs.stop(r.id);
+          this.stoppedForBudget.add(turn);
+          this.runs.stop(r.id).catch(() => this.stoppedForBudget.delete(turn));
           this.notice(taskOver
             ? `Đã dừng "${r.prompt || r.agent}" vì vượt ngân sách mỗi task (${fmtUsd(spent)} / ${fmtUsd(perTask)}).`
             : `Đã dừng "${r.prompt || r.agent}" vì đã chạm ngân sách ngày.`);
