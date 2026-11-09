@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.6.0] - 2026-11-09
+
 ### Thêm
 - Agent giao một phần việc cho agent khác (Codex, Claude, Gemini, Kiro) để làm song song. Agent con hiện lồng ngay dưới câu đã giao; bấm vào để xem nó đang làm gì.
 - Thanh dưới hiện phiên bản và mã commit của bản đang chạy (`v0.6.0 · abc1234`). App kiểm tra bản mới nhất trên GitHub lúc mở, mỗi 6 giờ và khi bấm vào, rồi báo khi có bản mới.
