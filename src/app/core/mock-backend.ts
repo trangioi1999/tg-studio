@@ -376,7 +376,10 @@ export class MockBackend extends AgentBackend {
     const id = `dlg-${parentId}-${crypto.randomUUID().slice(0, 8)}-${o.n}`;
     const childId = crypto.randomUUID();
     const name = AGENT_META[o.agent].name;
-    const root = `${this.tasks.get(parentId)?.root ?? '/mock'}/.tg/worktrees/${childId}`;
+    // In the user's folder the child works there too; only a draft parent gives it a draft.
+    const parentTask = this.tasks.get(parentId);
+    const root = parentTask?.direct ? parentTask.root : `${parentTask?.root ?? '/mock'}/.tg/worktrees/${childId}`;
+    const worktree = parentTask?.direct ? null : root;
     const base = { id, parent: parentId, agent: o.agent, task: o.task, summary: null, filesChanged: [] as string[], conflicts: [] as string[] };
     const toParent = (data: Record<string, unknown>, line: string, delay: number, effect?: () => void) =>
       this.later(parentId, parent, { kind: 'bridge', line, data: { ...base, ...data } }, delay, effect);
@@ -393,7 +396,7 @@ export class MockBackend extends AgentBackend {
       send({ kind: 'message', data: { text: o.reply } }, t(0.85));
       send({ kind: 'usage', usage: { inputTokens: 1800, cachedInputTokens: 6000, outputTokens: 420, costUsd: o.cost, source: o.cost === null ? 'tokens' : 'reported', cumulative: true } }, t(0.9));
       send({ kind: 'exit', code: 0, data: { status: 'done' } }, o.takes);
-      toParent({ tool: 'delegate', child: childId, status: 'running', worktree: root }, `◆ tg-bridge · giao cho ${name}: ${o.task}`, 30);
+      toParent({ tool: 'delegate', child: childId, status: 'running', worktree }, `◆ tg-bridge · giao cho ${name}: ${o.task}`, 30);
       toParent({ tool: 'delegate_done', child: childId, status: 'done', worktree: null, filesChanged: [o.file], summary: o.reply },
         `◆ tg-bridge · ${name} done: ${o.task}`, o.takes + 100);
     });

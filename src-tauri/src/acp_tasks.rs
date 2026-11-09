@@ -141,12 +141,18 @@ impl ToolEnv for TaskEnv {
                 }
                 all.update(&d.id, |x| x.status = "running".into());
             }
-            let base = match crate::delegate::snapshot(&me.wt.path) {
-                Ok(c) => c,
-                Err(e) => return fail("failed", e),
+            // The user works in their own folder: the child does too, on its part of the files.
+            // Only a conversation in a draft gives the child a draft of its own, merged back after.
+            let in_place = me.wt.is_direct();
+            let base = if in_place { None } else {
+                match crate::delegate::snapshot(&me.wt.path) {
+                    Ok(c) => Some(c),
+                    Err(e) => return fail("failed", e),
+                }
             };
             let listed = if files.is_empty() { String::new() } else { format!("\n\nTệp liên quan: {}", files.join(", ")) };
-            let prompt = format!("{task}{listed}\n\n(Việc được {} giao qua TG Studio. Chỉ làm đúng phần này, trong thư mục hiện tại. Xong thì tóm tắt ngắn những gì đã làm.)", me.agent.display_name());
+            let shared = if in_place { " Agent khác đang làm cùng thư mục này: chỉ sửa các tệp của phần mình, không hoàn tác hay commit." } else { "" };
+            let prompt = format!("{task}{listed}\n\n(Việc được {} giao qua TG Studio. Chỉ làm đúng phần này, trong thư mục hiện tại.{shared} Xong thì tóm tắt ngắn những gì đã làm.)", me.agent.display_name());
             let (done_tx, done_rx) = oneshot::channel();
             let spec = ChildSpec { parent: me.run_id.clone(), snapshot: base.clone(), done: done_tx };
             let started = start_task_with(me.app.clone(), agent, prompt, me.repo.to_string_lossy().into_owned(), None, None, Some(true), None,
@@ -156,7 +162,9 @@ impl ToolEnv for TaskEnv {
                 Err(e) => return fail("failed", e),
             };
             let child_wt = me.app.state::<Store>().run_worktree(&child_id).map(|(_, wt)| wt).ok();
-            let d = all.update(&d.id, |x| { x.child = Some(child_id.clone()); x.worktree = child_wt.as_ref().map(|w| w.path.clone()); x.child_wt = child_wt.clone(); })
+            // In place, its edits are already in the parent's folder: no draft to show or merge.
+            let draft = child_wt.clone().filter(|w| !w.is_direct());
+            let d = all.update(&d.id, |x| { x.child = Some(child_id.clone()); x.worktree = draft.as_ref().map(|w| w.path.clone()); x.child_wt = draft.clone(); })
                 .ok_or("Không tìm thấy việc đã giao.")?;
             me.emit_delegation("delegate", &d);
             let report = d.report();
@@ -165,8 +173,14 @@ impl ToolEnv for TaskEnv {
                 let (status, reply) = done_rx.await.unwrap_or_else(|_| ("failed".into(), String::new()));
                 let summary: String = reply.trim().chars().take(crate::delegate::MAX_SUMMARY).collect();
                 let summary = (!summary.is_empty()).then_some(summary);
-                let outcome = match (&child_wt, status.as_str()) {
-                    (Some(wt), "done") => match crate::delegate::merge_back(&me.wt.path, wt, &base) {
+                if let Some(wt) = child_wt.as_ref().filter(|w| w.is_direct()) {
+                    // Only its bookkeeping goes; the parent's review already shows these edits.
+                    if let Err(e) = worktree::remove(&me.repo, wt, false) { eprintln!("Không dọn được sổ của việc con: {e}"); }
+                    let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
+                }
+                let outcome = match (&draft, status.as_str(), &base) {
+                    (None, "done", _) => ("done", vec![], vec![], None),
+                    (Some(wt), "done", Some(base)) => match crate::delegate::merge_back(&me.wt.path, wt, base) {
                         Ok(merged) if merged.conflicts.is_empty() => {
                             if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
                             let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
@@ -175,7 +189,7 @@ impl ToolEnv for TaskEnv {
                         Ok(merged) => ("conflict", merged.applied, merged.conflicts, None),
                         Err(e) => ("failed", vec![], vec![], Some(format!("Không gộp được kết quả: {e}"))),
                     },
-                    (wt, other) => {
+                    (wt, other, _) => {
                         if let Some(wt) = wt {
                             if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
                             let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
@@ -220,8 +234,9 @@ impl ToolEnv for TaskEnv {
 /// A run another agent started through tg-bridge `delegate`.
 pub(crate) struct ChildSpec {
     parent: String,
-    /// The snapshot of the parent's folder its draft starts from.
-    snapshot: String,
+    /// The snapshot of the parent's folder its draft starts from; `None`: it works right in
+    /// the user's folder, like its parent.
+    snapshot: Option<String>,
     /// Status and last message, once the run has ended.
     done: oneshot::Sender<(String, String)>,
 }
@@ -238,6 +253,20 @@ pub(crate) fn bridge_enabled(store: &Store) -> bool {
 /// Where a new task works: the user's folder, or a draft (worktree) from a branch (`None`: HEAD).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Place { Direct, Draft(Option<String>), Snapshot(String) }
+
+/// Where a task works. A delegated agent (`child`: its snapshot, or `None` in place) follows
+/// its parent; a question to an agent without a read-only CLI flag runs in a throwaway draft.
+fn place_for(approval: Approval, place: Option<&str>, base: Option<String>, child: Option<Option<String>>) -> Result<Place, String> {
+    Ok(match (child, approval, place) {
+        (Some(Some(snapshot)), _, _) => Place::Snapshot(snapshot),
+        (Some(None), _, _) => Place::Direct,
+        (None, Approval::Deny, _) => Place::Draft(None),
+        (None, _, Some("draft")) => Place::Draft(base.filter(|b| !b.is_empty())),
+        (None, _, Some("direct")) => Place::Direct,
+        (None, _, None) => Place::Draft(None),
+        (None, _, Some(other)) => return Err(format!("Nơi làm việc không hợp lệ: {other}")),
+    })
+}
 
 /// The ACP adapter process, with piped stdio, started in `dir`.
 pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Result<Child, String> {
@@ -483,14 +512,7 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
         Some(c) => (Some((c.parent, c.snapshot)), Some(c.done)),
         None => (None, None),
     };
-    // A question to an agent without a read-only CLI flag runs in a throwaway draft.
-    let place = if let Some((_, snapshot)) = &parent { Place::Snapshot(snapshot.clone()) } else { match (approval, place.as_deref()) {
-        (Approval::Deny, _) => Place::Draft(None),
-        (_, Some("draft")) => Place::Draft(base.filter(|b| !b.is_empty())),
-        (_, Some("direct")) => Place::Direct,
-        (_, None) => Place::Draft(None),
-        (_, Some(other)) => return Err(format!("Nơi làm việc không hợp lệ: {other}")),
-    } };
+    let place = place_for(approval, place.as_deref(), base, parent.as_ref().map(|(_, s)| s.clone()))?;
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -524,8 +546,9 @@ pub(crate) async fn start_task_with(app: AppHandle, agent: AgentKind, prompt: St
     };
     let throwaway = approval == Approval::Deny && reuse.is_none();
     // A new conversation in the user's folder may find its session already open.
+    // Not for a delegated agent: a session opened ahead of time has the parent's tg-bridge tools.
     let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
-        (Place::Direct, None, None, Ok(cwd)) => {
+        (Place::Direct, None, None, Ok(cwd)) if parent.is_none() => {
             let key = crate::warm::key_for(&app.state::<Store>(), agent, &cwd);
             match app.state::<crate::warm::WarmPool>().take(&key).await {
                 Some(warm) => Adapter::Warm(Box::new(warm), command),
@@ -876,6 +899,18 @@ async fn delete_runs_inner(store: &Store, tasks: &TaskRuns, runs: &Runs, run_ids
 
 #[cfg(test)]
 mod tests {
+    #[test] fn a_delegated_agent_works_where_its_parent_does() {
+        use super::{place_for, Place};
+        // The user's folder: the child works right there, no `.tg/` draft.
+        assert_eq!(place_for(Approval::Auto, None, None, Some(None)).unwrap(), Place::Direct);
+        // A conversation in a draft: the child gets a draft from the parent's snapshot.
+        assert_eq!(place_for(Approval::Auto, None, None, Some(Some("abc".into()))).unwrap(), Place::Snapshot("abc".into()));
+        assert_eq!(place_for(Approval::Ask, Some("direct"), None, None).unwrap(), Place::Direct);
+        assert_eq!(place_for(Approval::Deny, Some("direct"), None, None).unwrap(), Place::Draft(None));
+        assert_eq!(place_for(Approval::Ask, Some("draft"), Some("dev".into()), None).unwrap(), Place::Draft(Some("dev".into())));
+        assert!(place_for(Approval::Ask, Some("x"), None, None).is_err());
+    }
+
     use super::*;
     use crate::worktree::tests::Repo;
 
