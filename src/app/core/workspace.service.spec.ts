@@ -209,3 +209,21 @@ describe('WorkspaceService preview tabs', () => {
     expect(service.previewKey()).toBeNull();
   });
 });
+
+describe('WorkspaceService refresh', () => {
+  it('keeps the last good files and changes when a reload fails, and says why', async () => {
+    const { backend, service } = await setup(null);
+    const diff = { path: 'a.ts', status: 'M', binary: false, patchHeader: '', hunks: [] };
+    backend.listFiles = async () => ['a.ts'];
+    backend.getDiff = async () => [diff];
+    await service.refresh('r');
+    backend.getDiff = () => Promise.reject(new Error('Lệnh Git thất bại: index.lock'));
+    await service.refresh('r');
+    expect(service.files()['r']).toEqual(['a.ts']);
+    expect(service.diffs()['r']).toEqual([diff]);
+    expect(service.refreshErrors()['r']).toContain('index.lock');
+    backend.getDiff = async () => [];
+    await service.refresh('r');
+    expect(service.refreshErrors()['r']).toBeUndefined();
+  });
+});

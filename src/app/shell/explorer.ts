@@ -78,6 +78,9 @@ interface Row {
           }
         }
       } @else if (run(); as r) {
+        @if (workspace.refreshErrors()[r.id]; as e) {
+          <p class="error-text pad" role="alert">Chưa tải lại được tệp, đang hiện bản trước. {{ e }}</p>
+        }
         @for (row of rows(); track row.key) {
           @if (row.dir) {
             <button class="tree-row" role="treeitem" [attr.aria-expanded]="row.open" [style.padding-left.px]="10 + row.depth * 12" (click)="toggle(row.path)">

@@ -609,12 +609,15 @@ export class AgentPanel {
     const group = this.runs.groupRuns(r.group);
     return group.length ? group : [r];
   });
+  private noteLoads = 0;
   /** Notes reload when the Plan tab opens and whenever the task's runs change. */
   private readonly loadNotes = effect(() => {
     const id = this.run()?.id;
     if (this.tab() !== 'plan' || !id) return;
     this.run()?.lines.length;
-    untracked(() => void this.runs.bridgeNotes(id).then((n) => this.notes.set(n), () => this.notes.set([])));
+    const ticket = ++this.noteLoads;
+    // Only the latest load counts: switching conversations quickly must not show old notes.
+    untracked(() => void this.runs.bridgeNotes(id).then((n) => ticket === this.noteLoads && this.notes.set(n), () => ticket === this.noteLoads && this.notes.set([])));
   });
   protected readonly taskHandoffs = computed(() => {
     const ids = new Set(this.taskRuns().map((r) => r.id));

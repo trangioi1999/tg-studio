@@ -403,13 +403,20 @@ export class UsageScreen {
     return d.getTime();
   }
 
+  private loads = 0;
+
   private async load(days: number): Promise<void> {
+    // Switching the range quickly: only the latest request may fill the screen.
+    const ticket = ++this.loads;
     try {
       const since = new Date(this.today());
       since.setDate(since.getDate() - (2 * days - 1));
-      this.loaded.set(await this.backend.usageReport(since.getTime()));
+      const rows = await this.backend.usageReport(since.getTime());
+      if (ticket !== this.loads) return;
+      this.loaded.set(rows);
       this.error.set(null);
     } catch (e) {
+      if (ticket !== this.loads) return;
       this.error.set(e instanceof Error ? e.message : String(e));
     }
   }

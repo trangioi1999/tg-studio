@@ -190,6 +190,9 @@ export class WorkspaceService {
     }
   }
 
+  /** Why the last reload of a run failed; its files and changes stay as last read. */
+  readonly refreshErrors = signal<Record<string, string>>({});
+
   /** Reloads a run's file list and pending changes; a newer call wins. */
   async refresh(runId: string): Promise<void> {
     const ticket = (this.loads[runId] = (this.loads[runId] ?? 0) + 1);
@@ -198,10 +201,11 @@ export class WorkspaceService {
       if (ticket !== this.loads[runId]) return;
       this.files.update((f) => ({ ...f, [runId]: files }));
       this.diffs.update((d) => ({ ...d, [runId]: diffs }));
-    } catch {
+      this.refreshErrors.update(({ [runId]: _, ...rest }) => rest);
+    } catch (e) {
       if (ticket !== this.loads[runId]) return;
-      this.files.update((f) => ({ ...f, [runId]: [] }));
-      this.diffs.update((d) => ({ ...d, [runId]: [] }));
+      // A Git lock or a read error is not "no changes": keep what was last read.
+      this.refreshErrors.update((all) => ({ ...all, [runId]: e instanceof Error ? e.message : String(e) }));
     }
   }
 

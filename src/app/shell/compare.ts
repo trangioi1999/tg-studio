@@ -152,8 +152,13 @@ export class Compare {
     return null;
   }
 
+  private loads = 0;
+
   protected async load(): Promise<void> {
+    const ticket = ++this.loads;
     const runs = this.runs();
+    const before = this.summaries();
+    const failed: string[] = [];
     const next: Record<string, Summary> = {};
     await Promise.all(runs.map(async (r) => {
       if (!r.task) {
@@ -165,10 +170,17 @@ export class Compare {
         const hunks = files.flatMap((f) => f.hunks);
         next[r.id] = { files, added: hunks.reduce((n, h) => n + h.added, 0), removed: hunks.reduce((n, h) => n + h.removed, 0) };
       } catch {
-        next[r.id] = { files: [], added: 0, removed: 0 };
+        // Not "no changes": keep the last read, and say so.
+        next[r.id] = before[r.id] ?? { files: [], added: 0, removed: 0 };
+        failed.push(AGENT_META[r.agent].name);
       }
     }));
+    // A slower, older load must not replace a newer one (switching groups quickly).
+    if (ticket !== this.loads) return;
     this.summaries.set(next);
+    const stale = 'Chưa đọc được thay đổi';
+    if (failed.length) this.error.set(`${stale} của ${failed.join(', ')}. Đang hiện bản trước.`);
+    else if (this.error()?.startsWith(stale)) this.error.set(null);
   }
 
   protected async use(r: Run): Promise<void> {
