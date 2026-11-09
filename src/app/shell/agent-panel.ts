@@ -637,11 +637,20 @@ export class AgentPanel {
   protected readonly mode = signal<Mode>('task');
   protected readonly prompt = signal('');
   protected readonly chosen = signal<AgentId | ''>('');
+  /**
+   * What the composer follows from the selected run. A string, so a streamed log line or
+   * usage update (a new Run object) does not undo what the user just picked.
+   */
+  private readonly runSetup = computed(() => {
+    const r = this.run();
+    return r ? JSON.stringify([r.id, r.agent, r.task, r.perm ?? null, r.place ?? null]) : null;
+  });
   /** A conversation keeps its agent until the user picks another. */
   private readonly followRun = effect(() => {
-    const r = this.run();
-    if (!r) return;
+    if (!this.runSetup()) return;
     untracked(() => {
+      const r = this.run();
+      if (!r) return;
       this.chosen.set(r.agent);
       // A conversation keeps its permission and place: the next message works the same way.
       if (!r.task || r.perm === 'read') this.mode.set('read');

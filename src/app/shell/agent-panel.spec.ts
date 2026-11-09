@@ -239,6 +239,22 @@ describe('AgentPanel composer', () => {
     expect(runs.selected()?.thread).toBe(question.thread);
   });
 
+  it('keeps the agent and permission the user just picked while the run streams', async () => {
+    const { panel } = await setup();
+    const p = panel as unknown as Composer & { pickAgent(a: string): void; setPerm(p: string): void; chosen(): string; approval(): string };
+    const runs = TestBed.inject(RunsService);
+    p.prompt.set('sửa lỗi');
+    await p.send();
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('running'));
+    TestBed.tick(); // the composer has followed the new run
+    const before = runs.selected()!.lines.length;
+    p.pickAgent('codex');
+    p.setPerm('auto');
+    await vi.waitFor(() => expect(runs.selected()!.lines.length).toBeGreaterThan(before));
+    TestBed.tick();
+    expect([p.chosen(), p.approval()]).toEqual(['codex', 'auto']);
+  });
+
   it('carries out a Chỉ hỏi plan in the same conversation once the user says yes', async () => {
     const { backend, panel } = await setup();
     const p = panel as unknown as Composer & { setPerm(p: string): void; perm(): string; actOnProposal(r: unknown): Promise<void> };
