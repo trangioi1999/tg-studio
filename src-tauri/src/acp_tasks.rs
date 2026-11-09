@@ -887,7 +887,8 @@ async fn delete_runs_inner(store: &Store, tasks: &TaskRuns, runs: &Runs, run_ids
             Err(rusqlite::Error::QueryReturnedNoRows) => continue,
             Err(e) => return Err(format!("Không đọc được lịch sử: {e}")),
         };
-        if !seen.insert(wt.path.clone()) { continue; }
+        // One owner per worktree (direct runs all share the repo's path, not its bookkeeping).
+        if !seen.insert(wt.run_id.clone()) { continue; }
         let sharing = store.runs_sharing_worktree(id).map_err(|e| format!("Không đọc được lịch sử: {e}"))?;
         if sharing.iter().any(|other| !run_ids.contains(other)) { continue; }
         if let Err(e) = worktree::remove(&repo, &wt, true) { errors.push(e); }

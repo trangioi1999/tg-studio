@@ -91,6 +91,9 @@ pub struct StoredRun {
     pub parent: Option<String>,
 }
 
+/// Rows whose worktree belongs to the same owner run as `?1`.
+const SAME_OWNER: &str = "COALESCE(worktree_owner, id) = (SELECT COALESCE(worktree_owner, id) FROM runs WHERE id = ?1)";
+
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -394,10 +397,11 @@ impl Store {
         tx.commit()
     }
 
-    /// Every run (this one included) that works in the same worktree as `run_id`.
+    /// Every run (this one included) that works in the same worktree as `run_id`: the owner
+    /// and the later steps that reused it. Not by path: every direct run's path is the repo.
     pub fn runs_sharing_worktree(&self, run_id: &str) -> Result<Vec<String>> {
         let conn = self.connection()?;
-        let mut stmt = conn.prepare("SELECT id FROM runs WHERE worktree IS NOT NULL AND worktree = (SELECT worktree FROM runs WHERE id = ?1)")?;
+        let mut stmt = conn.prepare(&format!("SELECT id FROM runs WHERE worktree IS NOT NULL AND {SAME_OWNER}"))?;
         let rows = stmt.query_map([run_id], |r| r.get(0))?;
         rows.collect()
     }
@@ -405,8 +409,8 @@ impl Store {
     /// Forgets the worktree for this run and every run that shared it.
     pub fn clear_run_worktree(&self, run_id: &str) -> Result<()> {
         self.connection()?.execute(
-            "UPDATE runs SET worktree = NULL, branch = NULL, base = NULL, worktree_owner = NULL
-             WHERE worktree IS NOT NULL AND worktree = (SELECT worktree FROM runs WHERE id = ?1)",
+            &format!("UPDATE runs SET worktree = NULL, branch = NULL, base = NULL, worktree_owner = NULL
+             WHERE worktree IS NOT NULL AND {SAME_OWNER}"),
             params![run_id],
         )?;
         Ok(())
@@ -743,6 +747,21 @@ mod tests {
         store.clear_run_worktree("b").unwrap();
         assert!(store.run_worktree("a").is_err());
         assert!(store.run_worktree("b").is_err());
+    }
+
+    #[test]
+    fn direct_runs_in_one_repo_do_not_share_their_worktree() {
+        // Direct runs all have the repository as their path, but each has its own baseline.
+        let store = Store::open_in_memory().unwrap();
+        let direct = |id: &str| crate::worktree::Worktree { run_id: id.into(), path: "/repo".into(), branch: String::new(), base: format!("tree-{id}") };
+        for (id, at) in [("parent", 1), ("child", 2), ("other", 3)] {
+            store.insert_run_with_worktree(&NewRun { id, agent: AgentKind::Claude, prompt: "p", cwd: "/repo", started_at: at }, "/repo", &direct(id), None).unwrap();
+        }
+        assert_eq!(store.runs_sharing_worktree("child").unwrap(), vec!["child"]);
+        store.clear_run_worktree("child").unwrap();
+        assert!(store.run_worktree("child").is_err());
+        assert_eq!(store.run_worktree("parent").unwrap().1, direct("parent"));
+        assert_eq!(store.run_worktree("other").unwrap().1, direct("other"));
     }
 
     #[test]
