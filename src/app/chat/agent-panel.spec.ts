@@ -7,6 +7,7 @@ import { MockBackend } from '../core/mock-backend';
 import { AgentId } from '../core/protocol';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { AgentPanel } from './agent-panel';
+import { ChatState } from './chat.state';
 
 class FakeBackend extends MockBackend {
   starts = 0;
@@ -51,7 +52,8 @@ async function setup() {
   TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
   await TestBed.inject(AgentsService).refresh();
   await TestBed.inject(WorkspaceService).setFolder('/demo');
-  const panel = TestBed.createComponent(AgentPanel).componentInstance as unknown as Composer;
+  // The composer's state lives in ChatState, provided by the panel.
+  const panel = TestBed.createComponent(AgentPanel).debugElement.injector.get(ChatState) as unknown as Composer;
   return { backend, panel };
 }
 

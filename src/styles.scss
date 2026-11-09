@@ -1018,3 +1018,7 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 .es-btn { height: 18px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
 .es-btn:hover { background: var(--hover); color: var(--text); }
 .es-btn.on { color: var(--text); background: var(--hover); }
+
+/* Chat parts are components; their host elements must not break the column's flex layout. */
+tg-chat-turn, tg-changes-card, tg-handoff-cards, tg-pending-message, tg-pipeline-stepper, tg-plan-tab,
+tg-approvals, tg-proposal-card, tg-live-status, tg-composer, tg-chat-home, tg-command-menu, tg-pipeline-steps, tg-git-setup { display: contents; }
