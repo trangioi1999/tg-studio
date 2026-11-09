@@ -1,7 +1,8 @@
 # TG Studio — Agent con và thay đổi theo kiểu git
 
 - **Ngày:** 2026-11-09
-- **Trạng thái:** chờ chủ repo duyệt
+- **Trạng thái:** chủ repo đã duyệt (cả ba câu ở mục 8: đồng ý theo đề xuất). Phần B (mục 4.1–4.4, 4.6) đã làm; phần A và mục 4.5 chưa.
+- **Phần B làm khác thiết kế ở ba chỗ:** commit dùng `git commit --only` thay vì index tạm (cùng kết quả: giữ phần người dùng tự stage); tệp "của agent" là tệp khác tree đã nhận của run, chưa theo dõi từng lần ghi (mục 4.3); "Áp vào thư mục" của bản nháp vẫn stage như `accept_all` cũ. Chưa có dòng báo "agent đã tự commit".
 - **Code tham chiếu:** `main` tại `be10201` (v0.5.1)
 
 Quy ước: **[Chủ repo]** là điều chủ repo đã nói hoặc đã chốt. **[Đề xuất]** là quyết định của người viết, chủ repo đổi được khi duyệt. **[Cần kiểm chứng]** phải chạy thử với CLI thật trước khi code dựa vào nó.

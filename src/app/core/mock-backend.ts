@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from './backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, LimitWindow, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup } from './protocol';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -20,6 +20,9 @@ interface MockTask {
   /** Paths accepted but not committed yet. */
   staged: Set<string>;
   pending: boolean;
+  /** Direct runs: uncommitted files the user changed before the agent started. */
+  own: OwnChange[];
+  direct: boolean;
 }
 
 /** Each agent gets a slightly different result, so the compare view has something to compare. */
@@ -281,8 +284,9 @@ export class MockBackend extends AgentBackend {
     const run: MockRun = { agent, prompt, timers: [], active: true, open: !singleTurn };
     this.runs.set(runId, run);
     this.tasks.set(runId, previous
-      ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, staged: previous.staged, pending: true }
-      : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, staged: new Set<string>(), pending: true });
+      ? { files: previous.files, contents: previous.contents, root: previous.root, accepted: 0, staged: previous.staged, pending: true, own: previous.own, direct: previous.direct }
+      : { files: [], contents: mockContents(agent, false), root: `${repo}/.tg/worktrees/${runId}`, accepted: 0, staged: new Set<string>(), pending: true,
+          own: _place === 'draft' ? [] : [{ path: 'src/styles.scss', status: 'M' }], direct: _place !== 'draft' });
     const send = (partial: Partial<AgentEvent>, delay: number) => this.later(runId, run, partial, delay);
     send({ kind: 'started', line: `mock ${agent} · ${repo}` }, 20);
     if (approval === 'deny') {
@@ -406,6 +410,30 @@ export class MockBackend extends AgentBackend {
     if (!message.trim()) throw new Error('Cần nhập nội dung commit.');
     task.accepted = 0;
     task.staged.clear();
+    return 'abc1234def5678';
+  }
+
+  async ownChanges(runId: string): Promise<OwnChanges> {
+    const task = this.task(runId);
+    return { direct: task.direct, files: task.own };
+  }
+
+  async revertFiles(runId: string, paths: string[]): Promise<void> {
+    if (this.runs.get(runId)?.active) throw new Error('Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới hoàn tác.');
+    const task = this.task(runId);
+    const missing = paths.find((p) => !task.files.some((f) => f.path === p));
+    if (missing) throw new Error(`${missing} không còn trong thay đổi của agent; hãy tải lại.`);
+    task.files = task.files.filter((f) => !paths.includes(f.path));
+  }
+
+  async commitFiles(runId: string, paths: string[], message: string): Promise<string> {
+    if (this.runs.get(runId)?.active) throw new Error('Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.');
+    if (!paths.length) throw new Error('Chưa chọn tệp nào để commit.');
+    if (!message.trim()) throw new Error('Hãy nhập nội dung commit.');
+    const task = this.task(runId);
+    task.files = task.files.filter((f) => !paths.includes(f.path));
+    task.own = task.own.filter((f) => !paths.includes(f.path));
+    for (const p of paths) task.staged.delete(p);
     return 'abc1234def5678';
   }
 

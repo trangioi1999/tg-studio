@@ -36,7 +36,7 @@ interface Buffer {
         @if (agentHere()) {
           <span class="live-dot" aria-hidden="true"></span><span class="dim">{{ meta[agent()].name }} {{ hereLabel() }}</span>
         }
-        @if (hunks().length) { <span class="dim">· {{ hunks().length }} thay đổi chờ duyệt</span> }
+        @if (hunks().length) { <span class="dim">· {{ hunks().length }} đoạn agent sửa</span> }
         @if (dirty()) { <button class="btn ghost sm" [disabled]="busy()" (click)="revert()">Hoàn tác</button> }
         <button class="btn primary sm" [disabled]="busy() || running() || !dirty()" (click)="save()">Lưu<span class="kbd">{{ keys.save }}</span></button>
       </div>
@@ -309,11 +309,15 @@ export class CodeEditor implements OnDestroy {
       });
       return b;
     };
-    bar.append(avatar, label, count, spacer, button(this.direct() ? 'Hoàn tác' : 'Bỏ', KEYS.backspace, 'ghost', 'reject'), button(this.direct() ? 'Giữ' : 'Nhận', KEYS.enter, 'primary', 'accept'));
+    // In the user's folder the change is already there: it only needs undoing, and committing
+    // happens per file in the Changes tab. A draft's hunk can still be taken one by one.
+    if (this.direct()) bar.append(avatar, label, count, spacer, button('Hoàn tác đoạn này', KEYS.backspace, 'ghost', 'reject'));
+    else bar.append(avatar, label, count, spacer, button('Bỏ', KEYS.backspace, 'ghost', 'reject'), button('Nhận', KEYS.enter, 'primary', 'accept'));
     return bar;
   }
 
   private async actAtCursor(action: 'accept' | 'reject'): Promise<void> {
+    if (action === 'accept' && this.direct()) return;
     const line = this.editor?.getPosition()?.lineNumber;
     if (!line) return;
     const h = this.hunks().find((x) => line >= x.newStart - 1 && line <= x.newStart + Math.max(x.newLines, 1));

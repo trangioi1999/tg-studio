@@ -257,6 +257,111 @@ pub fn commit(repo: &Path, message: &str) -> Result<String, String> {
     Ok(git(repo, &["rev-parse", "HEAD"], None)?.trim().into())
 }
 
+/// An uncommitted file in the user's folder that the run did not change.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnChange {
+    pub path: String,
+    pub status: String,
+}
+
+/// Where the run works, and what the user changed there before or beside the agent.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnChanges {
+    /// The agent works in the user's folder (not a draft).
+    pub direct: bool,
+    pub files: Vec<OwnChange>,
+}
+
+pub fn own_changes(wt: &Worktree) -> Result<OwnChanges, String> {
+    Ok(OwnChanges { direct: wt.is_direct(), files: own_files(wt)? })
+}
+
+/// Uncommitted files of a direct run's folder that are not among the run's own changes.
+/// A draft has none.
+fn own_files(wt: &Worktree) -> Result<Vec<OwnChange>, String> {
+    if !wt.is_direct() { return Ok(Vec::new()); }
+    let agent: std::collections::HashSet<String> = pending(wt)?.into_iter().map(|f| f.path).collect();
+    let out = git(&wt.path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"], None)?;
+    let mut files: Vec<OwnChange> = out.split('\0').filter(|e| e.len() > 3).filter_map(|entry| {
+        let (xy, path) = entry.split_at(3);
+        if path == ".tg" || path.starts_with(".tg/") || agent.contains(path) { return None; }
+        let status = if xy.starts_with("??") || xy.starts_with('A') { "A" } else if xy.contains('D') { "D" } else { "M" };
+        Some(OwnChange { path: path.to_owned(), status: status.into() })
+    }).collect();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+fn accepted_tree(wt: &Worktree) -> Result<String, String> {
+    match std::fs::read_to_string(accepted_path(wt)?) {
+        Ok(tree) => Ok(tree.trim().to_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && wt.is_direct() => Ok(wt.base.clone()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(git(&wt.path, &["rev-parse", &format!("{}^{{tree}}", wt.base)], None)?.trim().to_owned()),
+        Err(e) => Err(format!("Không đọc được phần thay đổi đã nhận: {e}")),
+    }
+}
+
+/// Puts files back as they were before the agent changed them (or as last committed from
+/// the app), in the draft or, for a direct run, in the user's folder. Files the agent
+/// created are deleted. Only files that are among the run's changes can be reverted.
+pub fn revert_files(wt: &Worktree, paths: &[String]) -> Result<(), String> {
+    let files = pending(wt)?;
+    for path in paths {
+        if !files.iter().any(|f| &f.path == path) {
+            return Err(format!("{path} không còn trong thay đổi của agent; hãy tải lại."));
+        }
+    }
+    let accepted = accepted_tree(wt)?;
+    for path in paths {
+        let known = !run_git(wt, &["--literal-pathspecs", "ls-tree", "--name-only", &accepted, "--", path], None)?.trim().is_empty();
+        if known {
+            run_git(wt, &["--literal-pathspecs", "checkout", &accepted, "--", path], None)?;
+        } else {
+            let file = crate::workspace::resolve(&wt.path, path)?;
+            if let Err(e) = std::fs::remove_file(&file) {
+                if e.kind() != std::io::ErrorKind::NotFound { return Err(format!("Không xoá được {path}: {e}")); }
+            }
+            run_git(wt, &["--literal-pathspecs", "rm", "--cached", "--quiet", "--ignore-unmatch", "--", path], None)?;
+        }
+    }
+    Ok(())
+}
+
+fn nul_list(paths: &[String]) -> Vec<u8> {
+    paths.iter().flat_map(|p| p.bytes().chain(std::iter::once(0))).collect()
+}
+
+/// Commits these files as they are in the user's folder, and only them: whatever the user
+/// staged for other files stays staged and out of the commit.
+pub fn commit_files(repo: &Path, paths: &[String], message: &str) -> Result<String, String> {
+    if paths.is_empty() { return Err("Chưa chọn tệp nào để commit.".into()); }
+    if message.trim().is_empty() { return Err("Hãy nhập nội dung commit.".into()); }
+    let list = nul_list(paths);
+    // `commit --only` takes only files Git knows: new files go in as intent-to-add first.
+    let mut args = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    let tracked = git(repo, &args, None)?;
+    let tracked: std::collections::HashSet<&str> = tracked.split('\0').filter(|s| !s.is_empty()).collect();
+    let new: Vec<String> = paths.iter().filter(|p| !tracked.contains(p.as_str()) && repo.join(p).exists()).cloned().collect();
+    if !new.is_empty() {
+        git(repo, &["--literal-pathspecs", "add", "-N", "--pathspec-from-file=-", "--pathspec-file-nul"], Some(&nul_list(&new)))?;
+    }
+    git(repo, &["--literal-pathspecs", "commit", "--only", "-m", message, "--pathspec-from-file=-", "--pathspec-file-nul"], Some(&list))
+        .map_err(|e| format!("Không commit được: {e}"))?;
+    Ok(git(repo, &["rev-parse", "HEAD"], None)?.trim().into())
+}
+
+/// After a commit from the app: a direct run counts these files as they now are in HEAD,
+/// so they leave its changes and a later revert goes back to the committed version.
+pub fn mark_committed(wt: &Worktree, paths: &[String]) -> Result<(), String> {
+    if !wt.is_direct() || paths.is_empty() { return Ok(()); }
+    pending(wt)?;
+    run_git(wt, &["--literal-pathspecs", "reset", "-q", "HEAD", "--pathspec-from-file=-", "--pathspec-file-nul"], Some(&nul_list(paths)))?;
+    save_accepted(wt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +413,96 @@ mod tests {
         crate::worktree::remove(&r.0, &w, true).unwrap();
         assert!(r.0.join("file.txt").exists() && r.0.join("mine.txt").exists());
         assert!(!crate::worktree::direct_files(&w).unwrap().0.exists());
+    }
+
+    /// The user's work before the run: an edited tracked file, a staged file, an untracked file.
+    fn users_work(r: &Repo) {
+        r.write("mine.txt", "mine\n");
+        git(&r.0, &["add", "mine.txt"], None).unwrap();
+        git(&r.0, &["commit", "-qm", "mine"], None).unwrap();
+        r.write("mine.txt", "mine, edited\n");
+        r.write("staged.txt", "staged\n");
+        git(&r.0, &["add", "staged.txt"], None).unwrap();
+        r.write("notes.txt", "untracked\n");
+    }
+    fn paths(files: &[FileDiff]) -> Vec<&str> { files.iter().map(|f| f.path.as_str()).collect() }
+    fn s(v: &[&str]) -> Vec<String> { v.iter().map(|p| p.to_string()).collect() }
+
+    #[test] fn own_changes_are_the_users_files_the_agent_did_not_touch() {
+        let r = Repo::new();
+        users_work(&r);
+        let w = crate::worktree::direct(&r.0, "own-1").unwrap();
+        change(&w);
+        r.write("new.txt", "agent\n");
+        // The agent also edits a file the user had already changed: it is the agent's now.
+        r.write("mine.txt", "mine, edited by agent\n");
+        assert_eq!(paths(&pending(&w).unwrap()), ["file.txt", "mine.txt", "new.txt"]);
+        let own = own_changes(&w).unwrap();
+        assert!(own.direct);
+        assert_eq!(own.files, vec![OwnChange { path: "notes.txt".into(), status: "A".into() }, OwnChange { path: "staged.txt".into(), status: "A".into() }]);
+        assert_eq!(own_changes(&r.wt()).unwrap(), OwnChanges { direct: false, files: vec![] }, "a draft has no own changes");
+    }
+
+    #[test] fn revert_goes_back_to_before_the_agent_not_to_head() {
+        let r = Repo::new();
+        users_work(&r);
+        let w = crate::worktree::direct(&r.0, "revert-1").unwrap();
+        change(&w);
+        r.write("mine.txt", "agent rewrote it\n");
+        r.write("new/deep.txt", "agent\n");
+        fs::remove_file(r.0.join("staged.txt")).unwrap();
+        assert_eq!(paths(&pending(&w).unwrap()), ["file.txt", "mine.txt", "new/deep.txt", "staged.txt"]);
+        revert_files(&w, &s(&["mine.txt", "new/deep.txt", "staged.txt"])).unwrap();
+        // The user's uncommitted edit comes back, not the committed "mine\n".
+        assert_eq!(fs::read_to_string(r.0.join("mine.txt")).unwrap(), "mine, edited\n");
+        assert!(!r.0.join("new/deep.txt").exists());
+        assert_eq!(fs::read_to_string(r.0.join("staged.txt")).unwrap(), "staged\n");
+        assert_eq!(paths(&pending(&w).unwrap()), ["file.txt"]);
+        assert_eq!(staged(&r.0).unwrap(), ["staged.txt"], "the user's index is untouched");
+        assert!(revert_files(&w, &s(&["notes.txt"])).is_err(), "not the agent's change");
+    }
+
+    #[test] fn revert_in_a_draft_changes_only_the_draft() {
+        let r = Repo::new();
+        let w = r.wt();
+        change(&w);
+        fs::write(w.path.join("new.txt"), "agent\n").unwrap();
+        revert_files(&w, &s(&["file.txt", "new.txt"])).unwrap();
+        assert!(pending(&w).unwrap().is_empty());
+        assert!(!w.path.join("new.txt").exists());
+    }
+
+    #[test] fn commit_files_takes_only_the_chosen_files_and_keeps_the_users_staging() {
+        let r = Repo::new();
+        users_work(&r);
+        let w = crate::worktree::direct(&r.0, "commit-1").unwrap();
+        change(&w);
+        r.write("new.txt", "agent\n");
+        r.write("other.txt", "agent, not chosen\n");
+        let hash = commit_files(&r.0, &s(&["file.txt", "new.txt"]), "agent work").unwrap();
+        assert_eq!(hash, git(&r.0, &["rev-parse", "HEAD"], None).unwrap().trim());
+        let committed = git(&r.0, &["show", "--name-only", "--format=", "HEAD"], None).unwrap();
+        assert_eq!(committed.lines().collect::<Vec<_>>(), ["file.txt", "new.txt"]);
+        assert_eq!(staged(&r.0).unwrap(), ["staged.txt"], "what the user staged stays staged");
+        assert_eq!(fs::read_to_string(r.0.join("mine.txt")).unwrap(), "mine, edited\n");
+        // Committed files leave the run's changes; reverting later goes back to the commit.
+        mark_committed(&w, &s(&["file.txt", "new.txt"])).unwrap();
+        assert_eq!(paths(&pending(&w).unwrap()), ["other.txt"]);
+        r.write("new.txt", "agent, again\n");
+        revert_files(&w, &s(&["new.txt"])).unwrap();
+        assert_eq!(fs::read_to_string(r.0.join("new.txt")).unwrap(), "agent\n");
+        assert!(commit_files(&r.0, &[], "x").is_err());
+        assert!(commit_files(&r.0, &s(&["other.txt"]), "  ").is_err());
+    }
+
+    #[test] fn commit_files_commits_a_deletion() {
+        let r = Repo::new();
+        let w = crate::worktree::direct(&r.0, "commit-2").unwrap();
+        fs::remove_file(r.0.join("file.txt")).unwrap();
+        commit_files(&r.0, &s(&["file.txt"]), "remove").unwrap();
+        assert!(git(&r.0, &["ls-files"], None).unwrap().trim().is_empty());
+        mark_committed(&w, &s(&["file.txt"])).unwrap();
+        assert!(pending(&w).unwrap().is_empty());
     }
 
     #[test] fn direct_accept_all_stages_everything_pending() {

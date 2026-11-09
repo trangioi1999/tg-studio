@@ -406,6 +406,18 @@ impl Store {
         Ok(())
     }
 
+    /// Every direct run (the agent worked in the user's folder) of this repository, once each.
+    pub fn direct_worktrees(&self, repo: &str) -> Result<Vec<Worktree>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT COALESCE(worktree_owner, id), worktree, base FROM runs
+             WHERE repo = ?1 AND branch = '' AND worktree IS NOT NULL AND base IS NOT NULL")?;
+        let rows = stmt.query_map([repo], |row| Ok(Worktree {
+            run_id: row.get(0)?, path: PathBuf::from(row.get::<_, String>(1)?), branch: String::new(), base: row.get(2)?,
+        }))?;
+        rows.collect()
+    }
+
     pub fn run_worktree(&self, run_id: &str) -> Result<(PathBuf, Worktree)> {
         self.connection()?.query_row(
             "SELECT repo, worktree, branch, base, COALESCE(worktree_owner, id) FROM runs WHERE id = ?1 AND repo IS NOT NULL
@@ -708,6 +720,20 @@ mod tests {
         store.clear_run_worktree("b").unwrap();
         assert!(store.run_worktree("a").is_err());
         assert!(store.run_worktree("b").is_err());
+    }
+
+    #[test]
+    fn direct_worktrees_lists_each_direct_run_of_the_repo_once() {
+        let store = Store::open_in_memory().unwrap();
+        let direct = |id: &str| crate::worktree::Worktree { run_id: id.into(), path: "/repo".into(), branch: String::new(), base: format!("tree-{id}") };
+        let draft = crate::worktree::Worktree { run_id: "c".into(), path: "/wt/c".into(), branch: "tg/c".into(), base: "c".into() };
+        let run = |id: &'static str| NewRun { id, agent: AgentKind::Claude, prompt: "p", cwd: "/repo", started_at: 1 };
+        store.insert_run_with_worktree(&run("a"), "/repo", &direct("a"), None).unwrap();
+        // A later run that reuses a's place resolves to a, so a is listed once.
+        store.insert_run_with_worktree(&run("b"), "/repo", &direct("a"), None).unwrap();
+        store.insert_run_with_worktree(&run("c"), "/repo", &draft, None).unwrap();
+        store.insert_run_with_worktree(&run("d"), "/other", &direct("d"), None).unwrap();
+        assert_eq!(store.direct_worktrees("/repo").unwrap(), vec![direct("a")]);
     }
 
     #[test]

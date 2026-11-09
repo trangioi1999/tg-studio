@@ -55,8 +55,8 @@ Dưới ô chat có hai nút:
   - **Sửa code · hỏi trước** (mặc định): agent vẫn trả lời câu hỏi như thường; khi cần sửa hay chạy lệnh nhạy cảm thì hiện thẻ duyệt, bạn đồng ý là agent làm.
   - **Tự động**: agent tự sửa và chạy lệnh, không xin phép (`git push`, `merge` vẫn bị chặn).
 - **Chip nơi làm việc** (khi sửa code):
-  - **Thư mục hiện tại** (mặc định): agent sửa thẳng code của bạn. Panel Thay đổi chỉ hiện phần agent sửa; **Giữ** đưa đoạn đó vào commit, **Hoàn tác** trả về như cũ.
-  - **Bản nháp từ nhánh…**: agent làm trong bản sao riêng tạo từ nhánh bạn chọn; code thật chỉ đổi khi bạn **Nhận**.
+  - **Thư mục hiện tại** (mặc định): agent sửa thẳng code của bạn. Tab Thay đổi liệt kê các tệp agent sửa như Source Control: chọn tệp rồi **Commit**, hoặc **Hoàn tác** về như trước khi agent sửa.
+  - **Bản nháp từ nhánh…**: agent làm trong bản sao riêng tạo từ nhánh bạn chọn; code thật chỉ đổi khi bạn bấm **Áp vào thư mục**.
 
 | Lựa chọn | Khi nào dùng |
 |---|---|
@@ -92,12 +92,18 @@ Phiên do app mở luôn xin duyệt, kể cả khi Claude Code trên máy đặ
 
 ## 6. Review và commit
 
-![Kết quả, thẻ thay đổi và panel Giữ/Hoàn tác](images/chat-review.png)
+![Kết quả, thẻ thay đổi và tab Thay đổi](images/chat-review.png)
 
-- Trong editor, dưới mỗi thay đổi có thanh **Giữ / Hoàn tác** khi agent làm thẳng trong thư mục, hoặc **Nhận / Bỏ** khi agent làm trong bản nháp (Ctrl+Enter / Ctrl+Backspace khi con trỏ ở trong thay đổi).
-- Tab **Thay đổi** liệt kê mọi đoạn thay đổi; Nhận áp vào code thật, Bỏ xoá nó khỏi bản nháp.
-- Sửa tay trong editor rồi **Lưu** (Ctrl+S): chỉ ghi vào bản nháp, nên chính sửa đổi của bạn cũng vào hàng chờ duyệt. Không lưu được khi agent đang chạy.
-- Khi đã Nhận, ô **Commit** hiện ra và liệt kê mọi tệp đang staged với nội dung do agent đề xuất; sửa rồi Commit.
+Thay đổi của agent là thay đổi git bình thường, không phải duyệt từng đoạn.
+
+- Tab **Thay đổi** ghi tổng ("12 tệp · +340 −120"), ô nội dung commit (gợi ý từ yêu cầu của bạn) và hai nhóm tệp:
+  - **Của agent**: tệp agent sửa trong cuộc trò chuyện, mặc định được chọn để commit.
+  - **Bạn tự sửa**: tệp bạn đã đổi trước khi agent bắt đầu, mặc định không chọn.
+- **Commit N tệp** chỉ commit các tệp được chọn. Phần bạn đã tự stage ở tệp khác vẫn giữ nguyên.
+- **↶** ở mỗi tệp, hoặc **Hoàn tác tất cả**, trả tệp về đúng như trước khi agent sửa (không về commit cuối), nên phần bạn sửa dở trước đó không mất. Tệp agent tạo mới bị xoá.
+- Bấm một tệp để xem diff trong editor. Muốn bỏ một đoạn lẻ thì dùng nút **Hoàn tác đoạn này** dưới đoạn đó (Ctrl+Backspace); không bắt buộc.
+- Khi agent đang sửa, tab vẫn xem được nhưng Commit và Hoàn tác bị khoá.
+- Bản nháp: **Áp vào thư mục** đưa toàn bộ thay đổi vào code thật một lần, rồi Commit. Trong editor của bản nháp vẫn Nhận / Bỏ từng đoạn được.
 - **Bỏ bản nháp** khi không cần nữa, hoặc xoá cả cuộc trò chuyện ở cột trái.
 
 ## 7. Song song: so sánh và ghép

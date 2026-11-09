@@ -25,7 +25,7 @@ const REFRESH_BATCH_MS = 1500;
             @if (t.kind === 'changes' || t.kind === 'compare') { <span class="tab-kind">{{ t.kind === 'changes' ? 'Thay đổi' : 'So sánh' }}</span> }
             @else { <tg-file-icon [name]="$any(t).path" /> }
             <span class="ellipsis">{{ title(t) }}</span>
-            @if (pendingIn(t)) { <span class="agent-dot" aria-label="Có thay đổi chờ duyệt"></span> }
+            @if (pendingIn(t)) { <span class="agent-dot" aria-label="Agent có sửa tệp này, chưa commit"></span> }
           </button>
           <button class="tab-close" [attr.aria-label]="'Đóng ' + title(t)" (click)="workspace.close(key(t))">×</button>
         </div>
@@ -52,7 +52,7 @@ const REFRESH_BATCH_MS = 1500;
           }
           @case ('changes') {
             @if (v.run) {
-              <tg-diff-viewer [runId]="v.run.id" [agent]="v.run.agent" [running]="v.run.status === 'running'" [suggestion]="v.run.lastMessage" />
+              <tg-diff-viewer [runId]="v.run.id" [agent]="v.run.agent" [running]="v.run.status === 'running'" [suggestion]="commitSuggestion(v.run.prompt)" />
             }
           }
           @case ('compare') {
@@ -135,6 +135,12 @@ export class Workbench {
       const gone = this.runs.runs().filter((r) => !r.task).map((r) => r.id);
       untracked(() => gone.forEach((id) => this.workspace.closeRun(id)));
     });
+  }
+
+  /** First line of the request, as a commit subject. */
+  protected commitSuggestion(prompt: string): string {
+    const line = prompt.trim().split('\n')[0].trim();
+    return line.length > 72 ? `${line.slice(0, 71).trimEnd()}…` : line;
   }
 
   protected title(t: Tab): string {

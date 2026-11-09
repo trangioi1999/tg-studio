@@ -59,7 +59,7 @@ pub fn list_root(root: &Path) -> Result<Vec<String>, String> {
     Ok(finish_listing(files))
 }
 
-fn resolve(root: &Path, path: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve(root: &Path, path: &str) -> Result<PathBuf, String> {
     let relative = Path::new(path);
     let bad = path.is_empty() || path.contains('\0') || relative.is_absolute()
         || relative.components().any(|c| !matches!(c, Component::Normal(_)) || c.as_os_str() == ".git");
