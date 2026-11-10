@@ -15,9 +15,10 @@ export class VersionService {
   readonly checking = signal(false);
   readonly error = signal<string | null>(null);
 
+  /** The version only; the commit is in the tooltip, for telling two builds apart. */
   readonly label = computed(() => {
     const v = this.current();
-    return v ? `v${v.version} · ${v.commit}` : '';
+    return v ? `v${v.version}` : '';
   });
 
   readonly title = computed(() => {

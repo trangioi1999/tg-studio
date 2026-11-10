@@ -65,12 +65,13 @@ describe('StatusBar plan limits', () => {
 });
 
 describe('StatusBar version', () => {
-  it('shows the build and its commit, and says when a newer release is out', async () => {
+  it('shows the version, keeps the commit in the tooltip, and says when a newer release is out', async () => {
     const bar = await render([]);
     const button = () => bar.querySelector('.version') as HTMLButtonElement;
     // The mock reports package.json's version (kept in step by version-sync).
     const { version } = await bar.backend.appVersion();
-    expect(button().textContent!.trim()).toBe(`v${version} · mock`);
+    expect(button().textContent!.trim()).toBe(`v${version}`);
+    expect(button().title).toContain('commit mock');
     expect(button().title).toContain(`Đang dùng bản mới nhất (v${version})`);
 
     bar.backend.latestVersion = async () => ({ latest: '99.0.0', newer: true });
