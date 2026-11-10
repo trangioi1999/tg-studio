@@ -68,14 +68,16 @@ describe('StatusBar version', () => {
   it('shows the build and its commit, and says when a newer release is out', async () => {
     const bar = await render([]);
     const button = () => bar.querySelector('.version') as HTMLButtonElement;
-    expect(button().textContent!.trim()).toBe('v0.5.1 · mock');
-    expect(button().title).toContain('Đang dùng bản mới nhất (v0.5.1)');
+    // The mock reports package.json's version (kept in step by version-sync).
+    const { version } = await bar.backend.appVersion();
+    expect(button().textContent!.trim()).toBe(`v${version} · mock`);
+    expect(button().title).toContain(`Đang dùng bản mới nhất (v${version})`);
 
-    bar.backend.latestVersion = async () => ({ latest: '0.6.0', newer: true });
+    bar.backend.latestVersion = async () => ({ latest: '99.0.0', newer: true });
     button().click();
     await new Promise((resolve) => setTimeout(resolve));
     bar.fixture.detectChanges();
-    expect(button().textContent).toContain('có v0.6.0');
+    expect(button().textContent).toContain('có v99.0.0');
     expect(button().classList).toContain('newer');
   });
 

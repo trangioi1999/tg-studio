@@ -51,6 +51,8 @@ async (page) => {
   await p.click('button:has-text("Cho phép lần này")');
   await p.waitForSelector('.pill[data-status="waiting"]', { timeout: 15000 });
   await p.waitForTimeout(3500); // the reply finishes typing out
+  await p.click('button:has-text("Xem thay đổi")');
+  await p.waitForSelector('.chg-row');
   await shot('chat-review');
 
   // Xoá một cuộc trò chuyện, xác nhận ngay tại dòng.
@@ -58,6 +60,17 @@ async (page) => {
   await p.click('.tl-del');
   await p.waitForSelector('.tl-confirm');
   await shot('delete');
+
+  // Claude giao một phần việc cho Codex và một Claude phụ (mock: "chia việc" trong yêu cầu).
+  await fresh();
+  await ask('Sửa tiêu đề trang chủ, chia việc viết test cho agent khác');
+  await p.waitForSelector('tg-permission-card');
+  await p.click('button:has-text("Cho phép lần này")');
+  await p.waitForSelector('.dlg-item');
+  await p.waitForSelector('.pill[data-status="waiting"]', { timeout: 15000 });
+  await p.waitForTimeout(3500);
+  await p.click('.dlg-toggle >> nth=0');
+  await shot('delegate');
 
   // Nhiều agent cùng làm, so sánh và chọn một bản.
   await fresh();

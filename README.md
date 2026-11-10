@@ -56,10 +56,10 @@ App desktop để chat và giao việc cho nhiều coding agent (**Claude Code, 
 
 ![Màn Chi phí](docs/images/usage.png)
 
-<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu. Chụp lại: `npm start -- --port 4321` rồi chạy `scripts/capture-screens.js` bằng Playwright.</sub>
+<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu. Chụp lại: `npm start -- --port 4321`, rồi chạy `scripts/capture-screens.js` bằng Playwright (ảnh trong `docs/images/`) và `node scripts/capture-ui-review.js` (ảnh của trang review và trang tải).</sub>
 
 **Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt.
-- **Toàn cảnh** xếp các màn hình theo luồng trên một bảng kéo, phóng to được.
+- **Toàn cảnh** xếp 18 màn hình theo luồng trên một bảng kéo, phóng to được.
 - **▶ Trình chiếu** chạy lần lượt từng màn kèm chú thích.
 - **Review** để đánh dấu Đạt / Cần sửa và chép kết quả.
 
