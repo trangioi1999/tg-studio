@@ -78,9 +78,14 @@ import { errorText } from '../../shared/utils/errors';
               <tg-agent-avatar [agent]="agent()" [size]="14" />
               @if (f.binary) { <span class="hunk-count dim">nhị phân</span> }
               @else { <span class="hunk-count"><span class="plus">+{{ count(f, '+') }}</span> <span class="minus">−{{ count(f, '-') }}</span></span> }
-              <button class="btn ghost sm icon" [disabled]="busy() || running()" (click)="revert([f.path])"
-                [title]="direct() === false ? 'Bỏ thay đổi của tệp này trong bản nháp' : 'Hoàn tác: trả tệp về như trước khi agent sửa'"
-                [attr.aria-label]="'Hoàn tác ' + f.path">↶</button>
+              @if (confirmingRevert() === f.path) {
+                <button class="btn danger sm" [disabled]="busy() || running()" (click)="revert([f.path])" (blur)="confirmingRevert.set(null)"
+                  [attr.aria-label]="'Xác nhận hoàn tác ' + f.path">Hoàn tác?</button>
+              } @else {
+                <button class="btn ghost sm icon" [disabled]="busy() || running()" (click)="confirmingRevert.set(f.path)"
+                  [title]="direct() === false ? 'Bỏ thay đổi của tệp này trong bản nháp' : 'Hoàn tác: trả tệp về như trước khi agent sửa'"
+                  [attr.aria-label]="'Hoàn tác ' + f.path">↶</button>
+              }
             </div>
           }
         </section>
@@ -130,6 +135,8 @@ export class DiffViewer {
   protected readonly edited = signal<string | null>(null);
   protected readonly confirmingDiscard = signal(false);
   protected readonly confirmingRevertAll = signal(false);
+  /** The file whose revert waits for a second click: it throws the agent's work on that file away. */
+  protected readonly confirmingRevert = signal<string | null>(null);
   protected readonly message = computed(() => this.edited() ?? this.suggestion());
   protected readonly color = computed(() => AGENT_META[this.agent()].color);
   protected readonly agentName = computed(() => AGENT_META[this.agent()].name);
@@ -216,6 +223,7 @@ export class DiffViewer {
     if (!paths.length) return;
     const id = this.runId();
     this.confirmingRevertAll.set(false);
+    this.confirmingRevert.set(null);
     await this.guard(async () => {
       await this.runs.revertFiles(id, paths);
       this.committed.set(null);
