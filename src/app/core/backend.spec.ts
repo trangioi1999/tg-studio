@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import { TauriBackend } from './backend';
-import { MockBackend } from './mock-backend';
+import { MockBackend } from './mock/mock-backend';
 import { AgentEvent } from './protocol';
 
 // The real `invoke` forwards to this bridge. Faking the bridge, not the module, keeps the

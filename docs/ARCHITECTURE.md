@@ -55,7 +55,7 @@ Nguồn số liệu từng agent:
 
 1. Thêm biến thể vào `AgentKind` (`agents/adapters.rs`): tên, binary, tham số headless.
 2. Thêm hàm `parse_*` trong `usage/mod.rs` + test.
-3. Thêm vào `AgentId`, `AGENT_META` và `AGENT_IDS` (`src/app/core/protocol.ts`), `PRICES` (`usage/pricing.ts`), `MockBackend.detectAgents`, và nhánh trong `chat/describe-line.ts`. Thêm vào `AgentKind::ALL` ở bước 1.
+3. Thêm vào `AgentId`, `AGENT_META` và `AGENT_IDS` (`src/app/core/protocol.ts`), `PRICES` (`services/usage/pricing.ts`), `MockBackend.detectAgents`, và nhánh trong `features/chat/conversation/describe-line.ts`. Thêm vào `AgentKind::ALL` ở bước 1.
 4. Ghi output thật của CLI vào `src-tauri/tests/fixtures/<agent>/<version>/` và thêm contract test.
 
 ## Task sửa code (ACP)
@@ -73,7 +73,7 @@ Usage của task: `usage_update` chỉ có chi phí (và độ đầy context), 
 
 Bố cục (theo `docs/superpowers/specs/2026-11-04-chat-first-design.md`): cột trái là dự án → cuộc trò chuyện (`ThreadList`), giữa là chat (`AgentPanel`, thẻ duyệt ghim trên ô chat, agent con lồng trong tin nhắn), phải là cây tệp và các tab tệp, Thay đổi, So sánh (`SidePanel`). Thanh tiêu đề cho đổi thư mục làm việc (`open_project` kiểm tra đường dẫn, trả về thư mục gốc, nhánh và trạng thái Git).
 
-Editor: `workspace/files.rs` liệt kê, đọc và ghi file trong worktree (đường dẫn tương đối, không đụng `.git`, từ chối symlink ra ngoài). Ghi bị từ chối khi agent đang chạy. Vạch màu tính ở UI từ hunk của `get_diff` (`workspace/editor/line-marks.ts`). Monaco bundle cục bộ, tải lazy, chỉ có worker cơ bản và tô màu Monarch. Khi agent đang chạy, editor đi theo `RunsService.activity` (tệp agent vừa đọc/sửa, từ event `tool`) và nạp lại tệp ngay khi tool sửa file hoàn tất.
+Editor: `workspace/files.rs` liệt kê, đọc và ghi file trong worktree (đường dẫn tương đối, không đụng `.git`, từ chối symlink ra ngoài). Ghi bị từ chối khi agent đang chạy. Vạch màu tính ở UI từ hunk của `get_diff` (`features/editor/line-marks.ts`). Monaco bundle cục bộ, tải lazy, chỉ có worker cơ bản và tô màu Monarch. Khi agent đang chạy, editor đi theo `RunsService.activity` (tệp agent vừa đọc/sửa, từ event `tool`) và nạp lại tệp ngay khi tool sửa file hoàn tất.
 
 Chạy song song: chế độ *Song song* gọi `start_task` cho từng agent với cùng một `group` (lưu ở cột `task_id`). Mỗi run vẫn có worktree, nhánh và tiến trình adapter riêng; `worktree::create` khóa trong tiến trình để các lần tạo cùng lúc không ghi đè `info/exclude`. Màn So sánh gọi `accept_all`: áp toàn bộ thay đổi của một run (cả file nhị phân) thành một patch, kiểm tra trước trên cả repo và worktree, nên hoặc áp hết hoặc không áp gì. Lựa chọn của nhóm nằm trong `RunsService.choices`, nên rời màn So sánh không làm mất bước commit.
 
@@ -87,7 +87,7 @@ Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh kh�
 
 ## Usage ledger, giá và ngân sách
 
-`store/` schema v5: `prices` (giá theo agent, có `from_ms`), `settings` (ngân sách, JSON), `mcp_servers`. `usage_report(since)` trả về các lượt chạy với usage cuối cùng (cùng cách gộp như UI). Chi phí: số CLI báo luôn thắng; không có thì ước tính bằng giá có hiệu lực lúc lượt chạy **bắt đầu** (`usage/pricing.ts`), nên đổi giá không đổi số cũ. `BudgetService` dừng run vượt ngân sách mỗi task và chặn việc mới khi chạm ngân sách ngày; vì nhiều agent chỉ báo chi phí khi xong, việc dừng chỉ xảy ra khi đã có số. Biểu đồ dùng `AGENT_META[agent].chart`: cùng sắc độ với màu agent nhưng độ sáng đã qua kiểm tra của `validate_palette.js` (dải sáng, tách màu cho người mù màu ΔE ≥ 8, tương phản) trên nền tối.
+`store/` schema v5: `prices` (giá theo agent, có `from_ms`), `settings` (ngân sách, JSON), `mcp_servers`. `usage_report(since)` trả về các lượt chạy với usage cuối cùng (cùng cách gộp như UI). Chi phí: số CLI báo luôn thắng; không có thì ước tính bằng giá có hiệu lực lúc lượt chạy **bắt đầu** (`services/usage/pricing.ts`), nên đổi giá không đổi số cũ. `BudgetService` dừng run vượt ngân sách mỗi task và chặn việc mới khi chạm ngân sách ngày; vì nhiều agent chỉ báo chi phí khi xong, việc dừng chỉ xảy ra khi đã có số. Biểu đồ dùng `AGENT_META[agent].chart`: cùng sắc độ với màu agent nhưng độ sáng đã qua kiểm tra của `validate_palette.js` (dải sáng, tách màu cho người mù màu ΔE ≥ 8, tương phản) trên nền tối.
 
 ## MCP và Skills
 
@@ -115,5 +115,5 @@ Subagent có sẵn của Claude Code: `AcpClient` khai báo `clientCapabilities.
 
 ## Đổi frontend sau này
 
-UI chỉ nói chuyện với lõi qua `AgentBackend` (`src/app/core/backend.ts`) và các kiểu trong `protocol.ts`.
+UI chỉ nói chuyện với lõi qua `AgentBackend` (`src/app/core/backend.ts`) và các kiểu trong `core/protocol.ts`.
 Một frontend khác (React, web dashboard…) chỉ cần tái dùng hai hợp đồng đó; phần Rust giữ nguyên.

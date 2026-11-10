@@ -60,15 +60,57 @@ fn edits_wait_for_any_agent_writing_in_the_same_folder() {
     let tasks = TaskRuns::default();
     let writer = Arc::new(TaskSession::new("writer", AgentKind::Codex, &repo.0, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
     tasks.0.lock().unwrap().insert("writer".into(), writer.clone());
+    let quiet = |own: Option<(&str, &str)>, dir: &std::path::Path| tasks.quiet_in(own, &[(dir, Some("bận"))], || Ok(()));
     // An idle sibling direct run in the same repo: its edits wait while the writer works.
     writer.set_busy(true);
-    assert!(tasks.guard_writes("idle-sibling", &repo.0, "bận").is_err());
-    assert!(tasks.guard_writes("writer", &repo.0, "bận").is_err());
+    assert!(quiet(Some(("idle-sibling", "bận")), &repo.0).is_err());
     // Another folder is not affected.
     let elsewhere = Repo::new();
-    assert!(tasks.guard_writes("idle-sibling", &elsewhere.0, "bận").is_ok());
+    assert!(quiet(Some(("idle-sibling", "bận")), &elsewhere.0).is_ok());
     writer.set_busy(false);
-    assert!(tasks.guard_writes("idle-sibling", &repo.0, "bận").is_ok());
+    assert!(quiet(Some(("idle-sibling", "bận")), &repo.0).is_ok());
+}
+
+#[test]
+fn an_agent_starts_writing_only_after_a_running_commit_in_its_folder() {
+    // A commit holds the repo's lock; the agent's next turn waits for it, so the commit cannot
+    // take half of what the agent then writes.
+    let repo = Repo::new();
+    let tasks = Arc::new(TaskRuns::default());
+    let agent = Arc::new(TaskSession::new("agent", AgentKind::Codex, &repo.0, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+    tasks.0.lock().unwrap().insert("agent".into(), agent.clone());
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let (committing, started) = std::sync::mpsc::channel();
+    let commit = {
+        let (tasks, root, order) = (tasks.clone(), repo.0.clone(), order.clone());
+        std::thread::spawn(move || tasks.quiet_in(None, &[(&root, Some("bận"))], || {
+            committing.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            order.lock().unwrap().push("commit");
+            Ok(())
+        }))
+    };
+    started.recv().unwrap();
+    assert!(start_turn(&agent), "the turn starts once the commit is done");
+    order.lock().unwrap().push("turn");
+    commit.join().unwrap().unwrap();
+    assert_eq!(*order.lock().unwrap(), ["commit", "turn"]);
+    // And a commit that comes after sees the agent at work.
+    assert!(tasks.quiet_in(None, &[(&repo.0, Some("bận"))], || Ok(())).is_err());
+}
+
+#[test]
+fn a_draft_agent_still_working_does_not_block_a_commit_in_the_repo() {
+    // The draft was applied; its agent works on the next message in its draft, not in the repo.
+    let repo = Repo::new();
+    let draft = repo.wt();
+    let tasks = TaskRuns::default();
+    let agent = Arc::new(TaskSession::new(&draft.run_id, AgentKind::Codex, &draft.path, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+    agent.set_busy(true);
+    tasks.0.lock().unwrap().insert(draft.run_id.clone(), agent);
+    assert!(tasks.quiet_in(None, &[(&draft.path, None), (&repo.0, Some("bận"))], || Ok(())).is_ok());
+    // Keeping one of its hunks still waits for it.
+    assert!(tasks.quiet_in(Some((&draft.run_id, "bận")), &[(&draft.path, Some("bận")), (&repo.0, Some("bận"))], || Ok(())).is_err());
 }
 
 #[tokio::test]

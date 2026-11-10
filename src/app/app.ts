@@ -1,23 +1,23 @@
 import { Component, effect, inject, untracked } from '@angular/core';
-import { AgentsService } from './agents/agents.service';
-import { BudgetService } from './usage/budget.service';
-import { DiagnosticsService } from './core/diagnostics.service';
-import { RunsService } from './runs/runs.service';
-import { UiService } from './shell/ui.service';
-import { WorkspaceService } from './workspace/workspace.service';
-import { AgentPanel } from './chat/agent-panel';
-import { AgentsPanel } from './agents/agents-panel';
-import { Integrations } from './integrations/integrations';
-import { MissionControl } from './runs/mission-control';
-import { Onboarding } from './agents/onboarding';
-import { SidePanel } from './shell/side-panel';
-import { StatusBar } from './shell/status-bar';
-import { ThreadList } from './shell/thread-list';
-import { TitleBar } from './shell/title-bar';
-import { UsageScreen } from './usage/usage-screen';
-import { Splitter } from './shared/splitter';
-import { QuickOpen } from './workspace/quick-open';
-import { LayoutService } from './shell/layout';
+import { AgentsService } from './services/agents/agents.service';
+import { BudgetService } from './services/usage/budget.service';
+import { DiagnosticsService } from './services/app/diagnostics.service';
+import { RunsService } from './services/runs/runs.service';
+import { UiService } from './services/app/ui.service';
+import { WorkspaceService } from './services/workspace.service';
+import { AgentPanel } from './features/chat/agent-panel';
+import { AgentsPanel } from './features/agents/agents-panel';
+import { Integrations } from './features/connections/integrations';
+import { MissionControl } from './features/monitor/mission-control';
+import { Onboarding } from './features/agents/onboarding';
+import { SidePanel } from './layout/side-panel';
+import { StatusBar } from './layout/status-bar';
+import { ThreadList } from './layout/thread-list';
+import { TitleBar } from './layout/title-bar';
+import { UsageScreen } from './features/usage/usage-screen';
+import { Splitter } from './shared/ui/splitter';
+import { QuickOpen } from './features/files/quick-open';
+import { LayoutService } from './services/app/layout';
 
 @Component({
   selector: 'app-root',
