@@ -232,7 +232,8 @@ export class DiffViewer {
       await this.runs.acceptAll(id);
       ok = true;
     });
-    if (ok) this.setApplied(id, paths);
+    // Files applied earlier and not committed yet still belong to the commit.
+    if (ok) this.setApplied(id, [...new Set([...this.applied(), ...paths])]);
     await this.load();
     void this.workspace.refresh(id);
   }

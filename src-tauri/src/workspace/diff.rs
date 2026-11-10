@@ -142,11 +142,22 @@ fn save_accepted(wt: &Worktree) -> Result<(), String> {
 /// Changes tab asks for the diff and the user's own changes together. Direct runs of one
 /// repo share its folder and real index, so they take turns too.
 pub fn exclusive<T>(wt: &Worktree, f: impl FnOnce() -> T) -> T {
+    exclusive_in(&[wt.path.as_path()], f)
+}
+
+/// `exclusive` over several folders: a draft's apply or commit writes its draft and the
+/// user's repo. Locks are taken in path order, so two callers never wait on each other.
+pub fn exclusive_in<T>(dirs: &[&Path], f: impl FnOnce() -> T) -> T {
     use std::{collections::HashMap, sync::{Arc, Mutex, OnceLock}};
     static LOCKS: OnceLock<Mutex<HashMap<std::path::PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let lock = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
-        .entry(wt.path.clone()).or_default().clone();
-    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut keys: Vec<std::path::PathBuf> = dirs.iter().map(|d| d.to_path_buf()).collect();
+    keys.sort();
+    keys.dedup();
+    let locks: Vec<Arc<Mutex<()>>> = {
+        let mut all = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        keys.into_iter().map(|k| all.entry(k).or_default().clone()).collect()
+    };
+    let _held: Vec<_> = locks.iter().map(|l| l.lock().unwrap_or_else(|e| e.into_inner())).collect();
     f()
 }
 
@@ -392,6 +403,23 @@ mod tests {
             std::thread::spawn(move || if i % 2 == 0 { exclusive(&w, || pending(&w).map(|_| ())) } else { exclusive(&w, || own_changes(&w).map(|_| ())) })
         }).collect();
         for h in handles { h.join().unwrap().unwrap(); }
+    }
+
+    #[test] fn locks_over_two_folders_exclude_each_other_and_never_deadlock() {
+        // A draft's apply locks its draft and the repo; another draft of the same repo, the other way round.
+        let (a, b) = (std::env::temp_dir().join("tg-lock-a"), std::env::temp_dir().join("tg-lock-b"));
+        let inside = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let handles: Vec<_> = (0..8).map(|i| {
+            let (a, b, inside) = (a.clone(), b.clone(), inside.clone());
+            std::thread::spawn(move || for _ in 0..50 {
+                let dirs = if i % 2 == 0 { [a.as_path(), b.as_path()] } else { [b.as_path(), a.as_path()] };
+                exclusive_in(&dirs, || {
+                    assert_eq!(inside.fetch_add(1, std::sync::atomic::Ordering::SeqCst), 0, "two holders at once");
+                    inside.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                });
+            })
+        }).collect();
+        for h in handles { h.join().unwrap(); }
     }
 
     #[test] fn direct_run_works_once_a_draft_made_tg() {

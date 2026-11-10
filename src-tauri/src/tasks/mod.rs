@@ -37,7 +37,7 @@ impl TaskRuns {
     }
 
     /// Refuses a change to files while an agent writes in the same folder.
-    fn guard_writes(&self, run_id: &str, dir: &Path, why: &str) -> Result<(), String> {
+    pub(crate) fn guard_writes(&self, run_id: &str, dir: &Path, why: &str) -> Result<(), String> {
         if self.writing_in(run_id, dir)? { Err(why.to_owned()) } else { Ok(()) }
     }
 }
