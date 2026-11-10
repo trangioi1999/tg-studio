@@ -4,7 +4,7 @@ import { AGENT_META } from '../agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
 /** The version the mock reports; `npm run version:sync` keeps it equal to package.json. */
-const APP_VERSION = '0.6.1';
+const APP_VERSION = '0.6.2';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
