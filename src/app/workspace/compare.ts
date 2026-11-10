@@ -4,7 +4,7 @@ import { costOf } from '../usage/pricing';
 import { AgentId, FileDiff } from '../core/protocol';
 import { AGENT_META } from '../agents/agent-meta';
 import { RunsService } from '../runs/runs.service';
-import { Run } from '../runs/run';
+import { Run, RUN_STATUS_LABEL } from '../runs/run';
 import { AgentAvatar } from '../shared/agent-avatar';
 import { Mixer } from './mixer';
 import { errorText } from '../shared/errors';
@@ -106,7 +106,7 @@ export class Compare {
   readonly review = output<string>();
 
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = RUN_STATUS_LABEL;
   protected readonly runs = computed(() => this.runsService.groupRuns(this.group()));
   protected readonly prompt = computed(() => this.runs()[0]?.prompt ?? '');
   protected readonly runningCount = computed(() => this.runs().filter((r) => r.status === 'running').length);

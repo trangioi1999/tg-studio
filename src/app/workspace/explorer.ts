@@ -6,6 +6,7 @@ import { KEYS } from '../shared/keys';
 import { WorkspaceService, tabKey } from './workspace.service';
 import { AgentAvatar } from '../shared/agent-avatar';
 import { FileIcon } from '../shared/file-icon';
+import { RUN_STATUS_LABEL } from '../runs/run';
 
 interface Row {
   key: string;
@@ -126,7 +127,7 @@ export class Explorer {
   protected readonly workspace = inject(WorkspaceService);
   protected readonly threads = inject(ThreadsService);
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = RUN_STATUS_LABEL;
   protected readonly keys = KEYS;
   /** Draft view: folders the user folded. A draft is small, so it starts unfolded. */
   protected readonly collapsed = signal(new Set<string>());

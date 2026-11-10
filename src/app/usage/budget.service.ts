@@ -5,6 +5,7 @@ import { PRICE_HISTORY, costOf } from './pricing';
 import { PriceRow, UsageRow } from '../core/protocol';
 import { RunsService } from '../runs/runs.service';
 import { turnStart } from '../runs/run';
+import { startOfDay } from './usage-report';
 
 export interface Budgets {
   /** USD per run; a run that goes over is stopped. */
@@ -14,12 +15,6 @@ export interface Budgets {
 }
 
 const WARN_AT = 0.8;
-
-export function startOfDay(at = Date.now()): number {
-  const d = new Date(at);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
 
 /**
  * Prices and budgets. Spending is only known when an agent reports usage, and many
@@ -39,7 +34,7 @@ export class BudgetService {
   private readonly stoppedForBudget = new Set<string>();
 
   /** Start of the current day; moves at midnight even when nothing is running. */
-  private readonly dayStart = signal(startOfDay());
+  private readonly dayStart = signal(startOfDay(Date.now()));
   /** Runs that have ended. Log lines of a running agent must not reload history. */
   private readonly endedRuns = computed(() => this.runs.runs().filter((r) => r.status !== 'running').length);
 
@@ -75,7 +70,7 @@ export class BudgetService {
       this.dayStart();
       untracked(() => void this.loadToday());
     });
-    const timer = setInterval(() => this.dayStart.set(startOfDay()), 60_000);
+    const timer = setInterval(() => this.dayStart.set(startOfDay(Date.now())), 60_000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
     effect(() => {
       const { perTask } = this.budgets();
@@ -111,7 +106,7 @@ export class BudgetService {
 
   private async loadToday(): Promise<void> {
     try {
-      this.todayRows.set(await this.backend.usageReport(startOfDay()));
+      this.todayRows.set(await this.backend.usageReport(startOfDay(Date.now())));
     } catch {
       /* history is optional */
     }

@@ -40,6 +40,7 @@ export interface RowFilter {
   query: string;
 }
 
+/** Local midnight of the day `at` falls on (calendar days, so DST days are not 24 h). */
 export function startOfDay(at: number): number {
   const d = new Date(at);
   d.setHours(0, 0, 0, 0);
