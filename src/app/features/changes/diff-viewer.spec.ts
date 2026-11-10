@@ -79,6 +79,9 @@ describe('DiffViewer (changes as git sees them)', () => {
     const { backend, el, button, settle } = await setup();
     (el.querySelector('[aria-label="Hoàn tác src/a.ts"]') as HTMLButtonElement).click();
     await settle();
+    expect(backend.calls).toEqual([]); // the first click only asks
+    (el.querySelector('[aria-label="Xác nhận hoàn tác src/a.ts"]') as HTMLButtonElement).click();
+    await settle();
     expect(backend.calls).toEqual([['revert', ['src/a.ts']]]);
     button('Hoàn tác tất cả').click();
     await settle();

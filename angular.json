@@ -50,6 +50,8 @@
               }
             ],
             "styles": [
+              "node_modules/@fontsource-variable/inter/wght.css",
+              "node_modules/@fontsource-variable/jetbrains-mono/wght.css",
               "src/styles.scss"
             ],
             "webWorkerTsConfig": "tsconfig.worker.json",
