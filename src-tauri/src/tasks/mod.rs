@@ -56,6 +56,12 @@ impl TaskRuns {
     }
 }
 
+/// Marks the session at work, under its folder's lock: a review or commit running there
+/// finishes first, and one that starts after sees the agent busy. False if it already works.
+pub(crate) fn start_turn(session: &TaskSession) -> bool {
+    diff::exclusive_in(&[session.root()], || session.claim_turn())
+}
+
 /// Where the next message of each open session goes.
 #[derive(Default)]
 pub struct SessionInboxes(Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>);
@@ -250,7 +256,8 @@ async fn run_turn(client: &AcpClient, session: &TaskSession, id: &str, prompt: &
 async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: SessionPlan<'_>, mut next_stop: impl FnMut() -> oneshot::Receiver<()>, mut on_opened: impl FnMut(&str), mut on_turn: impl FnMut(&TurnEnd), dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     tokio::pin!(dead);
     let mut stop = next_stop();
-    session.set_busy(true);
+    // A commit may be running in this folder; wait for it (at most a second or so).
+    start_turn(session);
     let opened = plan.opened.take();
     let setup = async {
         if let Some(id) = opened { return Ok::<_, String>((id, false)); }
@@ -581,7 +588,7 @@ pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'
     let inbox = inboxes.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let (Some(inbox), Some(session)) = (inbox, session) else { return Err("Phiên này đã đóng.".into()); };
-    if !session.claim_turn() { return Err("Agent đang chạy. Hãy chờ hoặc dừng trước.".into()); }
+    if !start_turn(&session) { return Err("Agent đang chạy. Hãy chờ hoặc dừng trước.".into()); }
     if let Err(e) = store.set_run_status(&run_id, "running") { eprintln!("Không lưu được trạng thái: {e}"); }
     let mut event = AgentEvent::new(&run_id, session.agent(), "user");
     event.line = Some(prompt.clone());
