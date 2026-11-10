@@ -156,15 +156,17 @@ pub async fn check_composite(state: State<'_, Composites>, id: String, command: 
 }
 
 #[tauri::command(async)]
-pub fn apply_composite(state: State<'_, Composites>, id: String) -> Result<usize, String> {
+pub fn apply_composite(state: State<'_, Composites>, tasks: State<'_, crate::tasks::TaskRuns>, id: String) -> Result<usize, String> {
     let (repo, wt) = get(&state, &id)?;
-    diff::accept_all(&repo, &wt)
+    tasks.guard_writes("", &repo, "Một agent đang sửa trong thư mục của bạn. Hãy chờ nó xong rồi mới áp bản ghép.")?;
+    diff::exclusive_in(&[&wt.path, &repo], || diff::accept_all(&repo, &wt))
 }
 
 #[tauri::command(async)]
-pub fn commit_composite(state: State<'_, Composites>, id: String, message: String) -> Result<String, String> {
-    let (repo, _) = get(&state, &id)?;
-    diff::commit(&repo, &message)
+pub fn commit_composite(state: State<'_, Composites>, tasks: State<'_, crate::tasks::TaskRuns>, id: String, message: String) -> Result<String, String> {
+    let (repo, wt) = get(&state, &id)?;
+    tasks.guard_writes("", &repo, "Một agent đang sửa trong thư mục của bạn. Hãy chờ nó xong rồi mới commit.")?;
+    diff::exclusive_in(&[&wt.path, &repo], || diff::commit(&repo, &message))
 }
 
 #[tauri::command(async)]

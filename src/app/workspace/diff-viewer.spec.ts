@@ -126,4 +126,26 @@ describe('DiffViewer (changes as git sees them)', () => {
     for (let i = 0; i < 5; i++) { await new Promise((r) => setTimeout(r)); again.detectChanges(); }
     expect(backend.calls.at(-1)).toEqual(['commit', ['src/a.ts', 'src/new.ts'], 'Thêm export CSV']);
   });
+
+  it('commits every file applied from a draft, over several applies', async () => {
+    const { backend, fixture, button, settle } = await setup({ direct: false, files: [] });
+    backend.files = [file('a.ts')];
+    fixture.componentRef.setInput('running', true);
+    await settle();
+    fixture.componentRef.setInput('running', false);
+    await settle();
+    button('Áp vào thư mục').click();
+    await settle();
+    // The session goes on and the agent changes another file; the tab reloads when it is done.
+    backend.files = [file('b.ts')];
+    fixture.componentRef.setInput('running', true);
+    await settle();
+    fixture.componentRef.setInput('running', false);
+    await settle();
+    button('Áp vào thư mục')?.click();
+    await settle();
+    button('Commit').click();
+    await settle();
+    expect(backend.calls.at(-1)).toEqual(['commit', ['a.ts', 'b.ts'], 'Thêm export CSV']);
+  });
 });

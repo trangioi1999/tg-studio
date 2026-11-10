@@ -2,6 +2,8 @@
 
 use super::*;
 
+/// Shown when another agent writes in the user's repo.
+const BUSY_REPO: &str = "Một agent đang sửa trong thư mục của bạn. Hãy chờ nó xong rồi làm tiếp.";
 const BUSY_EDITING: &str = "Agent đang sửa trong thư mục này. Hãy dừng hoặc chờ agent xong rồi mới giữ hay bỏ đoạn sửa.";
 
 pub(super) fn stored_worktree(store: &Store, id: &str) -> Result<(PathBuf, Worktree), String> {
@@ -15,8 +17,10 @@ pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>
 #[tauri::command(async)]
 pub fn accept_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
+    // A draft's hunk is kept by applying it to the user's repo: both must be quiet.
     tasks.guard_writes(&run_id, &wt.path, BUSY_EDITING)?;
-    diff::exclusive(&wt, || diff::accept_hunk(&repo, &wt, &path, &hunk_id))
+    tasks.guard_writes(&run_id, &repo, BUSY_REPO)?;
+    diff::exclusive_in(&[&wt.path, &repo], || diff::accept_hunk(&repo, &wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
 pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<usize, String> {
@@ -25,8 +29,8 @@ pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: S
     }
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     // Applying writes into the user's folder: not while an agent works there.
-    tasks.guard_writes(&run_id, &repo, "Một agent đang sửa trong thư mục của bạn. Hãy chờ nó xong rồi mới áp bản này.")?;
-    diff::exclusive(&wt, || diff::accept_all(&repo, &wt))
+    tasks.guard_writes(&run_id, &repo, BUSY_REPO)?;
+    diff::exclusive_in(&[&wt.path, &repo], || diff::accept_all(&repo, &wt))
 }
 #[tauri::command(async)]
 pub fn reject_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
@@ -35,9 +39,11 @@ pub fn reject_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: 
     diff::exclusive(&wt, || diff::reject_hunk(&wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
-pub fn commit_accepted(store: State<'_, Store>, run_id: String, message: String) -> Result<String, String> {
+pub fn commit_accepted(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, message: String) -> Result<String, String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
-    diff::exclusive(&wt, || diff::commit(&repo, &message))
+    // The commit takes what is in the repo now: not while an agent is writing there.
+    tasks.guard_writes(&run_id, &repo, BUSY_REPO)?;
+    diff::exclusive_in(&[&wt.path, &repo], || diff::commit(&repo, &message))
 }
 /// Whether the run works in the user's folder, and the uncommitted files there it did not change.
 #[tauri::command(async)]
@@ -57,8 +63,10 @@ pub fn revert_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id:
 pub fn commit_files(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, paths: Vec<String>, message: String) -> Result<String, String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     tasks.guard_writes(&run_id, &wt.path, "Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.")?;
-    // Every direct run of the repo shares its folder, so one lock covers their bookkeeping.
-    diff::exclusive(&wt, || {
+    // Files are committed from the repo, whatever the run: a writer there would slip its edits in.
+    tasks.guard_writes(&run_id, &repo, BUSY_REPO)?;
+    // The repo's lock also covers every direct run's bookkeeping (they all work in the repo).
+    diff::exclusive_in(&[&wt.path, &repo], || {
         let hash = diff::commit_files(&repo, &paths, &message)?;
         let runs = store.direct_worktrees(&repo.to_string_lossy()).map_err(|e| format!("Đã commit {} nhưng không đọc được lịch sử: {e}", &hash[..7.min(hash.len())]))?;
         for wt in runs {
