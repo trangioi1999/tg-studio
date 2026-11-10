@@ -3,7 +3,7 @@ import { fmtDuration, fmtTokens, fmtUsd } from '../shared/format';
 import { AgentId } from '../core/protocol';
 import { AGENT_IDS, AGENT_META } from '../agents/agent-meta';
 import { RunsService } from './runs.service';
-import { Run } from './run';
+import { Run, RUN_STATUS_LABEL } from './run';
 import { ConsoleView, UiService } from '../shell/ui.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { AgentAvatar } from '../shared/agent-avatar';
@@ -126,7 +126,7 @@ export class MissionControl implements OnDestroy {
   protected readonly runs = inject(RunsService);
   protected readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
-  protected readonly statusLabel = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+  protected readonly statusLabel = RUN_STATUS_LABEL;
   protected readonly kindLabel = { approve: 'Duyệt lệnh', review: 'Review', commit: 'Commit' };
   protected readonly tok = fmtTokens;
   private readonly workspace = inject(WorkspaceService);

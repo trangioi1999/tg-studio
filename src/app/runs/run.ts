@@ -3,6 +3,9 @@ import { Delegation, PermissionRequest, Place, PlanEntry, AgentId, RunStatus, Us
 
 export type { RunStatus };
 
+/** A run's status in words, where lists show it. */
+export const RUN_STATUS_LABEL: Record<RunStatus, string> = { running: 'đang chạy', idle: 'chờ bạn', done: 'xong', failed: 'lỗi', stopped: 'đã dừng', interrupted: 'gián đoạn' };
+
 /** Lines kept per run in memory; older ones stay in history. */
 export const MAX_LINES = 2000;
 
