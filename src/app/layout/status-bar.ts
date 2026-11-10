@@ -7,7 +7,6 @@ import { AgentId } from '../core/protocol';
 import { AGENT_IDS } from '../services/agents/agent-meta';
 import { AgentBackend } from '../core/backend';
 import { BudgetService } from '../services/usage/budget.service';
-import { DiagnosticsService } from '../services/app/diagnostics.service';
 import { RunsService } from '../services/runs/runs.service';
 import { VersionService } from '../services/app/version.service';
 
@@ -32,9 +31,6 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
           {{ version.label() }}@if (version.latest()?.newer) { · có v{{ version.latest()!.latest }} }
         </button>
       }
-      <button class="status-btn" (click)="diag.export()" title="Lưu một tệp chẩn đoán (không gồm khóa hay mật khẩu) vào Downloads để gửi khi báo lỗi. App không tự gửi gì.">Chẩn đoán</button>
-      @if (diag.saved()) { <span class="ellipsis" role="status">Đã lưu chẩn đoán: {{ diag.saved() }}</span> }
-      @if (diag.failed()) { <span class="err" role="alert">{{ diag.failed() }}</span> }
       @if (backend.mode === 'mock') { <span class="mock">Mock mode — mở bằng <code>npm run dev</code> để chạy agent thật</span> }
       <span class="spacer"></span>
       @for (row of limitRows(); track row.agent) {
@@ -55,7 +51,6 @@ export class StatusBar {
   protected readonly runs = inject(RunsService);
   protected readonly backend = inject(AgentBackend);
   protected readonly budget = inject(BudgetService);
-  protected readonly diag = inject(DiagnosticsService);
   protected readonly version = inject(VersionService);
   private readonly agents = inject(AgentsService);
   private readonly tick = signal(Date.now());

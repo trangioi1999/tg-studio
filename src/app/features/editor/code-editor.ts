@@ -21,6 +21,10 @@ interface Buffer {
  * each pending hunk gets an Accept/Reject bar underneath, and the agent's cursor shows
  * while it works. Each file keeps its own model, so unsaved edits survive tab switches.
  */
+/** A change's status colours for Monaco's scrollbar and minimap marks, which take colours, not CSS variables. */
+const ADDED = '#6fd3a8';
+const REMOVED = '#f29b8b';
+
 @Component({
   selector: 'tg-code-editor',
   imports: [EditorStatusBar],
@@ -240,8 +244,16 @@ export class CodeEditor implements OnDestroy {
     const cursor = this.cursorLine();
     const at = cursor === null ? null : Math.min(cursor, last);
     this.decorations.set([
-      ...marks.added.map((l) => whole(l, { className: 'agent-line', linesDecorationsClassName: 'agent-gutter' })),
-      ...marks.removedBefore.map((l) => whole(l, { linesDecorationsClassName: 'agent-gutter-del' })),
+      ...marks.added.map((l) => whole(l, {
+        className: 'agent-line', linesDecorationsClassName: 'agent-gutter',
+        overviewRuler: { color: ADDED, position: monaco.editor.OverviewRulerLane.Left },
+        minimap: { color: ADDED, position: monaco.editor.MinimapPosition.Gutter },
+      })),
+      ...marks.removedBefore.map((l) => whole(l, {
+        linesDecorationsClassName: 'agent-gutter-del',
+        overviewRuler: { color: REMOVED, position: monaco.editor.OverviewRulerLane.Left },
+        minimap: { color: REMOVED, position: monaco.editor.MinimapPosition.Gutter },
+      })),
       ...(at === null ? [] : [{
         range: new monaco.Range(at, model.getLineMaxColumn(at), at, model.getLineMaxColumn(at)),
         options: {
@@ -265,16 +277,14 @@ export class CodeEditor implements OnDestroy {
     const monaco = this.monaco!;
     const hunks = this.dirty() ? [] : this.hunks();
     for (const w of this.widgets) editor.removeContentWidget(w);
-    const width = Math.max(240, editor.getLayoutInfo().contentWidth - 28);
     const lines = hunks.map((h) => Math.max(1, Math.min(last, h.newLines === 0 ? h.newStart : h.newStart + h.newLines - 1)));
     editor.changeViewZones((acc) => {
       for (const id of this.zones) acc.removeZone(id);
-      this.zones = lines.map((line) => acc.addZone({ afterLineNumber: line, heightInPx: 36, domNode: document.createElement('div') }));
+      this.zones = lines.map((line) => acc.addZone({ afterLineNumber: line, heightInPx: 34, domNode: document.createElement('div') }));
     });
     this.widgets = hunks.map((h, i) => {
       // Monaco sets its own display on the widget node, so the flex bar goes inside it.
       const node = document.createElement('div');
-      node.style.width = `${width}px`;
       node.append(this.hunkBar(h));
       return {
         getId: () => `tg.hunk.${h.id}.${i}`,
@@ -285,33 +295,19 @@ export class CodeEditor implements OnDestroy {
     for (const w of this.widgets) editor.addContentWidget(w);
   }
 
+  /** Under each pending hunk: its size and icon buttons (keep ✓, drop ✕, or undo ↶ in the user's folder). */
   private hunkBar(h: Hunk): HTMLElement {
-    const meta = AGENT_META[this.agent()];
     const bar = document.createElement('div');
     bar.className = 'hunk-zone';
-    bar.style.setProperty('--agent', meta.color);
-    const avatar = document.createElement('span');
-    avatar.className = 'avatar';
-    Object.assign(avatar.style, { width: '18px', height: '18px' });
-    const logo = document.createElement('img');
-    Object.assign(logo, { src: `agents/${this.agent()}.svg`, alt: meta.name, width: 13, height: 13 });
-    avatar.append(logo);
-    const label = document.createElement('span');
-    label.className = 'hunk-zone-label ellipsis';
-    label.textContent = `${meta.name} · ${h.header.replace(/^@@[^@]*@@\s*/, '') || this.path()}`;
     const count = document.createElement('span');
     count.className = 'hunk-count';
     count.innerHTML = `<span class="plus">+${h.added}</span> <span class="minus">−${h.removed}</span>`;
-    const spacer = document.createElement('span');
-    spacer.className = 'spacer';
-    const button = (text: string, kbd: string, cls: string, action: 'accept' | 'reject') => {
+    const button = (icon: string, label: string, cls: string, action: 'accept' | 'reject') => {
       const b = document.createElement('button');
-      b.className = `btn sm ${cls}`;
-      b.textContent = text;
-      const k = document.createElement('span');
-      k.className = 'kbd';
-      k.textContent = kbd;
-      b.append(k);
+      b.className = `hunk-act ${cls}`;
+      b.title = label;
+      b.setAttribute('aria-label', label);
+      b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg>`;
       b.addEventListener('mousedown', (e) => e.stopPropagation());
       b.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -319,12 +315,16 @@ export class CodeEditor implements OnDestroy {
       });
       return b;
     };
+    const CHECK = 'M5 12.5l4.5 4.5L19 7.5';
+    const CROSS = 'M6 6l12 12M18 6L6 18';
+    const UNDO = 'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11';
     // In the user's folder the change is already there: it only needs undoing, and committing
     // happens per file in the Changes tab. A draft's hunk can still be taken one by one.
-    if (this.direct()) bar.append(avatar, label, count, spacer, button('Hoàn tác đoạn này', KEYS.backspace, 'ghost', 'reject'));
-    else bar.append(avatar, label, count, spacer, button('Bỏ', KEYS.backspace, 'ghost', 'reject'), button('Nhận', KEYS.enter, 'primary', 'accept'));
+    if (this.direct()) bar.append(count, button(UNDO, `Hoàn tác đoạn này (${KEYS.backspace})`, 'reject', 'reject'));
+    else bar.append(count, button(CHECK, `Nhận đoạn này (${KEYS.enter})`, 'accept', 'accept'), button(CROSS, `Bỏ đoạn này (${KEYS.backspace})`, 'reject', 'reject'));
     return bar;
   }
+
 
   private async actAtCursor(action: 'accept' | 'reject'): Promise<void> {
     if (action === 'accept' && this.direct()) return;

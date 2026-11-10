@@ -192,15 +192,15 @@ tg-diff-viewer, tg-code-editor, tg-source-viewer, tg-compare { flex: 1; min-heig
 .editor-bar .dirty { flex: none; color: var(--warn); font-size: var(--fs-sm); }
 .editor-host { flex: 1; min-height: 0; }
 .editor-host.hidden { display: none; }
-.editor-host .agent-line { background: rgba(63, 182, 139, 0.09); }
-.editor-host .agent-gutter { margin-left: 2px; width: 3px !important; background: var(--agent); }
+.editor-host .agent-line { background: rgba(111, 211, 168, 0.16); }
+.editor-host .agent-gutter { margin-left: 2px; width: 4px !important; border-radius: 2px; background: var(--ok); }
 .editor-host .agent-cursor-line { box-shadow: inset 0 1px 0 var(--agent), inset 0 -1px 0 var(--agent); }
 .editor-host .agent-cursor { margin-left: 12px; padding: 0 6px; border-radius: var(--r-xs); background: var(--agent); color: #0a0a0b; font: 600 11px var(--font); }
 .agent-here { flex: none; padding: 0 5px; border-radius: var(--r-xs); background: var(--agent); color: #0a0a0b; font-size: var(--fs-xs); font-weight: 600; animation: agent-pulse 1.4s ease-in-out infinite; }
 @keyframes agent-pulse { 50% { opacity: 0.55; } }
 @media (prefers-reduced-motion: reduce) { .agent-here { animation: none; } }
 .btn.on { border-color: var(--agent, var(--text)); color: var(--text); }
-.editor-host .agent-gutter-del { margin-left: 1px; width: 0 !important; height: 0 !important; border-left: 5px solid #f85149; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transform: translateY(-4px); }
+.editor-host .agent-gutter-del { margin-left: 1px; width: 0 !important; height: 0 !important; border-left: 7px solid var(--err); border-top: 5px solid transparent; border-bottom: 5px solid transparent; transform: translateY(-5px); }
 
 /* Parallel mode + compare */
 .picks { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -316,7 +316,15 @@ tg-workbench { display: flex; flex-direction: column; }
 .crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); }
 .crumbs .crumb-last { color: var(--text); }
 .live-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--agent); animation: agent-pulse 1.4s ease-in-out infinite; }
-.hunk-zone { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 30px; margin: 3px 0 0; padding: 0 8px; border: 1px solid var(--line-strong); border-left: 2px solid var(--agent); border-radius: var(--r-sm); background: var(--raised); color: var(--text-2); font: 12px var(--font); }
+.hunk-zone { box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; height: 30px; margin: 2px 0 0; padding: 0 4px 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--raised); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); font: var(--fs-sm) var(--font); }
+.hunk-zone .hunk-count { margin-right: 4px; }
+/* Keep and drop read at a glance: a green check and a red cross, filled on hover. */
+.hunk-act { width: 30px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; cursor: pointer; transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
+.hunk-act svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.hunk-act.accept { color: var(--done); border-color: var(--done-line); background: var(--done-tint); }
+.hunk-act.accept:hover { background: var(--done); border-color: var(--done); color: var(--bg); }
+.hunk-act.reject { color: var(--fail); border-color: var(--fail-line); background: var(--fail-tint); }
+.hunk-act.reject:hover { background: var(--fail); border-color: var(--fail); color: var(--bg); }
 .hunk-zone-label { min-width: 0; }
 .hunk-zone .plus { color: var(--ok); }
 .hunk-zone .minus { color: var(--err); }
