@@ -2,18 +2,18 @@ import { Component, HostListener, computed, inject } from '@angular/core';
 import { AGENT_META } from '../agents/agent-meta';
 import { isQuiet } from '../runs/run';
 import { AgentAvatar } from '../shared/agent-avatar';
-import { Approvals } from './approvals';
-import { ChangesCard } from './changes-card';
-import { ChatHome } from './chat-home';
+import { Approvals } from './dock/approvals';
+import { ChangesCard } from './conversation/changes-card';
+import { ChatHome } from './home/chat-home';
 import { ChatState } from './chat.state';
-import { ChatTurn } from './chat-turn';
-import { Composer } from './composer';
-import { HandoffCards } from './handoff-cards';
-import { LiveStatus } from './live-status';
-import { PendingMessage } from './pending-message';
-import { PipelineStepper } from './pipeline-stepper';
-import { PlanTab } from './plan-tab';
-import { ProposalCard } from './proposal-card';
+import { ChatTurn } from './conversation/chat-turn';
+import { Composer } from './composer/composer';
+import { HandoffCards } from './conversation/handoff-cards';
+import { LiveStatus } from './dock/live-status';
+import { PendingMessage } from './conversation/pending-message';
+import { PipelineStepper } from './conversation/pipeline-stepper';
+import { PlanTab } from './plan/plan-tab';
+import { ProposalCard } from './dock/proposal-card';
 
 /**
  * The middle of the window: the selected conversation (its turns, plan and notes), what is

@@ -10,7 +10,7 @@ import { ThreadsService } from '../runs/threads.service';
 import { errorText } from '../shared/errors';
 import { BudgetService } from '../usage/budget.service';
 import { WorkspaceService } from '../workspace/workspace.service';
-import { GROUP_LABEL, commandQuery, filterCommands, insertCommand } from './commands';
+import { GROUP_LABEL, commandQuery, filterCommands, insertCommand } from './composer/commands';
 
 type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
 

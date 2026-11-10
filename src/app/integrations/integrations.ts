@@ -1,9 +1,9 @@
 import { Component, HostListener, OnInit, inject } from '@angular/core';
 import { IntegrationsState } from './integrations.state';
-import { McpEditor } from './mcp-editor';
-import { McpServers } from './mcp-servers';
-import { SkillEditor } from './skill-editor';
-import { SkillLibrary } from './skill-library';
+import { McpEditor } from './mcp/mcp-editor';
+import { McpServers } from './mcp/mcp-servers';
+import { SkillEditor } from './skills/skill-editor';
+import { SkillLibrary } from './skills/skill-library';
 
 /** MCP servers (enabled once, handed to every agent's sessions) and the SKILL.md library. */
 @Component({

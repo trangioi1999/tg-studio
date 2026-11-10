@@ -1,4 +1,4 @@
-import { ConsoleLine } from '../chat/describe-line';
+import { ConsoleLine } from '../chat/conversation/describe-line';
 import { Delegation, PermissionRequest, Place, PlanEntry, AgentId, RunStatus, Usage } from '../core/protocol';
 
 export type { RunStatus };

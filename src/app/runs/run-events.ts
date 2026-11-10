@@ -1,5 +1,5 @@
-import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from '../chat/describe-line';
-import { planProposal } from '../chat/proposal';
+import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from '../chat/conversation/describe-line';
+import { planProposal } from '../chat/dock/proposal';
 import { AgentCommand, AgentEvent, AgentId, Delegation, PermissionRequest, PlanEntry, RunStatus, StoredRun, Usage } from '../core/protocol';
 import { AGENT_IDS } from '../agents/agent-meta';
 import { Handoff, MAX_LINES, Run } from './run';
