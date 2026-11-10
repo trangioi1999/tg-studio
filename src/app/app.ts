@@ -14,7 +14,7 @@ import { SidePanel } from './shell/side-panel';
 import { StatusBar } from './shell/status-bar';
 import { ThreadList } from './shell/thread-list';
 import { TitleBar } from './shell/title-bar';
-import { UsageScreen } from './usage/usage-screen';
+import { UsageScreen } from './usage/screen/usage-screen';
 import { Splitter } from './shared/splitter';
 import { QuickOpen } from './workspace/quick-open';
 import { LayoutService } from './shell/layout';
