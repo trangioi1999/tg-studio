@@ -4,6 +4,12 @@
 
 ## [Chưa phát hành]
 
+## [0.6.2] - 2026-11-10
+
+### Thay đổi
+- Gợi ý ở menu "Làm ở đâu" và cảnh báo Tự động ghi đúng cách hoàn tác mới: theo tệp ở tab Thay đổi.
+- README, tài liệu kiến trúc và toàn bộ ảnh chụp giao diện cập nhật theo bản hiện tại; trang review giao diện thêm màn tab Thay đổi và agent con.
+
 ## [0.6.1] - 2026-11-09
 
 ### Sửa lỗi
