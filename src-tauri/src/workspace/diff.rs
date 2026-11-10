@@ -419,7 +419,10 @@ mod tests {
                 });
             })
         }).collect();
-        for h in handles { h.join().unwrap(); }
+        // A lock-order regression must fail here, not hang the test run.
+        let (done, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || { for h in handles { h.join().unwrap(); } let _ = done.send(()); });
+        wait.recv_timeout(std::time::Duration::from_secs(20)).expect("the locks deadlocked");
     }
 
     #[test] fn direct_run_works_once_a_draft_made_tg() {

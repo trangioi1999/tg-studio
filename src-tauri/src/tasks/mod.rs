@@ -28,17 +28,31 @@ impl TaskRuns {
         Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(run_id).is_some_and(|s| s.is_busy()))
     }
 
-    /// Some agent is writing in this folder now: this run, or another one working in the same
-    /// place (every direct run of a repo works in the repo itself; pipeline steps share a draft).
-    fn writing_in(&self, run_id: &str, dir: &Path) -> Result<bool, String> {
-        let same = |p: &Path| p == dir || (dunce::canonicalize(p).ok().is_some() && dunce::canonicalize(p).ok() == dunce::canonicalize(dir).ok());
-        Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.iter()
-            .any(|(id, s)| s.is_busy() && (id == run_id || same(s.root()))))
+    /// Some agent is writing in this folder now (every direct run of a repo works in the repo
+    /// itself; pipeline steps share a draft).
+    fn writing_in(&self, dir: &Path) -> Result<bool, String> {
+        let wanted = dunce::canonicalize(dir).ok();
+        let same = |p: &Path| p == dir || (wanted.is_some() && dunce::canonicalize(p).ok() == wanted);
+        Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.values().any(|s| s.is_busy() && same(s.root())))
     }
 
-    /// Refuses a change to files while an agent writes in the same folder.
-    pub(crate) fn guard_writes(&self, run_id: &str, dir: &Path, why: &str) -> Result<(), String> {
-        if self.writing_in(run_id, dir)? { Err(why.to_owned()) } else { Ok(()) }
+    /// Runs `f` with these folders locked, once no agent writes in the ones that carry a
+    /// message, and (with `own`) once this run is not busy. Checked under the lock, so the
+    /// check and the change it allows are one step for every other review or commit.
+    /// A folder without a message is only locked: its writer does not matter to `f`.
+    pub(crate) fn quiet_in<T>(&self, own: Option<(&str, &str)>, dirs: &[(&Path, Option<&str>)], f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        let paths: Vec<&Path> = dirs.iter().map(|(d, _)| *d).collect();
+        diff::exclusive_in(&paths, || {
+            if let Some((id, why)) = own {
+                if self.busy(id)? { return Err(why.to_owned()); }
+            }
+            for (dir, why) in dirs {
+                if let Some(why) = why {
+                    if self.writing_in(dir)? { return Err((*why).to_owned()); }
+                }
+            }
+            f()
+        })
     }
 }
 

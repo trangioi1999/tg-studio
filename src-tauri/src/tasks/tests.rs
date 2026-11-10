@@ -60,15 +60,29 @@ fn edits_wait_for_any_agent_writing_in_the_same_folder() {
     let tasks = TaskRuns::default();
     let writer = Arc::new(TaskSession::new("writer", AgentKind::Codex, &repo.0, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
     tasks.0.lock().unwrap().insert("writer".into(), writer.clone());
+    let quiet = |own: Option<(&str, &str)>, dir: &std::path::Path| tasks.quiet_in(own, &[(dir, Some("bận"))], || Ok(()));
     // An idle sibling direct run in the same repo: its edits wait while the writer works.
     writer.set_busy(true);
-    assert!(tasks.guard_writes("idle-sibling", &repo.0, "bận").is_err());
-    assert!(tasks.guard_writes("writer", &repo.0, "bận").is_err());
+    assert!(quiet(Some(("idle-sibling", "bận")), &repo.0).is_err());
     // Another folder is not affected.
     let elsewhere = Repo::new();
-    assert!(tasks.guard_writes("idle-sibling", &elsewhere.0, "bận").is_ok());
+    assert!(quiet(Some(("idle-sibling", "bận")), &elsewhere.0).is_ok());
     writer.set_busy(false);
-    assert!(tasks.guard_writes("idle-sibling", &repo.0, "bận").is_ok());
+    assert!(quiet(Some(("idle-sibling", "bận")), &repo.0).is_ok());
+}
+
+#[test]
+fn a_draft_agent_still_working_does_not_block_a_commit_in_the_repo() {
+    // The draft was applied; its agent works on the next message in its draft, not in the repo.
+    let repo = Repo::new();
+    let draft = repo.wt();
+    let tasks = TaskRuns::default();
+    let agent = Arc::new(TaskSession::new(&draft.run_id, AgentKind::Codex, &draft.path, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+    agent.set_busy(true);
+    tasks.0.lock().unwrap().insert(draft.run_id.clone(), agent);
+    assert!(tasks.quiet_in(None, &[(&draft.path, None), (&repo.0, Some("bận"))], || Ok(())).is_ok());
+    // Keeping one of its hunks still waits for it.
+    assert!(tasks.quiet_in(Some((&draft.run_id, "bận")), &[(&draft.path, Some("bận")), (&repo.0, Some("bận"))], || Ok(())).is_err());
 }
 
 #[tokio::test]
