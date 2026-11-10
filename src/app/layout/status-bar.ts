@@ -8,7 +8,7 @@ import { AGENT_IDS } from '../services/agents/agent-meta';
 import { AgentBackend } from '../core/backend';
 import { BudgetService } from '../services/usage/budget.service';
 import { DiagnosticsService } from '../services/app/diagnostics.service';
-import { fmtTokens, fmtUsd } from '../shared/utils/format';
+import { fmtUsd } from '../shared/utils/format';
 import { RunsService } from '../services/runs/runs.service';
 import { VersionService } from '../services/app/version.service';
 
@@ -28,7 +28,6 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
     }
     <footer class="statusbar">
       <span><span class="dot" [class.live]="runs.running().length"></span>{{ runs.running().length }} agent đang chạy</span>
-      <span>{{ runs.sessionRuns().length }} lượt</span>
       <span class="spacer"></span>
       @for (row of limitRows(); track row.agent) {
         <button class="limit" [class.busy]="runs.refreshingLimits()" [title]="row.title + '\nBấm để cập nhật.'" [attr.aria-label]="row.title + '. Bấm để cập nhật.'" (click)="runs.refreshLimits(true)">
@@ -51,7 +50,6 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
           {{ version.label() }}@if (version.latest()?.newer) { · có v{{ version.latest()!.latest }} }
         </button>
       }
-      <span>{{ tok(runs.totals().tokens) }} tok</span>
       <span [attr.data-level]="budget.dailyLevel()" class="today">
         Hôm nay {{ usd(budget.todayCost()) }}@if (budget.budgets().daily; as d) { / {{ usd(d) }} }
       </span>
@@ -93,6 +91,5 @@ export class StatusBar {
     });
   }
 
-  protected tok = fmtTokens;
   protected usd = fmtUsd;
 }

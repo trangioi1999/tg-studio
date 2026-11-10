@@ -99,7 +99,7 @@ const TIMELINE_RUNS = 12;
             <div class="dim mono agent-col-usage">{{ c.tokens }} · {{ c.cost }}</div>
             @if (c.progress; as p) {
               <div class="ap-progress" [attr.title]="p.note ?? ''"><span class="ellipsis">{{ p.step }}</span>
-                @if (p.pct !== null) { <span class="meter" aria-hidden="true"><span [style.width.%]="p.pct" [style.background]="meta[c.agent].color"></span></span><span class="mono dim">{{ p.pct }}%</span> }
+                @if (p.pct !== null) { <span class="meter" aria-hidden="true"><span [style.width.%]="p.pct"></span></span><span class="mono dim">{{ p.pct }}%</span> }
               </div>
             }
             <div class="agent-col-counts">

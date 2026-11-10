@@ -96,6 +96,7 @@ import { errorText } from '../shared/utils/errors';
       @for (s of screens; track s.id) {
         <button class="tl-screen" [class.active]="ui.screen() === s.id" [attr.aria-label]="s.label" [title]="s.label" (click)="toggleScreen(s.id)">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path [attr.d]="s.icon"/></svg>
+          <span class="tl-screen-label">{{ s.label }}</span>
           @if (s.id === 'mission' && waiting()) { <span class="dot-badge" aria-hidden="true">{{ waiting() }}</span> }
         </button>
       }
