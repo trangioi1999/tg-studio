@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { App } from './app';
 import { AgentBackend } from './core/backend';
-import { MockBackend } from './core/mock-backend';
+import { MockBackend } from './core/mock/mock-backend';
 
 describe('App', () => {
   beforeEach(async () => {

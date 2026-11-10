@@ -1,6 +1,6 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { AgentBackend, TauriBackend, isTauri } from './core/backend';
-import { MockBackend } from './core/mock-backend';
+import { MockBackend } from './core/mock/mock-backend';
 
 export const appConfig: ApplicationConfig = {
   providers: [
