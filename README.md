@@ -1,17 +1,38 @@
 # TG Studio
 
-Desktop IDE điều phối nhiều coding agent — **Claude Code, Codex, Gemini CLI, Kiro CLI** — chạy trên macOS và Windows.
-Giao diện Angular, lõi Rust (Tauri 2).
+App desktop để chat và giao việc cho nhiều coding agent (**Claude Code, Codex, Gemini CLI, Kiro CLI**) trên cùng một dự án. Chạy trên macOS và Windows; giao diện Angular, lõi Rust (Tauri 2).
 
-> Trạng thái: **làm lại trải nghiệm chính (chat-first), mốc M5**. Đã có: chat nhiều câu trong một phiên agent, sửa code thẳng trong thư mục hoặc trong bản nháp, duyệt lệnh, Giữ/Hoàn tác từng đoạn, chạy song song + so sánh + ghép, Theo các bước, Giám sát, Chi phí (giá, ngân sách, CSV, hạn mức gói Claude và Codex không cần chat), MCP, gọi skill của agent bằng `/`, xoá cuộc trò chuyện. Đã kiểm chứng với Claude và Codex thật; Gemini, Kiro chưa. Còn lại: nghiệm thu trên Windows, ký số, tự cập nhật, beta. Xem `docs/02-roadmap.md`; cách dùng: `docs/user-guide.md`.
+> **Trạng thái: v0.6.1, mốc M5 của đợt làm lại trải nghiệm chính (chat-first).**
+>
+> Đã có:
+> - chat nhiều câu trong một phiên agent, 3 quyền (Chỉ hỏi, Hỏi trước, Tự động), làm thẳng trong thư mục hoặc trong bản nháp;
+> - tab Thay đổi kiểu git: commit hoặc hoàn tác theo tệp;
+> - agent tự giao một phần việc cho agent khác, hiện lồng trong cuộc trò chuyện;
+> - chạy song song, so sánh và ghép kết quả, Theo các bước, Giám sát;
+> - Chi phí: giá, ngân sách, CSV, hạn mức gói Claude và Codex;
+> - MCP, gọi skill bằng `/`, báo khi có bản mới.
+>
+> Đã kiểm chứng với Claude và Codex thật; Gemini, Kiro và phần agent con chưa.
+>
+> Còn lại: nghiệm thu trên máy thật macOS và Windows, ký số, tự cập nhật. Xem [docs/02-roadmap.md](docs/02-roadmap.md); cách dùng: [docs/user-guide.md](docs/user-guide.md).
 
 ## Giao diện
 
-**Chat với agent:** cột trái có logo agent và nhãn trạng thái màu (Đang làm, Chờ duyệt, Xong, Lỗi). Các bước agent làm gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown, thẻ thay đổi dẫn sang panel diff bên phải.
+**Chat với agent:** cột trái là dự án và các cuộc trò chuyện, có nhãn trạng thái (Đang làm, Chờ duyệt, Xong, Lỗi). Các bước agent làm gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown.
 
-![Chat, nhật ký làm việc và thay đổi chờ duyệt](docs/images/chat-review.png)
+**Thay đổi kiểu git:** tab Thay đổi giống Source Control. Đầu tab ghi tổng (ví dụ "12 tệp · +340 −120") và có ô nội dung commit gợi ý sẵn từ yêu cầu. Tệp chia hai nhóm: tệp agent sửa (mặc định chọn để commit) và tệp bạn tự sửa trước đó (mặc định không chọn). Commit chỉ lấy tệp đã chọn. Hoàn tác trả tệp về đúng như trước khi agent sửa, không về commit cuối, nên phần bạn đang sửa dở không mất.
 
-**Duyệt lệnh:** thẻ duyệt ghim ngay trên ô chat; cột trái chuyển sang nhãn vàng Chờ duyệt.
+![Chat, thẻ thay đổi và tab Thay đổi](docs/images/chat-review.png)
+
+**Agent con:** khi task có phần làm độc lập được, agent đang làm (ví dụ Claude) tự giao phần đó cho Codex hoặc một Claude khác chạy song song.
+
+- Ở Tự động thì agent tự giao, tự đợi và tự gộp kết quả. Ở Hỏi trước thì app hỏi bạn trước khi giao.
+- Mỗi agent con là một dòng lồng trong tin nhắn của agent đã giao: trạng thái, thời gian, chi phí, bước đang làm. Bấm vào để xem nhật ký của nó.
+- Subagent có sẵn của Claude Code cũng hiện như vậy.
+
+![Claude giao Codex viết test và một Claude phụ cập nhật docs](docs/images/delegate.png)
+
+**Duyệt lệnh:** thẻ duyệt ghim ngay trên ô chat, kể cả thẻ của agent con.
 
 ![Thẻ duyệt lệnh](docs/images/approval.png)
 
@@ -19,7 +40,7 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 ![Danh sách skill khi gõ /](docs/images/skills.png)
 
-**Chọn agent và model:** danh sách model và mức suy nghĩ đọc từ chính CLI. Cuối menu là Giao cho nhiều agent và Theo các bước.
+**Chọn agent, model và quyền:** danh sách model và mức suy nghĩ đọc từ chính CLI. Cuối menu là Giao cho nhiều agent và Theo các bước.
 
 ![Menu chọn agent, model và mức suy nghĩ](docs/images/agent-menu.png)
 
@@ -31,98 +52,130 @@ Giao diện Angular, lõi Rust (Tauri 2).
 
 ![Màn Giám sát](docs/images/mission-control.png)
 
-**Chi phí:** chi phí và token theo ngày theo agent, bảng giá, ngân sách, xuất CSV. Hạn mức gói 5 giờ / 7 ngày nằm ở thanh dưới cùng, bấm để cập nhật.
+**Chi phí:** chi phí và token theo ngày theo agent, bảng giá, ngân sách, xuất CSV. Thanh dưới cùng hiện hạn mức gói 5 giờ / 7 ngày (bấm để cập nhật), tài nguyên máy và phiên bản đang chạy.
 
 ![Màn Chi phí](docs/images/usage.png)
 
-<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu. Chụp lại: `npm start -- --port 4321` rồi chạy `scripts/capture-screens.js` bằng Playwright.</sub>
+<sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu. Chụp lại: `npm start -- --port 4321`, rồi chạy `scripts/capture-screens.js` bằng Playwright (ảnh trong `docs/images/`) và `node scripts/capture-ui-review.js` (ảnh của trang review và trang tải).</sub>
 
-**Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt. **Toàn cảnh** xếp 16 màn hình theo luồng trên một bảng kéo/phóng to được, **▶ Trình chiếu** tự chạy lần lượt từng màn kèm chú thích, **Review** để đánh dấu Đạt / Cần sửa và chép kết quả.
+**Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt.
+- **Toàn cảnh** xếp 18 màn hình theo luồng trên một bảng kéo, phóng to được.
+- **▶ Trình chiếu** chạy lần lượt từng màn kèm chú thích.
+- **Review** để đánh dấu Đạt / Cần sửa và chép kết quả.
 
-## Cài môi trường (làm 1 lần trên macOS)
+## Cài môi trường (một lần)
+
+macOS:
 
 ```bash
-xcode-select --install                                           # Xcode Command Line Tools
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust (rustup)
-node -v                                                          # cần Node 20+ (bạn đang dùng nvm là được)
+xcode-select --install
 ```
 
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Cần Node 20 trở lên (`node -v`; dùng nvm cũng được).
+
 Windows: cài Rust (rustup), Node 20+, và *Visual Studio Build Tools* với gói "Desktop development with C++".
+
+Agent nào muốn dùng thì cài CLI của agent đó và đăng nhập một lần trong terminal (`claude`, `codex`, `gemini`, `kiro-cli`). Chế độ Sửa code chạy qua adapter ACP; cài sẵn thì khỏi tải bằng `npx` mỗi lần mở phiên:
+
+```bash
+npm i -g @agentclientprotocol/claude-agent-acp@0.100.0 @agentclientprotocol/codex-acp@2.5.0
+```
 
 ## Chạy
 
 ```bash
 npm install
-npm run dev          # mở app desktop (Angular + Tauri), sửa code là tự reload
-npm start            # chỉ chạy UI trong trình duyệt ở "mock mode" — dựng giao diện nhanh, không cần Rust
-npm test             # test Angular
-(cd src-tauri && cargo test)   # test bộ đọc usage của từng agent
-npm run build:app    # đóng gói: src-tauri/target/release/bundle/ (.app, .dmg)
 ```
 
-Lần đầu `npm run dev` sẽ tải và biên dịch các crate Rust, mất vài phút. Những lần sau nhanh.
+```bash
+npm run dev          # app desktop (Angular + Tauri), sửa code là tự reload
+```
+
+```bash
+npm start            # chỉ UI trong trình duyệt, chế độ mock, không cần Rust
+```
+
+Lần đầu `npm run dev` tải và biên dịch các crate Rust, mất vài phút; những lần sau nhanh.
+
+Kiểm tra trước khi xong việc:
+
+```bash
+npm run build
+```
+
+```bash
+npm test -- --watch=false
+```
+
+```bash
+(cd src-tauri && cargo test)
+```
+
+Đóng gói: `npm run build:app` (bộ cài của máy đang chạy, ở `src-tauri/target/release/bundle/`) hoặc `npm run build:mac` (macOS universal). Mỗi bản gửi đi đều nâng phiên bản bằng `npm run release -- patch|minor|major`. Chi tiết, kể cả trang tải cho người ngoài repo: [docs/07-release.md](docs/07-release.md).
 
 ## Dùng thử
 
-1. Lần đầu mở, hướng dẫn 4 bước dò CLI, đăng nhập, chọn repo và chạy thử.
-2. Gõ yêu cầu ở ô bên phải, chọn chế độ (Chỉ đọc, Sửa code, Song song, Pipeline), bấm **Chạy** (Ctrl+↵ / ⌘↵).
-3. Duyệt lệnh khi agent hỏi, rồi Accept / Reject từng thay đổi và Commit. Chi tiết: [docs/user-guide.md](docs/user-guide.md).
+1. Lần đầu mở, hướng dẫn dò CLI, đăng nhập và chọn thư mục dự án.
+2. Gõ yêu cầu ở ô chat giữa màn hình, chọn agent và quyền (Chỉ hỏi, Hỏi trước, Tự động), rồi Enter.
+3. Duyệt lệnh khi agent hỏi. Xong thì mở tab **Thay đổi**, chọn tệp và **Commit**, hoặc hoàn tác.
 
-Gợi ý yêu cầu đầu tiên: *"Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng"* — chỉ cần đọc file nên chạy trơn tru ở chế độ headless.
+Gợi ý câu đầu tiên: *"Giải thích cấu trúc thư mục này trong 5 gạch đầu dòng"* (chỉ đọc tệp, không sửa gì).
+
+Chi tiết: [docs/user-guide.md](docs/user-guide.md).
 
 ## Lưu ý
 
-- **Quyền:** chế độ *Chỉ đọc* chạy headless, nên thao tác cần duyệt sẽ bị từ chối. Chế độ *Sửa code* chạy qua ACP, có thẻ xin duyệt, và lần đầu tải adapter bằng `npx` nếu máy chưa có.
-- **Codex** yêu cầu thư mục làm việc là một git repo.
-- **Gemini CLI:** nếu phiên bản của bạn đặt tên định dạng stream khác, sửa trong `src-tauri/src/adapters.rs` (xem `gemini --help`).
-- **Kiro CLI:** không có chế độ headless, nên chỉ dùng được ở Sửa code / Song song / Pipeline qua ACP (`kiro-cli acp`); chưa kiểm chứng với Kiro thật.
-- **Chi phí:** Claude Code tự báo `total_cost_usd`. Codex/Gemini chỉ có token — nhập bảng giá ở màn Usage nếu muốn ước tính tiền.
-- **PATH trên macOS:** app mở từ Finder không thấy PATH của terminal (nvm, Homebrew). Lõi Rust tự hỏi login shell để lấy PATH — xem `src-tauri/src/env.rs`.
-- Thư mục `src-tauri/icons/android` và `ios` do `tauri icon` tạo ra, không cần cho desktop, xóa được.
+- **Quyền:** Chỉ hỏi chạy với cờ chặn ghi của CLI (Claude `--permission-mode plan`, Codex `--sandbox read-only`); Gemini và Kiro không có cờ đó nên chạy qua ACP trong bản nháp tạm. Hỏi trước và Tự động chạy qua ACP; ở Tự động, lệnh nằm trong danh sách cấm vẫn bị chặn.
+- **Sửa code** cần thư mục là repo Git có ít nhất một commit; nếu chưa có, app đề nghị khởi tạo.
+- **Kiro CLI:** không có chế độ headless, chỉ chạy qua ACP (`kiro-cli acp`); chưa kiểm chứng với Kiro thật.
+- **Chi phí:** Claude Code tự báo tiền. Codex, Gemini chỉ có token; nhập bảng giá ở màn Chi phí để ước tính.
+- **PATH trên macOS:** app mở từ Finder không thấy PATH của terminal (nvm, Homebrew). Lõi Rust tự hỏi login shell và thêm các thư mục cài quen thuộc; xem `src-tauri/src/system/env.rs`.
 
 ## Cấu trúc
 
 ```
-src/app/
-  core/           protocol (kiểu dữ liệu chung với Rust), backend (Tauri | mock),
-                  agents.service, runs.service (signals), pricing, describe-line
-  shell/          title bar, agents panel, run console, usage panel, status bar,
-                  permission card, diff viewer, code editor (Monaco)
-src-tauri/src/
-  adapters.rs     danh sách agent + tham số chạy headless
-  detect.rs       dò CLI trong PATH, đọc --version
-  runner.rs       chạy tiến trình con, stream stdout/stderr → event "agent-event"
-  usage.rs        chuẩn hóa token/chi phí của từng CLI (+ unit test)
-  env.rs          lấy PATH từ login shell
-  store.rs        lịch sử lượt chạy (SQLite)
-  acp/, acp_runner.rs, acp_tasks.rs   task sửa code qua ACP
-  worktree.rs, diff.rs, workspace.rs  worktree, hàng chờ hunk, file cho editor
-docs/ARCHITECTURE.md
+src/app/                 giao diện, chia theo tính năng
+  chat/                  ô chat, dòng chat, thẻ duyệt, agent con (delegations)
+  workspace/             cây tệp, editor Monaco, tab Thay đổi, so sánh và ghép
+  runs/                  run, cuộc trò chuyện, Theo các bước, Giám sát
+  agents/                dò agent, model, onboarding
+  usage/                 Chi phí, giá, ngân sách, hạn mức
+  integrations/          MCP, skills, tg-bridge
+  shell/                 khung app: cột trái, thanh tiêu đề, thanh dưới
+  shared/                tiện ích dùng chung
+  core/                  protocol (kiểu chung với Rust), backend (Tauri | mock)
+src-tauri/src/           lõi Rust
+  agents/                danh sách agent, dò CLI, model và lệnh của agent
+  acp/                   ACP client (JSON-RPC), fs và terminal cho agent
+  tasks/                 task sửa code: phiên, thay đổi, agent con, phiên mở sẵn
+  workspace/             dự án, worktree, diff, ghép
+  integrations/          tg-bridge, MCP, skills, chính sách lệnh
+  usage/                 chuẩn hoá token và chi phí, sổ usage
+  store/                 lịch sử (SQLite)
+  system/                PATH, tài nguyên, chẩn đoán, phiên bản
+docs/ARCHITECTURE.md     kiến trúc và hợp đồng sự kiện
 ```
 
 ## Tài liệu
 
 | File | Nội dung |
 |---|---|
-| [docs/01-product-spec.md](docs/01-product-spec.md) | Tầm nhìn, người dùng, tính năng từng màn, tiêu chí "xong khi" |
-| [docs/02-roadmap.md](docs/02-roadmap.md) | Giai đoạn 0–4, checklist task, rủi ro, backlog |
-| [docs/03-agent-integration.md](docs/03-agent-integration.md) | ACP vs headless, từng agent, luồng quyền, git worktree |
-| [docs/04-usage-and-cost.md](docs/04-usage-and-cost.md) | Token, chi phí, quota, Usage Ledger (SQLite), ngân sách |
-| [docs/05-mcp-skills-plugins.md](docs/05-mcp-skills-plugins.md) | Registry MCP/skills, config từng agent, MCP tg-bridge |
-| [docs/06-design-system.md](docs/06-design-system.md) | Màu, chữ, khoảng cách, component, trợ năng |
-| [docs/07-release.md](docs/07-release.md) | Ký số, notarize, installer, tự cập nhật, CI |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Kiến trúc code hiện tại, hợp đồng sự kiện |
-| [docs/user-guide.md](docs/user-guide.md) | Hướng dẫn sử dụng cho người dùng |
+| [docs/user-guide.md](docs/user-guide.md) | Hướng dẫn sử dụng |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Kiến trúc code, hợp đồng sự kiện |
+| [docs/01-product-spec.md](docs/01-product-spec.md) | Tầm nhìn, người dùng, tính năng từng màn |
+| [docs/02-roadmap.md](docs/02-roadmap.md) | Lộ trình, checklist, rủi ro |
+| [docs/03-agent-integration.md](docs/03-agent-integration.md) | ACP và headless, từng agent, luồng quyền, worktree |
+| [docs/04-usage-and-cost.md](docs/04-usage-and-cost.md) | Token, chi phí, hạn mức, sổ usage, ngân sách |
+| [docs/05-mcp-skills-plugins.md](docs/05-mcp-skills-plugins.md) | MCP, skills, tg-bridge |
+| [docs/06-design-system.md](docs/06-design-system.md) | Màu, chữ, component, trợ năng |
+| [docs/07-release.md](docs/07-release.md) | Phát hành, ký số, trang tải, CI |
+| [docs/superpowers/specs/](docs/superpowers/specs/) | Thiết kế: chat-first, agent con và thay đổi kiểu git |
 | [CHANGELOG.md](CHANGELOG.md) | Thay đổi theo phiên bản |
 
 ## Lộ trình
 
-| Giai đoạn | Nội dung |
-|---|---|
-| **0 — Nền móng** | Dò agent, chạy headless, log, usage theo agent |
-| 1 — Một agent trọn vẹn | ACP client, thẻ duyệt quyền, diff viewer, git worktree |
-| 2 — Nhiều agent | Chạy song song, Mission control, so sánh kết quả, pipeline |
-| 3 — Usage & tích hợp | Usage ledger (SQLite), ngân sách, quota gói, registry MCP/skills |
-| **4 — Đóng gói** (đang ở đây) | Ký số + notarize macOS, installer Windows, tự cập nhật |
-
-Chi tiết từng task: [docs/02-roadmap.md](docs/02-roadmap.md).
+Đang làm lại trải nghiệm chính theo [thiết kế chat-first](docs/superpowers/specs/2026-11-04-chat-first-design.md), M-D và M1–M4 đã xong; M0 (Windows) và M5 đã xong phần code, còn nghiệm thu trên máy thật macOS và Windows. Đóng gói (ký số, notarize, tự cập nhật) tạm dừng tới sau M5 vì cần tài khoản và chứng chỉ của chủ repo. Chi tiết: [docs/02-roadmap.md](docs/02-roadmap.md).

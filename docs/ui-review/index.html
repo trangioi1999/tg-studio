@@ -141,7 +141,7 @@ textarea.note::placeholder { color: var(--faint); }
   <header class="bar">
     <div class="brand">
       <span class="mark" aria-hidden="true">TG</span>
-      <div><h1>TG Studio · Giao diện</h1><small>16 màn hình · 5 luồng · ảnh chụp chế độ mock</small></div>
+      <div><h1>TG Studio · Giao diện</h1><small>18 màn hình · 5 luồng · ảnh chụp chế độ mock</small></div>
     </div>
     <div class="tabs" role="tablist" aria-label="Chế độ xem">
       <button role="tab" id="tab-board" aria-selected="true" aria-controls="board" type="button">Toàn cảnh</button>
@@ -230,13 +230,15 @@ const FLOWS = [
     { id: '03-agent-model', title: 'Chọn agent, model và mức suy nghĩ', checks: ['Agent bên trái, model bên phải, có mô tả ngắn', 'Mức suy nghĩ: Mặc định / Thấp / Vừa / Cao', 'Cuối menu: Giao cho nhiều agent, Theo các bước'] },
     { id: '04-parallel', title: 'Giao cho nhiều agent', checks: ['Tick nhiều agent, mỗi agent hiện model đang chọn', 'Chip đổi thành logo chồng nhau + "N agent · so sánh"'] },
     { id: '05-permissions', title: '3 quyền cho mọi agent', checks: ['Chỉ hỏi / Sửa code · hỏi trước / Tự động, mỗi mục có một dòng giải thích', 'Tự động ghi rõ git push / merge vẫn bị chặn'] },
-    { id: '06-place', title: 'Làm ở đâu: thư mục hiện tại hoặc bản nháp từ nhánh', checks: ['Thư mục hiện tại là mặc định, có giải thích Giữ / Hoàn tác', 'Danh sách nhánh của repo, đánh dấu nhánh đang mở', 'Cảnh báo vàng khi chọn Tự động + Thư mục hiện tại'] },
+    { id: '06-place', title: 'Làm ở đâu: thư mục hiện tại hoặc bản nháp từ nhánh', checks: ['Thư mục hiện tại là mặc định, có giải thích commit / hoàn tác theo tệp', 'Danh sách nhánh của repo, đánh dấu nhánh đang mở', 'Cảnh báo vàng khi chọn Tự động + Thư mục hiện tại'] },
     { id: '12-auto-warning', title: 'Tự động + Thư mục hiện tại', checks: ['Dòng cảnh báo vàng ngay dưới ô chat', 'Chip quyền hiện biểu tượng tia sét màu vàng'] },
   ]},
   { id: 'working', title: 'Agent làm việc', desc: 'Từ lúc gửi yêu cầu tới lúc duyệt thay đổi.', screens: [
     { id: '07-approval-status', title: 'Agent xin phép chạy lệnh', checks: ['Thẻ duyệt vàng ghim ngay trên ô chat', 'Dòng trạng thái vàng "đang chờ bạn" + Dừng (Esc)', 'Cột trái: nhãn vàng Chờ duyệt; icon Giám sát có số 1'] },
     { id: '08-running-status', title: 'Agent đang làm', checks: ['Dòng trạng thái xanh: tên agent, 3 chấm, đồng hồ, việc đang làm', 'Nhật ký làm việc mở và chạy trực tiếp', 'Nút gửi đổi thành nút dừng'] },
-    { id: '09-done-changes', title: 'Agent làm xong, có thay đổi', checks: ['Câu trả lời Markdown; nhật ký thu gọn còn 1 dòng', 'Thẻ "N tệp đã đổi · đã ở trong code của bạn"', 'Editor có thanh Hoàn tác / Giữ cho từng đoạn', 'Chép / Chép Markdown dưới câu trả lời'] },
+    { id: '09-done-changes', title: 'Agent làm xong, có thay đổi', checks: ['Câu trả lời Markdown; nhật ký thu gọn còn 1 dòng', 'Thẻ "N tệp đã đổi · đã ở trong code của bạn"', 'Editor đánh dấu đoạn agent sửa, nút Hoàn tác đoạn này (không bắt buộc)', 'Chép / Chép Markdown dưới câu trả lời'] },
+    { id: '17-changes', title: 'Tab Thay đổi kiểu git', checks: ['Tổng "N tệp · +A −R", ô nội dung commit gợi ý từ yêu cầu, nút Commit N tệp', 'Nhóm Của agent (đã chọn) và Bạn tự sửa (chưa chọn), có avatar agent', 'Nút ↶ hoàn tác từng tệp và Hoàn tác tất cả'] },
+    { id: '18-delegate', title: 'Agent giao việc cho agent khác', checks: ['Dòng Codex và Claude phụ lồng ngay chỗ Claude đã giao', 'Mỗi dòng: trạng thái, thời gian, chi phí, tệp đã gộp', 'Bấm vào để xem nhật ký của agent con ngay tại chỗ'] },
   ]},
   { id: 'ask', title: 'Hỏi đáp', desc: 'Câu hỏi Chỉ hỏi: đọc, trả lời, không sửa tệp.', screens: [
     { id: '10-question-typing', title: 'Agent đang trả lời', checks: ['Con trỏ nhấp nháy ở cuối câu đang viết', 'Dòng trạng thái "đang trả lời" ngay trên ô chat'] },

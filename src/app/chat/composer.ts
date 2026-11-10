@@ -57,7 +57,7 @@ import { ChatState } from './chat.state';
   </div>
 }
 @if (chat.perm() === 'auto' && (chat.run()?.task ? chat.run()?.place === 'direct' : chat.effectivePlace() === 'direct')) {
-  <p class="cmp-hint warn-text">Tự động + Thư mục hiện tại: agent sửa thẳng code của bạn mà không hỏi. Hoàn tác được từng đoạn ở panel Thay đổi.</p>
+  <p class="cmp-hint warn-text">Tự động + Thư mục hiện tại: agent sửa thẳng code của bạn mà không hỏi. Hoàn tác được theo tệp ở tab Thay đổi.</p>
 }
 @if (chat.blocked(); as b) { @if (chat.prompt().trim() || chat.run()?.status !== 'running') { <p class="dim cmp-hint">{{ b }}</p> } }
 @else if (chat.loginHint(); as h) { <p class="cmp-hint warn-text">{{ h }}</p> }

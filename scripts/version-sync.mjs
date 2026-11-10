@@ -1,5 +1,5 @@
 // One source of truth for the version: package.json. Copies it into src-tauri/Cargo.toml,
-// src-tauri/Cargo.lock, package-lock.json and src-tauri/tauri.conf.json.
+// src-tauri/Cargo.lock, package-lock.json, src-tauri/tauri.conf.json and the mock backend.
 //   node scripts/version-sync.mjs          write
 //   node scripts/version-sync.mjs --check  exit 1 if any file differs (CI)
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -36,6 +36,12 @@ const files = [
       if (lock.packages?.['']) lock.packages[''].version = version;
       return JSON.stringify(lock, null, 2) + '\n';
     },
+  },
+  {
+    // What the browser-only mock shows in the status bar and in screenshots.
+    path: 'src/app/core/mock-backend.ts',
+    read: (text) => /const APP_VERSION = '([^']+)';/.exec(text)?.[1],
+    write: (text) => text.replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '${version}';`),
   },
   {
     path: 'src-tauri/tauri.conf.json',

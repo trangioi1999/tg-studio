@@ -16,7 +16,7 @@ import { ChatState } from './chat.state';
         <div class="pop place-pop" role="listbox" aria-label="Agent làm ở đâu" (keydown.escape)="chat.menu.set(null)">
           <button role="option" class="opt tall" [class.on]="chat.place() === 'direct'" [attr.aria-selected]="chat.place() === 'direct'" (click)="chat.setPlace('direct')">
             <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-            <span class="grow"><strong>Thư mục hiện tại</strong><span class="opt-desc">Agent sửa thẳng code của bạn, thấy cả phần bạn đang sửa dở. Panel Thay đổi chỉ hiện phần agent sửa; Hoàn tác từng đoạn được.</span></span>
+            <span class="grow"><strong>Thư mục hiện tại</strong><span class="opt-desc">Agent sửa thẳng code của bạn, thấy cả phần bạn đang sửa dở. Tab Thay đổi chỉ hiện phần agent sửa; commit hoặc hoàn tác theo tệp.</span></span>
             @if (chat.place() === 'direct') { <span aria-hidden="true">✓</span> }
           </button>
           <div class="pop-title">Bản nháp riêng từ nhánh</div>

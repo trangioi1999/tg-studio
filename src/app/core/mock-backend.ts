@@ -3,6 +3,9 @@ import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResu
 import { AGENT_META } from '../agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
+/** The version the mock reports; `npm run version:sync` keeps it equal to package.json. */
+const APP_VERSION = '0.6.1';
+
 interface MockRun {
   /** Its session waits for more messages after a turn. */
   open?: boolean;
@@ -509,11 +512,11 @@ export class MockBackend extends AgentBackend {
   }
 
   async appVersion(): Promise<AppVersion> {
-    return { version: '0.5.1', commit: 'mock', builtAt: Date.now() };
+    return { version: APP_VERSION, commit: 'mock', builtAt: Date.now() };
   }
 
   async latestVersion(): Promise<LatestVersion> {
-    return { latest: '0.5.1', newer: false };
+    return { latest: APP_VERSION, newer: false };
   }
 
   /** Plausible numbers: the app, one process tree per live run, and a stray probe. */
