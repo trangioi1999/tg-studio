@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from '../backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion, SyncStatus, TerminalInfo } from '../protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion, SyncStatus, TerminalInfo, ProjectSettings } from '../protocol';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
@@ -689,6 +689,31 @@ export class MockBackend extends AgentBackend {
   private shells = new Map<string, { id: string; cwd: string; line: string }>();
   private outputHandlers: ((id: string, data: string) => void)[] = [];
   private exitHandlers: ((id: string, code: number | null) => void)[] = [];
+
+  private projectHooks = new Map<string, ProjectSettings>();
+  /** Checks run per run, so a prompt naming "failcheck" fails once and then passes. */
+  private checkCounts = new Map<string, number>();
+
+  async projectSettings(root: string): Promise<ProjectSettings> {
+    return this.projectHooks.get(root) ?? { setup: '', check: '', autoFix: true, maxFixRounds: 2 };
+  }
+
+  async setProjectSettings(root: string, s: ProjectSettings): Promise<void> {
+    this.projectHooks.set(root, { ...s, maxFixRounds: Math.min(5, Math.max(1, Math.round(s.maxFixRounds))) });
+  }
+
+  async runProjectCheck(runId: string): Promise<CheckResult | null> {
+    const run = this.runs.get(runId);
+    const check = [...this.projectHooks.values()][0]?.check ?? '';
+    if (!check.trim()) return null;
+    const n = (this.checkCounts.get(runId) ?? 0) + 1;
+    this.checkCounts.set(runId, n);
+    await new Promise((r) => setTimeout(r, 300));
+    const fail = !!run?.prompt?.includes('failcheck') && n === 1;
+    return fail
+      ? { code: 1, output: 'FAIL src/app/app.spec.ts\n  ✕ hiện tiêu đề (12 ms)\nTests: 1 failed, 8 passed', truncated: false, durationMs: 800 }
+      : { code: 0, output: 'Tests: 9 passed', truncated: false, durationMs: 800 };
+  }
 
   async runDir(runId: string): Promise<string> {
     const run = this.tasks.get(runId);

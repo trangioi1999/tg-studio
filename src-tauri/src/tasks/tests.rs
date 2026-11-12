@@ -972,3 +972,81 @@ async fn invalid_and_uncommitted_repos_never_create_runs() {
     assert!(!path.join(".tg").exists());
     std::fs::remove_dir_all(path).unwrap();
 }
+
+// Setup script of a new draft: runs before the adapter starts, can fail or be stopped.
+fn setup<'a>(command: &'a str, sink: &Arc<Recorder>, stops: &'a crate::tasks::headless::Runs) -> Option<Setup<'a>> {
+    Some(Setup { command, sink: sink.clone(), stops })
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn setup_runs_before_agent_spawn() {
+    let repo = Repo::new();
+    let store = Store::open_in_memory().unwrap();
+    let sink = Arc::new(Recorder::default());
+    let stops = crate::tasks::headless::Runs::default();
+    let adapter = Adapter::Spawn((PathBuf::from("sh"), vec!["-c".into(), "test -f ready && touch seen".into()]));
+    let (id, wt, mut child, _) = prepare_with(&store, AgentKind::Codex, "task", &repo.0, adapter, None, None, Place::Draft(None),
+        setup("echo hi > ready", &sink, &stops)).await.unwrap();
+    let _ = child.wait().await;
+    assert!(wt.path.join("seen").exists(), "adapter must start after the setup script");
+    let lines: Vec<String> = sink.0.lock().unwrap().iter().filter_map(|e| e.line.clone()).collect();
+    assert!(lines.iter().any(|l| l.contains("Đã chuẩn bị bản nháp")), "{lines:?}");
+    assert_eq!(store.list_runs(10).unwrap().iter().filter(|r| r.id == id).count(), 1);
+    assert!(stops.0.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn failed_setup_never_spawns_agent() {
+    let repo = Repo::new();
+    let store = Store::open_in_memory().unwrap();
+    let sink = Arc::new(Recorder::default());
+    let stops = crate::tasks::headless::Runs::default();
+    let missing = repo.0.join("missing-adapter");
+    let error = prepare_with(&store, AgentKind::Codex, "task", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Draft(None),
+        setup("echo broken; exit 3", &sink, &stops)).await.err().unwrap();
+    assert!(error.contains("mã 3"), "{error}");
+    assert!(!error.contains("Không chạy được"), "the adapter must not be started: {error}");
+    let events = sink.0.lock().unwrap();
+    assert!(events.iter().any(|e| e.line.as_deref().is_some_and(|l| l.contains("broken"))));
+    assert_eq!(events.last().unwrap().kind, "exit");
+    assert_eq!(store.list_runs(10).unwrap()[0].status, "failed");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_during_setup_never_spawns_agent() {
+    let repo = Repo::new();
+    let store = Store::open_in_memory().unwrap();
+    let sink = Arc::new(Recorder::default());
+    let stops = Arc::new(crate::tasks::headless::Runs::default());
+    let stopper = stops.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let tx = stopper.0.lock().unwrap().drain().next();
+            if let Some((_, tx)) = tx { let _ = tx.send(()); break; }
+        }
+    });
+    let started = std::time::Instant::now();
+    let missing = repo.0.join("missing-adapter");
+    let error = prepare_with(&store, AgentKind::Codex, "task", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Draft(None),
+        setup("sleep 30", &sink, &stops)).await.err().unwrap();
+    assert!(error.contains("Đã dừng"), "{error}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(store.list_runs(10).unwrap()[0].status, "stopped");
+    assert_eq!(sink.0.lock().unwrap().last().unwrap().code, None);
+}
+
+#[tokio::test]
+async fn direct_and_reuse_skip_setup() {
+    let repo = Repo::new();
+    let store = Store::open_in_memory().unwrap();
+    let sink = Arc::new(Recorder::default());
+    let stops = crate::tasks::headless::Runs::default();
+    let missing = repo.0.join("missing-adapter");
+    let error = prepare_with(&store, AgentKind::Codex, "fix", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Direct,
+        setup("exit 3", &sink, &stops)).await.err().unwrap();
+    assert!(error.contains("Không chạy được"), "direct runs must not run the setup script: {error}");
+    assert!(sink.0.lock().unwrap().is_empty());
+}

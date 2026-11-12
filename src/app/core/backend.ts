@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport, AppVersion, LatestVersion, SyncStatus, TerminalInfo } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport, AppVersion, LatestVersion, SyncStatus, TerminalInfo, ProjectSettings } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -118,6 +118,10 @@ export abstract class AgentBackend {
   abstract onEvent(handler: (event: AgentEvent) => void): Promise<Unlisten>;
   /** Where the run's agent works: its draft, or the project folder with the subfolder. */
   abstract runDir(runId: string): Promise<string>;
+  abstract projectSettings(root: string): Promise<ProjectSettings>;
+  abstract setProjectSettings(root: string, settings: ProjectSettings): Promise<void>;
+  /** Runs the project's check command where the run works; null when the project has none. */
+  abstract runProjectCheck(runId: string): Promise<CheckResult | null>;
   /** The shell of `key` (a conversation); an open one is returned as is. */
   abstract terminalOpen(key: string, cwd: string, cols: number, rows: number): Promise<TerminalInfo>;
   abstract terminalWrite(id: string, data: string): Promise<void>;
@@ -322,6 +326,15 @@ export class TauriBackend extends AgentBackend {
   }
   runDir(runId: string) {
     return invoke<string>('run_dir', { runId });
+  }
+  projectSettings(root: string) {
+    return invoke<ProjectSettings>('project_settings', { root });
+  }
+  setProjectSettings(root: string, settings: ProjectSettings) {
+    return invoke<void>('set_project_settings', { root, settings });
+  }
+  runProjectCheck(runId: string) {
+    return invoke<CheckResult | null>('run_project_check', { runId });
   }
   terminalOpen(key: string, cwd: string, cols: number, rows: number) {
     return invoke<TerminalInfo>('terminal_open', { key, cwd, cols, rows });
