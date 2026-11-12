@@ -382,3 +382,13 @@ export interface SyncStatus {
   /** The open PR of this branch, if any. */
   prUrl: string | null;
 }
+
+/** A user shell of a conversation, in the core's PTY. */
+export interface TerminalInfo {
+  id: string;
+  /** Program name, e.g. zsh or pwsh.exe. */
+  shell: string;
+  cwd: string;
+  /** False when the conversation's shell was already open. */
+  fresh: boolean;
+}

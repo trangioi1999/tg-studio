@@ -127,6 +127,7 @@ pub fn run() {
             tasks::changes::list_worktree_files,
             tasks::changes::read_worktree_file,
             tasks::changes::write_worktree_file,
+            tasks::changes::run_dir,
             tasks::cleanup::discard_worktree,
             tasks::cleanup::delete_runs,
             workspace::hooks::project_settings,
