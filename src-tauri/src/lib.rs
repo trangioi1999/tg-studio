@@ -53,6 +53,7 @@ pub fn run() {
         .manage(tasks::headless::Runs::default())
         .manage(tasks::headless::HeadlessSessions::default())
         .manage(tasks::TaskRuns::default())
+        .manage(system::terminal::Terminals::default())
         .manage(std::sync::Arc::new(tasks::delegate::Delegations::default()))
         .manage(tasks::SessionInboxes::default())
         .manage(tasks::warm::WarmPool::default())
@@ -71,6 +72,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             system::resources::resource_usage,
+            system::terminal::terminal_open,
+            system::terminal::terminal_write,
+            system::terminal::terminal_resize,
+            system::terminal::terminal_close,
             system::version::app_version,
             system::version::latest_version,
             system::resources::kill_process,
