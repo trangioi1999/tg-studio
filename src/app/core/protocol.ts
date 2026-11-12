@@ -392,3 +392,15 @@ export interface TerminalInfo {
   /** False when the conversation's shell was already open. */
   fresh: boolean;
 }
+
+/** Hooks of a project, kept by the app (not in the repository). */
+export interface ProjectSettings {
+  /** Run once in each new draft before its agent starts; `$TG_ROOT_PATH` is the project folder. */
+  setup: string;
+  /** Run after each agent turn that changed files, e.g. `npm test`. */
+  check: string;
+  /** Send a failed check back to the agent. */
+  autoFix: boolean;
+  /** 1–5. */
+  maxFixRounds: number;
+}

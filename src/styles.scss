@@ -1072,3 +1072,11 @@ input, textarea, select { transition: background-color var(--t-fast) var(--ease)
 @media (prefers-reduced-motion: reduce) {
   *:not(.spin), *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Project settings (hooks), under the project row of the conversation list */
+.hk-form { display: flex; flex-direction: column; gap: 10px; margin: 4px 8px 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--raised); font-size: var(--fs-sm); }
+.hk-form textarea, .hk-form input.mono { font-size: 12px; }
+.hk-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hk-rounds { width: 44px; }
+.hk-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.tl-add.active { color: var(--text); background: var(--hover); }
