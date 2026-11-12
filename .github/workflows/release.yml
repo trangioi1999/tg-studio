@@ -7,6 +7,11 @@ name: Release
 # building installers on macOS and Windows is the most expensive use of Actions minutes.
 on:
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Chỉ build Windows (bỏ macOS, đỡ tốn phút)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -16,15 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            args: --target universal-apple-darwin
-            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
-            bundle: src-tauri/target/universal-apple-darwin/release/bundle
-          - os: windows-latest
-            args: ''
-            rust_targets: ''
-            bundle: src-tauri/target/release/bundle
+        include: ${{ fromJSON(inputs.windows_only && '[{"os":"windows-latest","args":"","rust_targets":"","bundle":"src-tauri/target/release/bundle"}]' || '[{"os":"macos-latest","args":"--target universal-apple-darwin","rust_targets":"aarch64-apple-darwin,x86_64-apple-darwin","bundle":"src-tauri/target/universal-apple-darwin/release/bundle"},{"os":"windows-latest","args":"","rust_targets":"","bundle":"src-tauri/target/release/bundle"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
