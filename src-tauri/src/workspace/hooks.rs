@@ -186,7 +186,7 @@ pub async fn run_project_check(store: State<'_, Store>, run_id: String) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf, time::Instant};
+    use std::{fs, path::PathBuf};
 
     struct Dir(PathBuf);
     impl Dir {

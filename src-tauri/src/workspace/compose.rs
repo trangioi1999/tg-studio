@@ -117,7 +117,9 @@ pub fn discard_composite(state: State<'_, Composites>, id: String) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::time::Instant;
+    #[cfg(unix)]
     use super::super::hooks::OUTPUT_LIMIT;
     #[cfg(unix)]
     #[tokio::test]
@@ -210,7 +212,8 @@ mod tests {
         #[cfg(not(windows))]
         let (ok, bad) = ("echo xin chào", "echo out; echo err 1>&2; exit 3");
         #[cfg(windows)]
-        let (ok, bad) = ("echo xin chao", "Write-Output out; [Console]::Error.WriteLine('err'); exit 3");
+        // PowerShell's echo writes each word on its own line.
+        let (ok, bad) = ("Write-Output 'xin chao'", "Write-Output out; [Console]::Error.WriteLine('err'); exit 3");
         let r = run_check(&dir, ok).await.unwrap();
         assert_eq!(r.code, Some(0));
         assert!(r.output.contains("xin ch"));
