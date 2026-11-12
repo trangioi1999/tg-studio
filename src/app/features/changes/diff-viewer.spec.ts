@@ -1,7 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { AgentBackend } from '../../core/backend';
 import { MockBackend } from '../../core/mock/mock-backend';
-import { FileDiff, OwnChanges } from '../../core/protocol';
+import { FileDiff, OwnChanges, Project, SyncStatus } from '../../core/protocol';
+import { WorkspaceService } from '../../services/workspace.service';
 import { DiffViewer } from './diff-viewer';
 
 const file = (path: string, status = 'M', added = 2, removed = 1): FileDiff => ({
@@ -25,6 +26,20 @@ class FakeBackend extends MockBackend {
     this.own = { ...this.own, files: this.own.files.filter((f) => !paths.includes(f.path)) };
     return 'abcdef0123';
   }
+  sync: SyncStatus = { branch: 'feat', upstream: 'origin/feat', ahead: 2, behind: 0, remote: 'origin', github: true, gh: true, defaultBranch: 'main', prUrl: null };
+  syncRoots: string[] = [];
+  override async syncStatus(root: string) { this.syncRoots.push(root); return this.sync; }
+  override async push(root: string) {
+    this.calls.push(['push', root]);
+    this.sync = { ...this.sync, ahead: 0 };
+    return this.sync;
+  }
+  override async createPr(root: string, title: string, body: string) {
+    this.calls.push(['pr', root, title, body]);
+    this.sync = { ...this.sync, ahead: 0, prUrl: 'https://github.com/o/r/pull/7' };
+    return this.sync.prUrl!;
+  }
+  override async openUrl(url: string) { this.calls.push(['open', url]); }
   override async acceptAll() {
     this.calls.push(['apply']);
     const n = this.files.length;
@@ -33,10 +48,12 @@ class FakeBackend extends MockBackend {
   }
 }
 
-async function setup(own?: OwnChanges) {
+async function setup(own?: OwnChanges, sync?: Partial<SyncStatus>) {
   const backend = new FakeBackend();
   if (own) backend.own = own;
+  if (sync) backend.sync = { ...backend.sync, ...sync };
   TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+  TestBed.inject(WorkspaceService).project.set({ root: '/repo', name: 'repo' } as Project);
   const fixture = TestBed.createComponent(DiffViewer);
   fixture.componentRef.setInput('runId', 'r1');
   fixture.componentRef.setInput('agent', 'claude');
@@ -150,5 +167,71 @@ describe('DiffViewer (changes as git sees them)', () => {
     button('Commit').click();
     await settle();
     expect(backend.calls.at(-1)).toEqual(['commit', ['a.ts', 'b.ts'], 'Thêm export CSV']);
+  });
+
+  describe('sync with the remote', () => {
+    const pushes = (calls: unknown[][]) => calls.filter((c) => c[0] !== 'sync');
+
+    it('shows the branch and the commits not pushed yet', async () => {
+      const { el, backend } = await setup();
+      expect(backend.syncRoots[0]).toBe('/repo');
+      expect(el.querySelector('.sc-sync')!.textContent).toContain('feat');
+      expect(el.querySelector('.sc-sync')!.textContent).toContain('↑2');
+    });
+
+    it('pushes the project folder and shows the new status', async () => {
+      const { el, backend, button, settle } = await setup();
+      button('Push').click();
+      await settle();
+      expect(pushes(backend.calls)).toEqual([['push', '/repo']]);
+      expect(el.querySelector('.sc-sync')!.textContent).toContain('↑0');
+      expect(button('Push').disabled).toBe(true);
+    });
+
+    it('hides push without a remote or on a detached head', async () => {
+      const { el, button } = await setup(undefined, { remote: null, upstream: null, github: false });
+      expect(button('Push')).toBeUndefined();
+      expect(el.querySelector('.sc-sync')!.textContent).toContain('chưa có remote');
+    });
+
+    it('offers a PR only off the default branch with gh on GitHub', async () => {
+      expect((await setup()).button('Tạo PR')).toBeDefined();
+      TestBed.resetTestingModule();
+      expect((await setup(undefined, { branch: 'main' })).button('Tạo PR')).toBeUndefined();
+      TestBed.resetTestingModule();
+      expect((await setup(undefined, { gh: false })).button('Tạo PR')).toBeUndefined();
+    });
+
+    it('creates the PR from the form and opens its link', async () => {
+      const { el, backend, button, settle } = await setup();
+      button('Tạo PR').click();
+      await settle();
+      const title = el.querySelector<HTMLInputElement>('.sc-pr input')!;
+      expect(title.value).toBe('Thêm export CSV');
+      title.value = 'Xuất CSV';
+      title.dispatchEvent(new Event('input'));
+      el.querySelector<HTMLTextAreaElement>('.sc-pr textarea')!.value = 'Chi tiết';
+      el.querySelector<HTMLTextAreaElement>('.sc-pr textarea')!.dispatchEvent(new Event('input'));
+      await settle();
+      ([...el.querySelectorAll<HTMLButtonElement>('.sc-pr button')].find((b) => b.textContent!.includes('Tạo PR')))!.click();
+      await settle();
+      expect(pushes(backend.calls)).toEqual([['pr', '/repo', 'Xuất CSV', 'Chi tiết'], ['open', 'https://github.com/o/r/pull/7']]);
+      expect(el.querySelector('.sc-sync')!.textContent).toContain('PR');
+    });
+
+    it('shows the existing PR link instead of the button', async () => {
+      const { backend, button, settle } = await setup(undefined, { prUrl: 'https://github.com/o/r/pull/3' });
+      expect(button('Tạo PR')).toBeUndefined();
+      button('Mở PR').click();
+      await settle();
+      expect(pushes(backend.calls)).toEqual([['open', 'https://github.com/o/r/pull/3']]);
+    });
+
+    it('disables push while the agent runs', async () => {
+      const { fixture, button, settle } = await setup();
+      fixture.componentRef.setInput('running', true);
+      await settle();
+      expect(button('Push').disabled).toBe(true);
+    });
   });
 });

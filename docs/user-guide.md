@@ -103,7 +103,7 @@ Thay đổi của agent là thay đổi git bình thường, không phải duy�
 - **↶** ở mỗi tệp, hoặc **Hoàn tác tất cả**, trả tệp về đúng như trước khi agent sửa (không về commit cuối), nên phần bạn sửa dở trước đó không mất. Tệp agent tạo mới bị xoá.
 - Bấm một tệp để xem diff trong editor. Muốn bỏ một đoạn lẻ thì dùng nút **Hoàn tác đoạn này** dưới đoạn đó (Ctrl+Backspace); không bắt buộc.
 - Khi agent đang sửa, tab vẫn xem được nhưng Commit và Hoàn tác bị khoá.
-- Bản nháp: **Áp vào thư mục** đưa toàn bộ thay đổi vào code thật một lần, rồi Commit. Trong editor của bản nháp vẫn Nhận / Bỏ từng đoạn được.
+- Bản nháp: **Áp vào thư mục** đưa toàn bộ thay đổi vào code thật một lần, rồi Commit.
 - **Bỏ bản nháp** khi không cần nữa, hoặc xoá cả cuộc trò chuyện ở cột trái.
 
 ## 7. Song song: so sánh và ghép
