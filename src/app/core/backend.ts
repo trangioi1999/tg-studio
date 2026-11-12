@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport, AppVersion, LatestVersion, SyncStatus } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport, AppVersion, LatestVersion, SyncStatus, TerminalInfo } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -116,6 +116,15 @@ export abstract class AgentBackend {
   abstract skillTargets(name: string, repo: string | null): Promise<SkillTarget[]>;
   abstract installSkill(name: string, scope: 'project' | 'user', repo: string | null): Promise<SkillInstalled>;
   abstract onEvent(handler: (event: AgentEvent) => void): Promise<Unlisten>;
+  /** Where the run's agent works: its draft, or the project folder with the subfolder. */
+  abstract runDir(runId: string): Promise<string>;
+  /** The shell of `key` (a conversation); an open one is returned as is. */
+  abstract terminalOpen(key: string, cwd: string, cols: number, rows: number): Promise<TerminalInfo>;
+  abstract terminalWrite(id: string, data: string): Promise<void>;
+  abstract terminalResize(id: string, cols: number, rows: number): Promise<void>;
+  abstract terminalClose(id: string): Promise<void>;
+  abstract onTerminalOutput(handler: (id: string, data: string) => void): Promise<Unlisten>;
+  abstract onTerminalExit(handler: (id: string, code: number | null) => void): Promise<Unlisten>;
 }
 
 export const isTauri = (): boolean =>
@@ -310,6 +319,27 @@ export class TauriBackend extends AgentBackend {
   }
   installSkill(name: string, scope: 'project' | 'user', repo: string | null) {
     return invoke<SkillInstalled>('install_skill', { name, scope, repo });
+  }
+  runDir(runId: string) {
+    return invoke<string>('run_dir', { runId });
+  }
+  terminalOpen(key: string, cwd: string, cols: number, rows: number) {
+    return invoke<TerminalInfo>('terminal_open', { key, cwd, cols, rows });
+  }
+  terminalWrite(id: string, data: string) {
+    return invoke<void>('terminal_write', { id, data });
+  }
+  terminalResize(id: string, cols: number, rows: number) {
+    return invoke<void>('terminal_resize', { id, cols, rows });
+  }
+  terminalClose(id: string) {
+    return invoke<void>('terminal_close', { id });
+  }
+  onTerminalOutput(handler: (id: string, data: string) => void) {
+    return listen<{ id: string; data: string }>('terminal-output', (e) => handler(e.payload.id, e.payload.data));
+  }
+  onTerminalExit(handler: (id: string, code: number | null) => void) {
+    return listen<{ id: string; code: number | null }>('terminal-exit', (e) => handler(e.payload.id, e.payload.code));
   }
   onEvent(handler: (event: AgentEvent) => void) {
     return listen<AgentEvent>('agent-event', (e) => handler(e.payload));

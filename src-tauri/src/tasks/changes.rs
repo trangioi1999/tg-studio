@@ -75,3 +75,11 @@ pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, 
     // Under the folder's lock: a draft applied to the same repo, or a commit, may be running.
     tasks.quiet_in(Some((&run_id, busy)), &[(&wt.path, Some(busy))], || files::write_file(&wt, &path, &content))
 }
+
+/// Where the run's agent works: its draft, or the user's folder with the conversation's subfolder.
+#[tauri::command(async)]
+pub fn run_dir(store: State<'_, Store>, run_id: String) -> Result<String, String> {
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    let scope = store.live_run_scope(&run_id).map_err(|e| format!("Không đọc được lượt chạy: {e}"))?.flatten();
+    Ok(crate::system::env::scoped_dir(&wt.path, scope.as_deref())?.to_string_lossy().into_owned())
+}

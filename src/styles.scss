@@ -328,6 +328,12 @@ tg-workbench { display: flex; flex-direction: column; }
 .term-tab .dot { width: 6px; height: 6px; border-radius: 50%; opacity: 0.7; }
 .term-tab .dot.live { opacity: 1; animation: agent-pulse 1.4s ease-in-out infinite; }
 .term-tabs .btn { margin-left: 4px; }
+.tty-mode { font-weight: 600; }
+.tty-sep { width: 1px; height: 16px; margin: 0 6px; background: var(--line); flex: none; }
+.tty-where { max-width: 50%; font-size: var(--fs-sm); }
+.tty-host { flex: 1; min-height: 0; padding: 4px 0 4px 10px; background: var(--bg); overflow: hidden; }
+.tty-term { width: 100%; height: 100%; }
+.tty-term .xterm { height: 100%; }
 .term-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 12px 10px; line-height: 19px; background: var(--bg); }
 tg-explorer { display: flex; flex-direction: column; }
 .tree { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; }

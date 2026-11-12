@@ -53,6 +53,7 @@ pub fn run() {
         .manage(tasks::headless::Runs::default())
         .manage(tasks::headless::HeadlessSessions::default())
         .manage(tasks::TaskRuns::default())
+        .manage(system::terminal::Terminals::default())
         .manage(std::sync::Arc::new(tasks::delegate::Delegations::default()))
         .manage(tasks::SessionInboxes::default())
         .manage(tasks::warm::WarmPool::default())
@@ -71,6 +72,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             system::resources::resource_usage,
+            system::terminal::terminal_open,
+            system::terminal::terminal_write,
+            system::terminal::terminal_resize,
+            system::terminal::terminal_close,
             system::version::app_version,
             system::version::latest_version,
             system::resources::kill_process,
@@ -122,8 +127,12 @@ pub fn run() {
             tasks::changes::list_worktree_files,
             tasks::changes::read_worktree_file,
             tasks::changes::write_worktree_file,
+            tasks::changes::run_dir,
             tasks::cleanup::discard_worktree,
             tasks::cleanup::delete_runs,
+            workspace::hooks::project_settings,
+            workspace::hooks::set_project_settings,
+            workspace::hooks::run_project_check,
             workspace::compose::compose_runs,
             workspace::compose::check_composite,
             workspace::compose::apply_composite,

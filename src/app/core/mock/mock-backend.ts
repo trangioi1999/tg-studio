@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from '../backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion, SyncStatus } from '../protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion, SyncStatus, TerminalInfo } from '../protocol';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
@@ -683,6 +683,66 @@ export class MockBackend extends AgentBackend {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     return `Downloads/${name}`;
+  }
+
+  // A pretend shell: echoes what is typed and answers each line with a prompt.
+  private shells = new Map<string, { id: string; cwd: string; line: string }>();
+  private outputHandlers: ((id: string, data: string) => void)[] = [];
+  private exitHandlers: ((id: string, code: number | null) => void)[] = [];
+
+  async runDir(runId: string): Promise<string> {
+    const run = this.tasks.get(runId);
+    if (!run) throw new Error('Không tìm thấy bản nháp của lượt chạy.');
+    return `/mock/.tg/worktrees/${runId}`;
+  }
+
+  async terminalOpen(key: string, cwd: string, _cols?: number, _rows?: number): Promise<TerminalInfo> {
+    const open = this.shells.get(key);
+    if (open) return { id: open.id, shell: 'zsh', cwd: open.cwd, fresh: false };
+    const id = crypto.randomUUID();
+    this.shells.set(key, { id, cwd, line: '' });
+    setTimeout(() => this.outputHandlers.forEach((h) => h(id, `Shell mô phỏng ở ${cwd}\r\n$ `)));
+    return { id, shell: 'zsh', cwd, fresh: true };
+  }
+
+  async terminalWrite(id: string, data: string): Promise<void> {
+    const shell = [...this.shells.values()].find((s) => s.id === id);
+    if (!shell) throw new Error('Terminal đã đóng.');
+    const out = (text: string) => this.outputHandlers.forEach((h) => h(id, text));
+    for (const ch of data) {
+      if (ch === '\r') {
+        const cmd = shell.line.trim();
+        shell.line = '';
+        if (cmd === 'exit') {
+          for (const [k, s] of this.shells) if (s.id === id) this.shells.delete(k);
+          out('\r\n');
+          this.exitHandlers.forEach((h) => h(id, 0));
+          return;
+        }
+        out(`\r\n${cmd ? `(mô phỏng) ${cmd}\r\n` : ''}$ `);
+      } else if (ch === '\u007f') {
+        if (shell.line) { shell.line = shell.line.slice(0, -1); out('\b \b'); }
+      } else {
+        shell.line += ch;
+        out(ch);
+      }
+    }
+  }
+
+  async terminalResize(): Promise<void> {}
+
+  async terminalClose(id: string): Promise<void> {
+    for (const [k, s] of this.shells) if (s.id === id) this.shells.delete(k);
+  }
+
+  async onTerminalOutput(handler: (id: string, data: string) => void): Promise<Unlisten> {
+    this.outputHandlers.push(handler);
+    return () => (this.outputHandlers = this.outputHandlers.filter((h) => h !== handler));
+  }
+
+  async onTerminalExit(handler: (id: string, code: number | null) => void): Promise<Unlisten> {
+    this.exitHandlers.push(handler);
+    return () => (this.exitHandlers = this.exitHandlers.filter((h) => h !== handler));
   }
 
   async onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {
