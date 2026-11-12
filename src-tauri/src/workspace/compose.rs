@@ -1,15 +1,14 @@
 //! Composite worktrees: hunks picked from several runs of one parallel group, applied
 //! on top of their shared base, so the mix can be tested before it reaches the repo.
 
-use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Arc, Mutex}, time::{Duration, Instant}};
+use std::{collections::HashMap, path::{Path, PathBuf}, sync::Mutex, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::{workspace::diff::{self, FileDiff}, system::env, store::Store, workspace::worktree::{self, Worktree}};
+use crate::{workspace::diff::{self, FileDiff}, store::Store, workspace::worktree::{self, Worktree}};
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
-const OUTPUT_LIMIT: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,66 +63,7 @@ pub fn compose(repo: &Path, id: &str, sources: &HashMap<String, Worktree>, picks
 
 /// Runs the user's own command (e.g. `npm test`) through the system shell in `cwd`.
 pub async fn run_check(cwd: &Path, command: &str) -> Result<CheckResult, String> {
-    if command.trim().is_empty() { return Err("Hãy nhập lệnh kiểm tra, ví dụ npm test.".into()); }
-    #[cfg(windows)]
-    let mut cmd = { let mut c = env::command("cmd"); c.args(["/C", command]); c };
-    #[cfg(not(windows))]
-    let mut cmd = { let mut c = env::command("sh"); c.args(["-c", command]); c };
-    cmd.current_dir(cwd).env("PATH", env::login_path()).stdin(Stdio::null())
-        .stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-    env::isolate(&mut cmd);
-    let started = Instant::now();
-    let mut child = cmd.spawn().map_err(|e| format!("Không chạy được lệnh: {e}"))?;
-    let pid = child.id();
-    let tail = Arc::new(Mutex::new(Tail::default()));
-    let readers = [
-        tokio::spawn(read_tail(child.stdout.take().expect("piped stdout"), tail.clone())),
-        tokio::spawn(read_tail(child.stderr.take().expect("piped stderr"), tail.clone())),
-    ];
-    let code = match tokio::time::timeout(CHECK_TIMEOUT, child.wait()).await {
-        Ok(Ok(status)) => status.code(),
-        Ok(Err(e)) => return Err(format!("Lệnh lỗi khi chạy: {e}")),
-        Err(_) => {
-            if let Some(pid) = pid { env::kill_tree(pid).await; }
-            let _ = child.kill().await;
-            None
-        }
-    };
-    // A background process can keep the pipes open after the command itself has ended.
-    for reader in readers {
-        let abort = reader.abort_handle();
-        if tokio::time::timeout(Duration::from_secs(2), reader).await.is_err() { abort.abort(); }
-    }
-    let (bytes, truncated) = {
-        let tail = tail.lock().map_err(|_| "Không đọc được kết quả lệnh.")?;
-        (tail.bytes.clone(), tail.dropped)
-    };
-    let mut text = String::from_utf8_lossy(&bytes).into_owned();
-    if code.is_none() && started.elapsed() >= CHECK_TIMEOUT {
-        if !text.is_empty() && !text.ends_with('\n') { text.push('\n'); }
-        text.push_str(&format!("Đã dừng lệnh sau {} phút.", CHECK_TIMEOUT.as_secs() / 60));
-    }
-    Ok(CheckResult { code, output: text, truncated, duration_ms: started.elapsed().as_millis() as u64 })
-}
-
-/// The end of a command's output, where test summaries are. A noisy command must not
-/// fill memory during the minutes it runs.
-#[derive(Default)]
-struct Tail { bytes: Vec<u8>, dropped: bool }
-
-async fn read_tail(mut pipe: impl tokio::io::AsyncRead + Unpin, tail: Arc<Mutex<Tail>>) {
-    use tokio::io::AsyncReadExt;
-    let mut buffer = [0; 8192];
-    while let Ok(n) = pipe.read(&mut buffer).await {
-        if n == 0 { break; }
-        let Ok(mut tail) = tail.lock() else { break };
-        tail.bytes.extend_from_slice(&buffer[..n]);
-        if tail.bytes.len() > OUTPUT_LIMIT {
-            let extra = tail.bytes.len() - OUTPUT_LIMIT;
-            tail.bytes.drain(..extra);
-            tail.dropped = true;
-        }
-    }
+    super::hooks::run_script(cwd, command, &[], CHECK_TIMEOUT).await
 }
 
 fn get(state: &Composites, id: &str) -> Result<(PathBuf, Worktree), String> {
@@ -177,6 +117,8 @@ pub fn discard_composite(state: State<'_, Composites>, id: String) -> Result<(),
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+    use super::super::hooks::OUTPUT_LIMIT;
     #[cfg(unix)]
     #[tokio::test]
     async fn check_keeps_only_the_tail_of_huge_output() {
@@ -268,7 +210,7 @@ mod tests {
         #[cfg(not(windows))]
         let (ok, bad) = ("echo xin chào", "echo out; echo err 1>&2; exit 3");
         #[cfg(windows)]
-        let (ok, bad) = ("echo xin chao", "echo out & echo err 1>&2 & exit /b 3");
+        let (ok, bad) = ("echo xin chao", "Write-Output out; [Console]::Error.WriteLine('err'); exit 3");
         let r = run_check(&dir, ok).await.unwrap();
         assert_eq!(r.code, Some(0));
         assert!(r.output.contains("xin ch"));
