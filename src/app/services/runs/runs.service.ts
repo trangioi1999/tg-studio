@@ -309,14 +309,6 @@ export class RunsService {
     return this.backend.writeFile(runId, path, content);
   }
 
-  acceptHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    return this.backend.acceptHunk(runId, path, hunkId);
-  }
-
-  rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    return this.backend.rejectHunk(runId, path, hunkId);
-  }
-
 
   ownChanges(runId: string): Promise<OwnChanges> {
     return this.backend.ownChanges(runId);

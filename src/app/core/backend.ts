@@ -43,10 +43,8 @@ export abstract class AgentBackend {
   abstract sendMessage(runId: string, prompt: string): Promise<void>;
   abstract respondPermission(runId: string, requestId: string, optionId: string, always: boolean): Promise<void>;
   abstract getDiff(runId: string): Promise<FileDiff[]>;
-  abstract acceptHunk(runId: string, path: string, hunkId: string): Promise<void>;
   /** Applies every pending change of the run at once; returns the number of files. */
   abstract acceptAll(runId: string): Promise<number>;
-  abstract rejectHunk(runId: string, path: string, hunkId: string): Promise<void>;
   /** Every staged file of the run's repository: what a commit would include. */
   abstract commitAccepted(runId: string, message: string): Promise<string>;
   /** Uncommitted files of a direct run's folder that the agent did not change. */
@@ -176,14 +174,8 @@ export class TauriBackend extends AgentBackend {
   getDiff(runId: string) {
     return invoke<FileDiff[]>('get_diff', { runId });
   }
-  acceptHunk(runId: string, path: string, hunkId: string) {
-    return invoke<void>('accept_hunk', { runId, path, hunkId });
-  }
   acceptAll(runId: string) {
     return invoke<number>('accept_all', { runId });
-  }
-  rejectHunk(runId: string, path: string, hunkId: string) {
-    return invoke<void>('reject_hunk', { runId, path, hunkId });
   }
   commitAccepted(runId: string, message: string) {
     return invoke<string>('commit_accepted', { runId, message });

@@ -330,13 +330,6 @@ export class MockBackend extends AgentBackend {
     return this.task(runId).files;
   }
 
-  async acceptHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    const task = this.task(runId);
-    this.dropHunk(task, path, hunkId);
-    task.accepted += 1;
-    task.staged.add(path);
-  }
-
   async acceptAll(runId: string): Promise<number> {
     const task = this.task(runId);
     if (this.runs.get(runId)?.active) throw new Error('Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.');
@@ -346,10 +339,6 @@ export class MockBackend extends AgentBackend {
     for (const f of task.files) task.staged.add(f.path);
     task.files = [];
     return count;
-  }
-
-  async rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    this.dropHunk(this.task(runId), path, hunkId);
   }
 
   async commitAccepted(runId: string, message: string): Promise<string> {
@@ -477,12 +466,6 @@ export class MockBackend extends AgentBackend {
     const task = this.tasks.get(runId);
     if (!task) throw new Error('Không tìm thấy worktree mô phỏng.');
     return task;
-  }
-
-  private dropHunk(task: MockTask, path: string, hunkId: string): void {
-    task.files = task.files
-      .map((f) => (f.path === path ? { ...f, hunks: f.hunks.filter((h) => h.id !== hunkId) } : f))
-      .filter((f) => f.hunks.length > 0);
   }
 
   private later(runId: string, run: MockRun, partial: Partial<AgentEvent>, delay: number, effect?: () => void): void {

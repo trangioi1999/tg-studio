@@ -316,18 +316,7 @@ tg-workbench { display: flex; flex-direction: column; }
 .crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); }
 .crumbs .crumb-last { color: var(--text); }
 .live-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--agent); animation: agent-pulse 1.4s ease-in-out infinite; }
-.hunk-zone { box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; height: 30px; margin: 2px 0 0; padding: 0 4px 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--raised); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); font: var(--fs-sm) var(--font); }
-.hunk-zone .hunk-count { margin-right: 4px; }
 /* Keep and drop read at a glance: a green check and a red cross, filled on hover. */
-.hunk-act { width: 30px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; cursor: pointer; transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
-.hunk-act svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.hunk-act.accept { color: var(--done); border-color: var(--done-line); background: var(--done-tint); }
-.hunk-act.accept:hover { background: var(--done); border-color: var(--done); color: var(--bg); }
-.hunk-act.reject { color: var(--fail); border-color: var(--fail-line); background: var(--fail-tint); }
-.hunk-act.reject:hover { background: var(--fail); border-color: var(--fail); color: var(--bg); }
-.hunk-zone-label { min-width: 0; }
-.hunk-zone .plus { color: var(--ok); }
-.hunk-zone .minus { color: var(--err); }
 .term { flex: none; position: relative; height: var(--h-term, 200px); display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--panel); }
 .term.collapsed { height: 34px; }
 .term-tabs { height: 33px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; overflow-x: auto; }
