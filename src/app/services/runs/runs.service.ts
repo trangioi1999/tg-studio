@@ -360,6 +360,16 @@ export class RunsService {
     this.runs.update((list) => list.map((r) => (r.id === id ? { ...r, proposal: null } : r)));
   }
 
+  /** A line from the app itself (the project's check), shown as a note in the work log; `key` updates it in place. */
+  note(runId: string, text: string, key?: string): void {
+    this.runs.update((list) => list.map((r) => {
+      if (r.id !== runId) return r;
+      const line = { text, tone: 'error' as const, ...(key ? { key } : {}) };
+      const at = key ? r.lines.findIndex((l) => l.key === key) : -1;
+      return { ...r, lines: at >= 0 ? r.lines.map((l, i) => (i === at ? line : l)) : [...r.lines, line] };
+    }));
+  }
+
   async stop(id: string): Promise<void> {
     this.stopping.add(id);
     await this.backend.stop(id);

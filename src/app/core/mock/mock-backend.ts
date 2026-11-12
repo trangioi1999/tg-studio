@@ -692,7 +692,7 @@ export class MockBackend extends AgentBackend {
 
   private projectHooks = new Map<string, ProjectSettings>();
   /** Checks run per run, so a prompt naming "failcheck" fails once and then passes. */
-  private checks = new Map<string, number>();
+  private checkCounts = new Map<string, number>();
 
   async projectSettings(root: string): Promise<ProjectSettings> {
     return this.projectHooks.get(root) ?? { setup: '', check: '', autoFix: true, maxFixRounds: 2 };
@@ -706,8 +706,8 @@ export class MockBackend extends AgentBackend {
     const run = this.runs.get(runId);
     const check = [...this.projectHooks.values()][0]?.check ?? '';
     if (!check.trim()) return null;
-    const n = (this.checks.get(runId) ?? 0) + 1;
-    this.checks.set(runId, n);
+    const n = (this.checkCounts.get(runId) ?? 0) + 1;
+    this.checkCounts.set(runId, n);
     await new Promise((r) => setTimeout(r, 300));
     const fail = !!run?.prompt?.includes('failcheck') && n === 1;
     return fail
