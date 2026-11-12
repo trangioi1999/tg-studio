@@ -96,4 +96,16 @@ describe('TerminalsService', () => {
     expect(service.state()['t1']).toBeUndefined();
     await service.close('unknown'); // nothing open: no error
   });
+
+  it('shows why when xterm cannot load, instead of an empty panel', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentBackend, useValue: new Backend() },
+        { provide: XTERM, useValue: async () => { throw new TypeError('n is not a constructor'); } },
+      ],
+    });
+    const host = document.createElement('div');
+    await TestBed.inject(TerminalsService).attach('t1', '/a', host);
+    expect(host.textContent).toContain('Không tải được terminal: n is not a constructor');
+  });
 });

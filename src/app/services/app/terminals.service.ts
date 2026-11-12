@@ -49,7 +49,16 @@ export class TerminalsService {
     await this.listen();
     let s = this.sessions.get(key);
     if (!s) {
-      const term = await this.load();
+      let term: XtermLike;
+      try {
+        term = await this.load();
+      } catch (e) {
+        const p = document.createElement('p');
+        p.className = 'error-text tty-error';
+        p.textContent = `Không tải được terminal: ${errorText(e)}`;
+        el.replaceChildren(p);
+        return;
+      }
       const host = document.createElement('div');
       host.className = 'tty-term';
       const session: Session = { key, term, host, id: null };

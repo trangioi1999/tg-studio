@@ -2,7 +2,14 @@ import type { XtermLike } from '../../services/app/terminals.service';
 
 /** xterm.js, loaded on first use so it stays out of the main bundle. Its CSS is a global style (angular.json). */
 export async function loadXterm(): Promise<XtermLike> {
-  const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
+  // CommonJS packages: a production build puts their exports under `default`, `ng serve` does not.
+  const [xterm, fitAddon] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
+  const pick = <T>(mod: unknown, name: string): T => {
+    const m = mod as Record<string, unknown> & { default?: Record<string, unknown> };
+    return (m[name] ?? m.default?.[name]) as T;
+  };
+  const Terminal = pick<typeof import('@xterm/xterm').Terminal>(xterm, 'Terminal');
+  const FitAddon = pick<typeof import('@xterm/addon-fit').FitAddon>(fitAddon, 'FitAddon');
   const css = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   const term = new Terminal({
