@@ -39,7 +39,7 @@ const files = [
   },
   {
     // What the browser-only mock shows in the status bar and in screenshots.
-    path: 'src/app/core/mock-backend.ts',
+    path: 'src/app/core/mock/mock-backend.ts',
     read: (text) => /const APP_VERSION = '([^']+)';/.exec(text)?.[1],
     write: (text) => text.replace(/const APP_VERSION = '[^']+';/, `const APP_VERSION = '${version}';`),
   },
