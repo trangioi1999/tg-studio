@@ -486,11 +486,8 @@ fn reopened_store_supports_diff_accept_reject_and_commit() {
     std::fs::write(wt.path.join("reject.txt"), "rejected\n").unwrap();
     let store = Store::open(&db).unwrap();
     let (root, restored) = stored_worktree(&store, &wt.run_id).unwrap();
-    let pending = diff::pending(&restored).unwrap();
-    for file in pending {
-        if file.path == "new.txt" { diff::accept_hunk(&root, &restored, &file.path, &file.hunks[0].id).unwrap(); }
-        if file.path == "reject.txt" { diff::reject_hunk(&restored, &file.path, &file.hunks[0].id).unwrap(); }
-    }
+    diff::revert_files(&restored, &["reject.txt".into()]).unwrap();
+    diff::accept_all(&root, &restored).unwrap();
     assert!(diff::pending(&restored).unwrap().is_empty());
     let hash = diff::commit(&root, "accepted only").unwrap();
     assert!(!hash.is_empty());
@@ -676,7 +673,7 @@ async fn live_claude_edit_permission_diff_accept_commit() {
     let pending = diff::pending(&wt).unwrap();
     assert!(pending.iter().any(|f| f.path == "hello.txt"), "diff phải có hello.txt: {pending:?}");
     assert!(pending.iter().any(|f| f.path == "checked.txt" && f.status == "A"), "diff phải có checked.txt: {pending:?}");
-    for file in &pending { for hunk in &file.hunks { diff::accept_hunk(&repo.0, &wt, &file.path, &hunk.id).unwrap(); } }
+    diff::accept_all(&repo.0, &wt).unwrap();
     assert!(diff::pending(&wt).unwrap().is_empty());
     let hash = diff::commit(&repo.0, "Đổi lời chào").unwrap();
     assert!(!hash.is_empty());
