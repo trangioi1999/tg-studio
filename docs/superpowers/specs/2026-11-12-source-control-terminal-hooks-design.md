@@ -1,7 +1,8 @@
 # TG Studio — Source Control, terminal và hook theo dự án (đợt 2)
 
 - **Ngày:** 2026-11-12
-- **Trạng thái:** chủ repo đã đồng ý ba việc và cho giao phần làm được cho Codex; chủ repo đã duyệt (2026-11-12: "bạn tự giao codex các thứ với bạn làm đi"); mọi mục **[Đề xuất]** coi như đã chốt.
+- **Trạng thái:** chủ repo đã đồng ý ba việc và cho giao phần làm được cho Codex; chủ repo đã duyệt (2026-11-12: "bạn tự giao codex các thứ với bạn làm đi"); mọi mục **[Đề xuất]** coi như đã chốt. **Đã làm hết ba việc** (2026-11-12, merge vào `main`).
+- **Làm khác thiết kế:** dòng của script chuẩn bị và kết quả kiểm tra hiện là ghi chú trong Nhật ký làm việc, không phải dòng trạng thái riêng; kết quả kiểm tra chỉ ở UI, không lưu SQLite nên lịch sử nạp lại không có; câu sửa gửi cho agent hiện như tin nhắn của người dùng, chưa có nhãn "TG Studio · kiểm tra"; thread chưa có nhãn "Đang kiểm tra"; vòng kiểm tra chưa dừng theo ngân sách (run bị tự dừng vì ngân sách thì không được kiểm); script chuẩn bị hỏng làm `start_task` trả lỗi, nên ô chat cũng báo lỗi và trả lại chữ. Chưa thử ConPTY và PowerShell trên Windows thật.
 - **Code tham chiếu:** nhánh `claude/ui-polish` tại `c830340`
 
 Quy ước: **[Chủ repo]** là điều chủ repo đã nói hoặc đã chốt. **[Đề xuất]** là quyết định của người viết, chủ repo đổi được khi duyệt. **[Cần kiểm chứng]** phải chạy thử thật trước khi code dựa vào nó.

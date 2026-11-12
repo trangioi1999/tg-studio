@@ -101,10 +101,23 @@ Thay đổi của agent là thay đổi git bình thường, không phải duy�
   - **Bạn tự sửa**: tệp bạn đã đổi trước khi agent bắt đầu, mặc định không chọn.
 - **Commit N tệp** chỉ commit các tệp được chọn. Phần bạn đã tự stage ở tệp khác vẫn giữ nguyên.
 - **↶** ở mỗi tệp, hoặc **Hoàn tác tất cả**, trả tệp về đúng như trước khi agent sửa (không về commit cuối), nên phần bạn sửa dở trước đó không mất. Tệp agent tạo mới bị xoá.
-- Bấm một tệp để xem diff trong editor. Muốn bỏ một đoạn lẻ thì dùng nút **Hoàn tác đoạn này** dưới đoạn đó (Ctrl+Backspace); không bắt buộc.
+- Bấm một tệp để mở trong editor; dòng agent sửa có vạch màu. Giữ hay bỏ là theo cả tệp, không theo từng đoạn.
 - Khi agent đang sửa, tab vẫn xem được nhưng Commit và Hoàn tác bị khoá.
 - Bản nháp: **Áp vào thư mục** đưa toàn bộ thay đổi vào code thật một lần, rồi Commit.
 - **Bỏ bản nháp** khi không cần nữa, hoặc xoá cả cuộc trò chuyện ở cột trái.
+- Dưới ô commit là nhánh hiện tại và số commit chưa đẩy (↑2 ↓0). **Push** đẩy nhánh lên remote (lần đầu tự đặt upstream, không bao giờ force). **Tạo PR** hiện khi máy có GitHub CLI (`gh`) đã đăng nhập và bạn đang ở nhánh khác nhánh chính: sửa tiêu đề, nội dung rồi bấm, app push nếu cần và mở PR trong trình duyệt. Nhánh đã có PR thì hiện **Mở PR**. Push báo chưa đăng nhập thì đăng nhập git/gh trong Terminal rồi thử lại.
+
+### Terminal
+
+Khung dưới của panel phải có hai tab: **Terminal** và **Log**. Mỗi cuộc trò chuyện có một terminal riêng (zsh/bash trên macOS, PowerShell trên Windows), mở ở đúng thư mục agent đang làm: bản nháp nếu làm trong bản nháp, thư mục dự án nếu làm thẳng. Đổi cuộc trò chuyện thì terminal đổi theo, terminal cũ vẫn chạy ngầm. Shell thoát thì bấm **Mở lại**. Xoá cuộc trò chuyện thì terminal của nó đóng theo.
+
+### Thiết lập dự án: script chuẩn bị và lệnh kiểm tra
+
+Bấm **⚙** cạnh tên dự án đang mở ở cột trái:
+
+- **Script chuẩn bị bản nháp** chạy một lần trong mỗi bản nháp mới, trước khi agent bắt đầu. Bản nháp chỉ có tệp đã commit, nên dùng nó để chép `.env` hay cài thư viện, ví dụ `cp "$TG_ROOT_PATH/.env" . && npm install` (Windows: `Copy-Item "$env:TG_ROOT_PATH\.env" . ; npm install`). Script hỏng thì run dừng trước khi agent chạy, kèm phần cuối output.
+- **Lệnh kiểm tra** (ví dụ `npm test`) chạy sau mỗi lượt agent có sửa tệp, kết quả hiện trong Nhật ký làm việc. Nếu bật **gửi lỗi cho agent tự sửa**, lệnh hỏng thì app gửi phần cuối output cho agent sửa, tối đa số lần đã đặt (mặc định 2). Bạn gửi câu mới hoặc bấm Dừng thì vòng này dừng.
+- Thiết lập lưu trong app, không ghi tệp nào vào repo.
 
 ## 7. Song song: so sánh và ghép
 
