@@ -28,18 +28,38 @@ impl TaskRuns {
         Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(run_id).is_some_and(|s| s.is_busy()))
     }
 
-    /// Some agent is writing in this folder now: this run, or another one working in the same
-    /// place (every direct run of a repo works in the repo itself; pipeline steps share a draft).
-    fn writing_in(&self, run_id: &str, dir: &Path) -> Result<bool, String> {
-        let same = |p: &Path| p == dir || (dunce::canonicalize(p).ok().is_some() && dunce::canonicalize(p).ok() == dunce::canonicalize(dir).ok());
-        Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.iter()
-            .any(|(id, s)| s.is_busy() && (id == run_id || same(s.root()))))
+    /// Some agent is writing in this folder now (every direct run of a repo works in the repo
+    /// itself; pipeline steps share a draft).
+    fn writing_in(&self, dir: &Path) -> Result<bool, String> {
+        let wanted = dunce::canonicalize(dir).ok();
+        let same = |p: &Path| p == dir || (wanted.is_some() && dunce::canonicalize(p).ok() == wanted);
+        Ok(self.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.values().any(|s| s.is_busy() && same(s.root())))
     }
 
-    /// Refuses a change to files while an agent writes in the same folder.
-    fn guard_writes(&self, run_id: &str, dir: &Path, why: &str) -> Result<(), String> {
-        if self.writing_in(run_id, dir)? { Err(why.to_owned()) } else { Ok(()) }
+    /// Runs `f` with these folders locked, once no agent writes in the ones that carry a
+    /// message, and (with `own`) once this run is not busy. Checked under the lock, so the
+    /// check and the change it allows are one step for every other review or commit.
+    /// A folder without a message is only locked: its writer does not matter to `f`.
+    pub(crate) fn quiet_in<T>(&self, own: Option<(&str, &str)>, dirs: &[(&Path, Option<&str>)], f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        let paths: Vec<&Path> = dirs.iter().map(|(d, _)| *d).collect();
+        diff::exclusive_in(&paths, || {
+            if let Some((id, why)) = own {
+                if self.busy(id)? { return Err(why.to_owned()); }
+            }
+            for (dir, why) in dirs {
+                if let Some(why) = why {
+                    if self.writing_in(dir)? { return Err((*why).to_owned()); }
+                }
+            }
+            f()
+        })
     }
+}
+
+/// Marks the session at work, under its folder's lock: a review or commit running there
+/// finishes first, and one that starts after sees the agent busy. False if it already works.
+pub(crate) fn start_turn(session: &TaskSession) -> bool {
+    diff::exclusive_in(&[session.root()], || session.claim_turn())
 }
 
 /// Where the next message of each open session goes.
@@ -236,7 +256,8 @@ async fn run_turn(client: &AcpClient, session: &TaskSession, id: &str, prompt: &
 async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: SessionPlan<'_>, mut next_stop: impl FnMut() -> oneshot::Receiver<()>, mut on_opened: impl FnMut(&str), mut on_turn: impl FnMut(&TurnEnd), dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     tokio::pin!(dead);
     let mut stop = next_stop();
-    session.set_busy(true);
+    // A commit may be running in this folder; wait for it (at most a second or so).
+    start_turn(session);
     let opened = plan.opened.take();
     let setup = async {
         if let Some(id) = opened { return Ok::<_, String>((id, false)); }
@@ -567,7 +588,7 @@ pub fn send_message(app: AppHandle, tasks: State<'_, TaskRuns>, inboxes: State<'
     let inbox = inboxes.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     let (Some(inbox), Some(session)) = (inbox, session) else { return Err("Phiên này đã đóng.".into()); };
-    if !session.claim_turn() { return Err("Agent đang chạy. Hãy chờ hoặc dừng trước.".into()); }
+    if !start_turn(&session) { return Err("Agent đang chạy. Hãy chờ hoặc dừng trước.".into()); }
     if let Err(e) = store.set_run_status(&run_id, "running") { eprintln!("Không lưu được trạng thái: {e}"); }
     let mut event = AgentEvent::new(&run_id, session.agent(), "user");
     event.line = Some(prompt.clone());

@@ -156,15 +156,15 @@ pub async fn check_composite(state: State<'_, Composites>, id: String, command: 
 }
 
 #[tauri::command(async)]
-pub fn apply_composite(state: State<'_, Composites>, id: String) -> Result<usize, String> {
+pub fn apply_composite(state: State<'_, Composites>, tasks: State<'_, crate::tasks::TaskRuns>, id: String) -> Result<usize, String> {
     let (repo, wt) = get(&state, &id)?;
-    diff::accept_all(&repo, &wt)
+    tasks.quiet_in(None, &[(&wt.path, None), (&repo, Some(crate::tasks::changes::BUSY_REPO))], || diff::accept_all(&repo, &wt))
 }
 
 #[tauri::command(async)]
-pub fn commit_composite(state: State<'_, Composites>, id: String, message: String) -> Result<String, String> {
-    let (repo, _) = get(&state, &id)?;
-    diff::commit(&repo, &message)
+pub fn commit_composite(state: State<'_, Composites>, tasks: State<'_, crate::tasks::TaskRuns>, id: String, message: String) -> Result<String, String> {
+    let (repo, wt) = get(&state, &id)?;
+    tasks.quiet_in(None, &[(&wt.path, None), (&repo, Some(crate::tasks::changes::BUSY_REPO))], || diff::commit(&repo, &message))
 }
 
 #[tauri::command(async)]
