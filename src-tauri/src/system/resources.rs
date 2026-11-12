@@ -4,7 +4,7 @@ use serde::Serialize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Owner { Run(String), Warm }
+pub enum Owner { Run(String), Warm, Terminal(String) }
 
 static REGISTRY: LazyLock<Mutex<HashMap<u32, Owner>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 static SYSTEM: Mutex<Option<System>> = Mutex::new(None);
@@ -91,7 +91,7 @@ fn group_processes(processes: &[ProcStat], registry: &HashMap<u32, Owner>, app: 
     let mut owners = HashMap::new();
     for pid in &roots {
         owners.insert(*pid, groups.len());
-        groups.push(match &registry[pid] { Owner::Run(id) => group("run", Some(id.clone())), Owner::Warm => group("warm", None) });
+        groups.push(match &registry[pid] { Owner::Run(id) => group("run", Some(id.clone())), Owner::Warm => group("warm", None), Owner::Terminal(key) => group("terminal", Some(key.clone())) });
     }
     let other = groups.len();
     groups.push(group("other", None));
@@ -196,6 +196,17 @@ mod tests {
     fn fixture() -> (Vec<ProcStat>, HashMap<u32, Owner>) {
         (vec![p(1, 0, "app"), p(2, 1, "run"), p(3, 2, "mcp"), p(4, 1, "warm"), p(5, 4, "mcp"), p(6, 1, "probe"), p(7, 6, "probe-child"), p(8, 1, "msedgewebview2.exe"), p(9, 8, "renderer"), p(10, 0, "unrelated")],
          HashMap::from([(2, Owner::Run("r".into())), (4, Owner::Warm), (99, Owner::Run("dead".into()))]))
+    }
+    #[test]
+    fn terminal_owns_its_children_and_is_protected() {
+        let processes = vec![p(1, 0, "app"), p(2, 1, "shell"), p(3, 2, "command")];
+        let registry = HashMap::from([(2, Owner::Terminal("thread".into()))]);
+        let (groups, _) = group_processes(&processes, &registry, 1);
+        assert_eq!(groups[1].kind, "terminal");
+        assert_eq!(groups[1].run_id.as_deref(), Some("thread"));
+        assert_eq!(groups[1].processes.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![2, 3]);
+        assert!(validate_kill(2, &processes, &registry, 1).is_err());
+        assert!(validate_kill(3, &processes, &registry, 1).is_err());
     }
     #[test]
     fn groups_trees_once_and_ignores_dead_roots() {
