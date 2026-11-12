@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from '../backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion } from '../protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion, SyncStatus } from '../protocol';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
@@ -363,6 +363,36 @@ export class MockBackend extends AgentBackend {
     task.files = task.files.filter((f) => !paths.includes(f.path));
   }
 
+  /** Commits made in the mock since the last push. */
+  private ahead = 0;
+  private pushed = false;
+  private pr: string | null = null;
+
+  async syncStatus(root: string): Promise<SyncStatus> {
+    // A path naming "noremote" simulates a repository without a remote.
+    if (root.includes('noremote')) return { branch: 'main', upstream: null, ahead: 0, behind: 0, remote: null, github: false, gh: true, defaultBranch: null, prUrl: null };
+    return { branch: 'tg/demo', upstream: this.pushed ? 'origin/tg/demo' : null, ahead: this.ahead, behind: 0, remote: 'origin', github: true, gh: true, defaultBranch: 'main', prUrl: this.pr };
+  }
+
+  async push(root: string): Promise<SyncStatus> {
+    if (root.includes('noremote')) throw new Error('Repo chưa có remote để push.');
+    await new Promise((r) => setTimeout(r, 400));
+    this.ahead = 0;
+    this.pushed = true;
+    return this.syncStatus(root);
+  }
+
+  async createPr(root: string, title: string, _body: string): Promise<string> {
+    if (!title.trim()) throw new Error('Hãy nhập tiêu đề PR.');
+    await this.push(root);
+    this.pr = 'https://github.com/example/demo/pull/1';
+    return this.pr;
+  }
+
+  async openUrl(url: string): Promise<void> {
+    window.open(url, '_blank', 'noopener');
+  }
+
   async commitFiles(runId: string, paths: string[], message: string): Promise<string> {
     if (this.runs.get(runId)?.active) throw new Error('Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.');
     if (!paths.length) throw new Error('Chưa chọn tệp nào để commit.');
@@ -371,6 +401,7 @@ export class MockBackend extends AgentBackend {
     task.files = task.files.filter((f) => !paths.includes(f.path));
     task.own = task.own.filter((f) => !paths.includes(f.path));
     for (const p of paths) task.staged.delete(p);
+    this.ahead += 1;
     return 'abc1234def5678';
   }
 

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport, AppVersion, LatestVersion } from './protocol';
+import { AccountLimits, AgentEvent, AgentOptions, Approval, Place, SessionPrefs, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChanges, GitPlan, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, UsageRow, AgentCommand, ResourceReport, AppVersion, LatestVersion, SyncStatus } from './protocol';
 
 export type Unlisten = () => void;
 export type SettingKey = 'budgets' | 'bridge' | 'agents';
@@ -53,6 +53,14 @@ export abstract class AgentBackend {
   abstract revertFiles(runId: string, paths: string[]): Promise<void>;
   /** Commits exactly these files from the user's folder; returns the commit hash. */
   abstract commitFiles(runId: string, paths: string[], message: string): Promise<string>;
+  /** The project's branch against its remote. */
+  abstract syncStatus(root: string): Promise<SyncStatus>;
+  /** Pushes the project's branch, setting its upstream the first time; never forces. */
+  abstract push(root: string): Promise<SyncStatus>;
+  /** Pushes if needed, opens a GitHub PR for the branch and returns its URL. */
+  abstract createPr(root: string, title: string, body: string): Promise<string>;
+  /** Opens an http(s) link in the system browser. */
+  abstract openUrl(url: string): Promise<void>;
   abstract discardWorktree(runId: string): Promise<void>;
   /** Hides a conversation's runs from history and removes their drafts; usage stays counted. */
   abstract deleteRuns(runIds: string[]): Promise<void>;
@@ -188,6 +196,18 @@ export class TauriBackend extends AgentBackend {
   }
   commitFiles(runId: string, paths: string[], message: string) {
     return invoke<string>('commit_files', { runId, paths, message });
+  }
+  syncStatus(root: string) {
+    return invoke<SyncStatus>('git_sync_status', { root });
+  }
+  push(root: string) {
+    return invoke<SyncStatus>('git_push', { root });
+  }
+  createPr(root: string, title: string, body: string) {
+    return invoke<string>('create_pr', { root, title, body });
+  }
+  openUrl(url: string) {
+    return invoke<void>('open_url', { url });
   }
   discardWorktree(runId: string) {
     return invoke<void>('discard_worktree', { runId });
