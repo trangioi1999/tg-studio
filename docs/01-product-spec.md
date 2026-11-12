@@ -24,7 +24,7 @@ Một câu: *"Bày trận cho các agent, mình làm chỉ huy."*
 
 ## 4. Phạm vi bản 1.0
 
-**Có:** chạy 1..n agent trên 1 repo · pipeline Plan → Build → Review · chạy song song + so sánh · duyệt quyền · diff/merge từng hunk · usage & ngân sách · registry MCP/skills · bản cài macOS/Windows có tự cập nhật.
+**Có:** chạy 1..n agent trên 1 repo · pipeline Plan → Build → Review · chạy song song + so sánh · duyệt quyền · thay đổi kiểu git (commit, hoàn tác theo tệp, push, PR) · usage & ngân sách · registry MCP/skills · bản cài macOS/Windows có tự cập nhật.
 
 **Không (để sau):** cộng tác nhiều người thời gian thực · chạy agent trên cloud · tự host model ngoài Ollama · marketplace plugin riêng · Linux (có thể build nhưng không hỗ trợ chính thức).
 
@@ -41,7 +41,7 @@ Mockup: canvas "Multi-Agent Coding App" (xem `06-design-system.md`).
 | Cây thư mục có chấm màu agent đã sửa file | File bị agent sửa hiện chấm màu đúng agent + trạng thái M/A/D |
 | Editor (Monaco) với vạch màu theo agent ở dòng được thêm/sửa | Mở file đang bị sửa thấy vạch màu và số dòng thay đổi |
 | Con trỏ có tên agent tại dòng đang sửa | Khi agent ghi file, con trỏ cập nhật trong ≤ 1s |
-| Thanh hunk Accept ⌘↵ / Reject ⌘⌫ ngay trong editor | Accept đưa hunk vào nhánh làm việc; Reject bỏ hunk khỏi worktree |
+| Tab Thay đổi kiểu Source Control (thay cho duyệt từng đoạn, 2026-11-12) | Commit, hoàn tác theo tệp, Push, Tạo PR; editor chỉ hiện vạch màu agent |
 | Terminal tách tab theo agent | Mỗi lượt chạy có 1 tab log, cuộn mượt với 10.000 dòng |
 | Panel agent: Thread / Plan / Runs | Xem hội thoại, checklist plan có gán agent, lịch sử lượt chạy |
 | Khung "Usage · this task" | Mỗi agent 1 dòng: in/cache/out, ctx %, chi phí, nhãn nguồn |
