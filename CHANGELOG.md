@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.6.7] - 2026-11-13
+
 ### Sửa lỗi
 - Bảo Claude "giao việc cho Kiro" không còn chuyển hẳn cuộc trò chuyện sang Kiro: Claude được hướng dẫn dùng giao việc (Kiro chạy như agent con, kết quả gộp về), chỉ đề xuất chuyển hẳn khi bạn muốn đổi agent. Thẻ đề xuất chuyển việc có nút chính **Để Claude giao cho Kiro**; **Chuyển hẳn sang Kiro** thành lựa chọn phụ.
 - Kiro: ô `/` hiện skill của dự án (`.kiro/skills/`) và của máy (`~/.kiro/skills/`), kể cả khi Kiro không tự liệt kê; đọc thêm danh sách lệnh Kiro gửi qua thông báo riêng.
