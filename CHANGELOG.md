@@ -4,6 +4,11 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Bảo Claude "giao việc cho Kiro" không còn chuyển hẳn cuộc trò chuyện sang Kiro: Claude được hướng dẫn dùng giao việc (Kiro chạy như agent con, kết quả gộp về), chỉ đề xuất chuyển hẳn khi bạn muốn đổi agent. Thẻ đề xuất chuyển việc có nút chính **Để Claude giao cho Kiro**; **Chuyển hẳn sang Kiro** thành lựa chọn phụ.
+- Kiro: ô `/` hiện skill của dự án (`.kiro/skills/`) và của máy (`~/.kiro/skills/`), kể cả khi Kiro không tự liệt kê; đọc thêm danh sách lệnh Kiro gửi qua thông báo riêng.
+- Kiro: hiện chi phí. Kiro không báo token qua ACP, chỉ báo credit (`_kiro.dev/metadata`); app quy ra USD theo giá credit vượt gói (0,04 USD/credit).
+
 ### Thay đổi
 - README, ảnh chụp giao diện và trang review (21 màn) cập nhật theo bản 0.6.6: đính kèm, terminal, thiết lập dự án, Push/Tạo PR.
 
