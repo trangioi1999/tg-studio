@@ -5,6 +5,11 @@ import { TerminalsService } from '../../services/app/terminals.service';
 import { RunsService } from '../../services/runs/runs.service';
 import { WorkspaceService } from '../../services/workspace.service';
 import { Splitter } from '../../shared/ui/splitter';
+import { AgentAvatar } from '../../shared/ui/agent-avatar';
+import { AgentId } from '../../core/protocol';
+import { RUN_STATUS_LABEL } from '../../services/runs/run';
+import { copyText } from '../../shared/utils/clipboard';
+import { LogSection, filterSections, logSections, logText, sectionTitle } from './log-sections';
 
 const TAB_KEY = 'tg.bottom';
 type BottomTab = 'log' | 'shell';
@@ -18,12 +23,13 @@ function readTab(): BottomTab {
 }
 
 /**
- * Bottom panel. Log: one tab per run of this session, following the selected run.
+ * Bottom panel. Log: the selected conversation's runs, sub-agents included, in one
+ * chat-like log with filters (it does not change which conversation is open).
  * Terminal: the user's shell of the selected conversation, where its agent works.
  */
 @Component({
   selector: 'tg-terminal',
-  imports: [Splitter],
+  imports: [AgentAvatar, Splitter],
   template: `
     <div class="term" [class.collapsed]="collapsed()">
       @if (!collapsed()) { <tg-splitter class="split-edge" pane="term" axis="y" target="parent" [grow]="-1" /> }
@@ -46,16 +52,10 @@ function readTab(): BottomTab {
             }
           }
         } @else {
-        @for (r of tabs(); track r.id) {
-          <button role="tab" class="term-tab" [class.active]="r.id === shown()?.id" [attr.aria-selected]="r.id === shown()?.id" (click)="runs.selectedId.set(r.id); collapsed.set(false)">
-            <span class="dot" [style.background]="meta[r.agent].color" [class.live]="r.status === 'running'"></span>
-            {{ meta[r.agent].name }}
-          </button>
-        }
-        <span class="spacer"></span>
-        @if (shown(); as r) {
-          @if (r.status === 'running') { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
-        }
+          <span class="spacer"></span>
+          @for (r of runningInThread(); track r.id) {
+            <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng {{ meta[r.agent].name }}</button>
+          }
         }
         <button class="btn ghost sm" [attr.aria-expanded]="!collapsed()" (click)="collapsed.set(!collapsed())">{{ collapsed() ? 'Mở' : 'Thu gọn' }}</button>
       </div>
@@ -67,11 +67,47 @@ function readTab(): BottomTab {
         }
       }
       @if (!collapsed() && tab() === 'log') {
-        <div #body class="term-body mono">
-          @if (shown(); as r) {
-            @for (l of r.lines; track $index) { <div class="line" [attr.data-tone]="l.tone">{{ l.text }}</div> }
-          } @else {
-            <p class="dim">Log của agent sẽ hiện ở đây.</p>
+        <div class="lg-tools">
+          @if (logAgents().length > 1) {
+            <span class="lg-chips" role="group" aria-label="Lọc theo agent">
+              <button class="lg-chip" [class.active]="!logAgent()" [attr.aria-pressed]="!logAgent()" (click)="logAgent.set(null)">Tất cả</button>
+              @for (a of logAgents(); track a) {
+                <button class="lg-chip" [class.active]="logAgent() === a" [attr.aria-pressed]="logAgent() === a" (click)="logAgent.set(logAgent() === a ? null : a)">
+                  <tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}
+                </button>
+              }
+            </span>
+          }
+          <button class="lg-chip" [class.active]="errorsOnly()" [attr.aria-pressed]="errorsOnly()" (click)="errorsOnly.set(!errorsOnly())">Chỉ lỗi</button>
+          <input class="lg-search" type="search" placeholder="Tìm trong log" aria-label="Tìm trong log" [value]="logQuery()" (input)="logQuery.set($any($event.target).value)" />
+          @if (sections().length) {
+            <button class="btn ghost sm" (click)="copyLog()" title="Chép log đang hiện (theo bộ lọc)">{{ copied() ? 'Đã chép' : 'Chép' }}</button>
+          }
+        </div>
+        <div #body class="term-body lg-body">
+          @for (s of shownSections(); track s.run.id) {
+            <section class="lg-sec" [attr.data-role]="s.role" [attr.aria-label]="title(s)">
+              <header class="lg-head">
+                @if (s.role !== 'main') { <span class="lg-arrow" aria-hidden="true">↳</span> }
+                <tg-agent-avatar [agent]="s.run.agent" [size]="18" />
+                <strong>{{ title(s) }}</strong>
+                @if (s.role !== 'main' && s.run.prompt) { <span class="lg-task ellipsis" [title]="s.run.prompt">{{ s.run.prompt }}</span> }
+                <span class="spacer"></span>
+                <span class="dim mono">{{ clock(s.run.startedAt) }}</span>
+                <span class="pill" [attr.data-status]="s.run.status">{{ statusLabel[s.run.status] }}</span>
+              </header>
+              @for (e of s.entries; track $index) {
+                @if (e.kind === 'user') {
+                  <div class="lg-user">@if (e.text) {<span>{{ e.text }}</span>}@if (e.files) {<span class="dim">📎 {{ e.files }} tệp</span>}</div>
+                } @else {
+                  <div class="line lg-line mono" [attr.data-tone]="e.line.tone">{{ e.line.text }}</div>
+                }
+              } @empty {
+                <div class="dim lg-line">Chưa có dòng log nào.</div>
+              }
+            </section>
+          } @empty {
+            <p class="dim">{{ sections().length ? 'Không có dòng nào khớp bộ lọc.' : 'Log của cuộc trò chuyện sẽ hiện ở đây: mọi agent, kể cả agent con, theo thứ tự.' }}</p>
           }
         </div>
       }
@@ -102,13 +138,24 @@ export class Terminal {
   /** The thread shows the same run; the raw log is there when asked for. */
   protected readonly collapsed = signal(true);
   private readonly body = viewChild<ElementRef<HTMLElement>>('body');
-  protected readonly shown = computed(() => this.runs.selected());
-  /** Recent runs of this session, plus the selected one if it is older. */
-  protected readonly tabs = computed(() => {
-    const recent = this.runs.sessionRuns().slice(0, 6);
-    const sel = this.shown();
-    return sel && !recent.some((r) => r.id === sel.id) ? [sel, ...recent.slice(0, 5)] : recent;
-  });
+  protected readonly statusLabel = RUN_STATUS_LABEL;
+  protected readonly sections = computed(() => logSections(this.runs.runs(), this.runs.selected()?.thread));
+  protected readonly logAgent = signal<AgentId | null>(null);
+  protected readonly errorsOnly = signal(false);
+  protected readonly logQuery = signal('');
+  protected readonly logAgents = computed(() => [...new Set(this.sections().map((s) => s.run.agent))]);
+  protected readonly shownSections = computed(() => filterSections(this.sections(), { agent: this.logAgent(), errorsOnly: this.errorsOnly(), query: this.logQuery() }));
+  protected readonly runningInThread = computed(() => this.sections().map((s) => s.run).filter((r) => r.status === 'running'));
+  protected readonly copied = signal(false);
+
+  protected title(s: LogSection): string { return sectionTitle(s); }
+  protected clock(ms: number): string { return new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
+
+  protected async copyLog(): Promise<void> {
+    if (!(await copyText(logText(this.shownSections())))) return;
+    this.copied.set(true);
+    setTimeout(() => this.copied.set(false), 1500);
+  }
 
   protected show(tab: BottomTab): void {
     this.tab.set(tab);
@@ -165,8 +212,13 @@ export class Terminal {
     inject(DestroyRef).onDestroy(() => observer?.disconnect());
     // Stay at the bottom as lines arrive, unless the user scrolled up to read.
     let pinned = true;
+    // Another conversation: its filters start over.
     effect(() => {
-      this.shown()?.lines.length;
+      this.runs.selected()?.thread;
+      untracked(() => { this.logAgent.set(null); this.errorsOnly.set(false); this.logQuery.set(''); });
+    });
+    effect(() => {
+      this.shownSections().reduce((n, s) => n + s.entries.length, 0);
       const el = this.body()?.nativeElement;
       if (!el) return;
       if (!el.onscroll) el.onscroll = () => (pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 24);

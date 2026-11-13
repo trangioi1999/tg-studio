@@ -95,6 +95,8 @@ export abstract class AgentBackend {
   abstract killProcess(pid: number): Promise<void>;
   /** Asks Claude Code's local `/usage` (no tokens); null when it reports none. At most once a minute. */
   abstract refreshClaudeLimits(): Promise<AccountLimits | null>;
+  /** Kiro's plan credits from `kiro-cli /usage`; null when Kiro is missing or says nothing. */
+  abstract refreshKiroLimits(): Promise<AccountLimits | null>;
   /** Runs started since `since` (epoch ms), newest first, with final usage. */
   abstract usageReport(since: number): Promise<UsageRow[]>;
   abstract listPrices(): Promise<PriceRow[]>;
@@ -285,6 +287,9 @@ export class TauriBackend extends AgentBackend {
   }
   refreshClaudeLimits() {
     return invoke<AccountLimits | null>('refresh_claude_limits');
+  }
+  refreshKiroLimits() {
+    return invoke<AccountLimits | null>('refresh_kiro_limits');
   }
   usageReport(since: number) {
     return invoke<UsageRow[]>('usage_report', { since: Math.max(0, Math.floor(since)) });

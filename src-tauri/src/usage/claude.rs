@@ -47,7 +47,7 @@ pub fn parse_usage_text(text: &str, now: DateTime<Local>) -> Option<Vec<LimitWin
         } else {
             Some(reset_time(rest.strip_prefix("· resets ")?, now)?)
         };
-        Some(LimitWindow { id, utilization: percent / 100.0, resets_at, status: None })
+        Some(LimitWindow { id, utilization: percent / 100.0, resets_at, status: None, ..Default::default() })
     }).collect();
     (!windows.is_empty()).then_some(windows)
 }
@@ -120,16 +120,16 @@ mod tests {
         ).unwrap();
         assert_eq!(windows, vec![
             LimitWindow { id: "five_hour".into(), utilization: 0.08,
-                resets_at: Some(local(2026, 11, 7, 18, 59).timestamp_millis() as u64), status: None },
+                resets_at: Some(local(2026, 11, 7, 18, 59).timestamp_millis() as u64), status: None, ..Default::default() },
             LimitWindow { id: "seven_day".into(), utilization: 0.18,
-                resets_at: Some(local(2026, 11, 9, 3, 59).timestamp_millis() as u64), status: None },
+                resets_at: Some(local(2026, 11, 9, 3, 59).timestamp_millis() as u64), status: None, ..Default::default() },
         ]);
     }
 
     #[test]
     fn model_windows_can_have_no_reset() {
         let windows = parse_usage_text("Current week (Sonnet only): 25% used\nCurrent week (Opus 4 only): 110% used", Local::now()).unwrap();
-        assert_eq!(windows[0], LimitWindow { id: "seven_day_sonnet".into(), utilization: 0.25, resets_at: None, status: None });
+        assert_eq!(windows[0], LimitWindow { id: "seven_day_sonnet".into(), utilization: 0.25, resets_at: None, status: None, ..Default::default() });
         assert_eq!(windows[1].id, "seven_day_opus_4");
         assert_eq!(windows[1].utilization, 1.1);
     }

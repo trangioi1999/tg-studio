@@ -101,8 +101,8 @@ export class RunsService {
   private claudeLimitsAt = 0;
   readonly refreshingLimits = signal(false);
   /**
-   * Saved limits (Codex's are re-read from its own logs), plus Claude's from its local
-   * `/usage`, which spawns the CLI: at most every 5 minutes unless the user asks.
+   * Saved limits (Codex's are re-read from its own logs), plus Claude's and Kiro's from
+   * their local `/usage`, which spawns each CLI: at most every 5 minutes unless the user asks.
    */
   async refreshLimits(force = false): Promise<void> {
     await this.loadLimits();
@@ -110,10 +110,12 @@ export class RunsService {
     this.claudeLimitsAt = Date.now();
     this.refreshingLimits.set(true);
     try {
-      const claude = await this.backend.refreshClaudeLimits();
-      if (claude) this.mergeLimits([claude]);
-    } catch (e) {
-      console.warn('Không đọc được hạn mức Claude', e);
+      // Both start a local CLI command; neither spends tokens or credits.
+      const read = (name: string, call: () => Promise<AccountLimits | null>) =>
+        call().catch((e) => { console.warn(`Không đọc được hạn mức ${name}`, e); return null; });
+      const found = await Promise.all([read('Claude', () => this.backend.refreshClaudeLimits()), read('Kiro', () => this.backend.refreshKiroLimits())]);
+      const limits = found.filter((l): l is AccountLimits => !!l);
+      if (limits.length) this.mergeLimits(limits);
     } finally {
       this.refreshingLimits.set(false);
     }

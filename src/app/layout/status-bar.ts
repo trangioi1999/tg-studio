@@ -10,8 +10,8 @@ import { BudgetService } from '../services/usage/budget.service';
 import { RunsService } from '../services/runs/runs.service';
 import { VersionService } from '../services/app/version.service';
 
-/** Agents with a known source of plan limits. Gemini and Kiro have none yet. */
-const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
+/** Agents with a known source of plan limits. Gemini has none yet. */
+const LIMIT_SOURCES: AgentId[] = ['claude', 'codex', 'kiro'];
 
 @Component({
   selector: 'tg-status-bar',
@@ -37,7 +37,7 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
         <button class="limit" [class.busy]="runs.refreshingLimits()" [title]="row.title + '\nBấm để cập nhật.'" [attr.aria-label]="row.title + '. Bấm để cập nhật.'" (click)="runs.refreshLimits(true)">
           <tg-agent-avatar [agent]="row.agent" [size]="14" />
           @for (w of row.windows; track w.id) {
-            <span [attr.data-level]="w.level">{{ w.name }} {{ w.reset ? 'đã reset' : w.percent + '%' }}</span>
+            <span [attr.data-level]="w.level">{{ w.label }}</span>
           } @empty {
             <span class="dim">{{ runs.refreshingLimits() ? 'đang đọc…' : 'chưa có số' }}</span>
           }
@@ -62,7 +62,7 @@ export class StatusBar {
       const limits = this.runs.limits()[agent];
       if (limits?.windows.length) return [{ agent, windows: limits.windows.map((w) => limitView(w, now)), title: limitsTitle(limits, now) }];
       if (!installed.has(agent) || !LIMIT_SOURCES.includes(agent)) return [];
-      return [{ agent, windows: [], title: agent === 'claude' ? 'Chưa đọc được hạn mức từ Claude Code.' : 'Số hạn mức có sau lượt chạy đầu tiên của agent này.' }];
+      return [{ agent, windows: [], title: agent === 'claude' ? 'Chưa đọc được hạn mức từ Claude Code.' : agent === 'kiro' ? 'Chưa đọc được credit của gói từ Kiro CLI (lệnh /usage). Cần đăng nhập kiro-cli.' : 'Số hạn mức có sau lượt chạy đầu tiên của agent này.' }];
     });
   });
 

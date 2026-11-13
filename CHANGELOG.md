@@ -4,6 +4,15 @@
 
 ## [Chưa phát hành]
 
+## [0.6.8] - 2026-11-13
+
+### Thay đổi
+- Tab Log ở khung dưới: một log cho cuộc trò chuyện đang mở, trình bày như khung chat. Mỗi lượt chạy là một khối có avatar, tên agent, giờ và trạng thái; tin bạn gửi là bong bóng bên phải; agent con và subagent lồng thụt vào ngay dưới agent đã giao. Thay hàng tab (6 lượt gần nhất của mọi cuộc trò chuyện, bấm vào là đổi cuộc trò chuyện) bằng chip lọc theo agent, nút Chỉ lỗi, ô tìm và nút Chép log.
+
+### Thêm
+- Kiro: đầu mỗi câu trả lời hiện credit của lượt (ví dụ `· 8s · 0,32 credit`), rê chuột xem tổng của cuộc trò chuyện và số USD ước tính.
+- Kiro: thanh dưới hiện credit của gói như Kiro (`Kiro Pro+ 334,17 / 2.000`), rê chuột xem phần trăm và ngày reset; màn Chi phí có thêm dòng credit trong tháng và credit thưởng. App đọc từ lệnh `/usage` của `kiro-cli` (chạy trên máy, không tốn credit), tối đa 5 phút một lần hoặc khi bấm.
+
 ## [0.6.7] - 2026-11-13
 
 ### Sửa lỗi

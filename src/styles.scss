@@ -335,6 +335,22 @@ tg-workbench { display: flex; flex-direction: column; }
 .tty-term { width: 100%; height: 100%; }
 .tty-term .xterm { height: 100%; }
 .term-body { flex: 1; min-height: 0; overflow: auto; padding: 6px 12px 10px; line-height: 19px; background: var(--bg); }
+/* Log: the conversation's runs laid out like the chat. */
+.lg-chips { display: inline-flex; align-items: center; gap: 2px; }
+.lg-chip { height: 22px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-full); background: transparent; color: var(--muted); font-size: var(--fs-xs); cursor: pointer; white-space: nowrap; }
+.lg-chip:hover { color: var(--text); background: var(--hover); }
+.lg-chip.active { color: var(--text); border-color: var(--line-strong); background: var(--hover); }
+.lg-tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 5px 12px; border-top: 1px solid var(--line); background: var(--panel); }
+.lg-search { height: 22px; flex: 1 1 120px; min-width: 100px; max-width: 260px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--text); font-size: var(--fs-xs); }
+.lg-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px 14px; line-height: 18px; }
+.lg-sec { display: flex; flex-direction: column; gap: 4px; }
+.lg-sec[data-role='delegate'], .lg-sec[data-role='subagent'] { margin-left: 26px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
+.lg-head { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: var(--fs-sm); }
+.lg-head strong { font-weight: 600; white-space: nowrap; }
+.lg-arrow { color: var(--faint); }
+.lg-task { min-width: 0; color: var(--text-2); }
+.lg-user { align-self: flex-end; max-width: 80%; display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 12px 12px 4px 12px; background: var(--bubble); font-size: var(--fs-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lg-line { margin-left: 25px; font-size: 12px; }
 tg-explorer { display: flex; flex-direction: column; }
 .tree { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; }
 .tree-row { width: 100%; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; background: transparent; color: var(--text-2); font-size: var(--fs-sm); text-align: left; cursor: pointer; }

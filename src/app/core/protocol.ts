@@ -111,6 +111,11 @@ export interface LimitWindow {
   /** Epoch ms. */
   resetsAt: number | null;
   status: string | null;
+  /** Credits used and allowed, for agents that count credits (Kiro). */
+  used?: number | null;
+  limit?: number | null;
+  /** The plan's name as the CLI shows it ("Kiro Pro+"). */
+  plan?: string | null;
 }
 
 /** Latest plan limits per agent, from `account_limits` or a `limits` event. Keep in sync with store.rs. */

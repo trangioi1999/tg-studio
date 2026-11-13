@@ -4,7 +4,7 @@ import { AGENT_META } from '../../services/agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
 /** The version the mock reports; `npm run version:sync` keeps it equal to package.json. */
-const APP_VERSION = '0.6.7';
+const APP_VERSION = '0.6.8';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -580,6 +580,17 @@ export class MockBackend extends AgentBackend {
         { id: 'five_hour', utilization: 0.08, resetsAt: Date.now() + 3 * hour, status: null },
         { id: 'seven_day', utilization: 0.18, resetsAt: Date.now() + 40 * hour, status: null },
       ],
+    };
+  }
+
+  async refreshKiroLimits(): Promise<AccountLimits | null> {
+    const next = new Date();
+    next.setMonth(next.getMonth() + 1, 1);
+    next.setHours(0, 0, 0, 0);
+    return {
+      agent: 'kiro',
+      at: Date.now(),
+      windows: [{ id: 'monthly', utilization: 334.17 / 2000, resetsAt: next.getTime(), status: null, used: 334.17, limit: 2000, plan: 'Kiro Pro+' }],
     };
   }
 

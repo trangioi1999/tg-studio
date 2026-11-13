@@ -4,6 +4,7 @@
 //! report total prompt tokens (Codex, Gemini) have the cached part subtracted.
 
 pub(crate) mod claude;
+pub(crate) mod kiro;
 pub(crate) mod ledger;
 
 use serde::{Deserialize, Serialize};
@@ -82,7 +83,7 @@ pub fn parse_acp_turn(result: &Value, cost: Option<f64>) -> Option<Usage> {
 }
 
 /// One plan limit window as the CLI reports it, e.g. Claude's 5-hour and 7-day limits.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LimitWindow {
     /// The CLI's own name: "five_hour", "seven_day", ...
@@ -93,6 +94,14 @@ pub struct LimitWindow {
     pub resets_at: Option<u64>,
     /// "allowed", "allowed_warning", "rejected", ...
     pub status: Option<String>,
+    /// Credits used and allowed in the window, for agents that count credits (Kiro).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<f64>,
+    /// The plan's name as the CLI shows it ("Kiro Pro+").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
 }
 
 /// Claude Code's `rate_limit_info` (stream-json `rate_limit_event`, or the ACP adapter's
@@ -106,6 +115,7 @@ pub fn parse_rate_limit(info: &Value) -> Option<Vec<LimitWindow>> {
             utilization,
             resets_at: w.get("resetsAt").and_then(Value::as_u64).map(|s| s * 1000),
             status: w.get("status").and_then(Value::as_str).map(String::from),
+            ..Default::default()
         })
     };
     let mut windows: Vec<LimitWindow> = match info.get("unifiedWindows").and_then(Value::as_object) {
@@ -248,8 +258,8 @@ mod tests {
     fn claude_rate_limit_event_windows() {
         let w = parse_limits(AgentKind::Claude, RATE_LIMIT_LINE).unwrap();
         assert_eq!(w, vec![
-            LimitWindow { id: "five_hour".into(), utilization: 0.74, resets_at: Some(1_793_770_800_000), status: Some("allowed".into()) },
-            LimitWindow { id: "seven_day".into(), utilization: 0.1, resets_at: Some(1_794_348_000_000), status: Some("allowed".into()) },
+            LimitWindow { id: "five_hour".into(), utilization: 0.74, resets_at: Some(1_793_770_800_000), status: Some("allowed".into()), ..Default::default() },
+            LimitWindow { id: "seven_day".into(), utilization: 0.1, resets_at: Some(1_794_348_000_000), status: Some("allowed".into()), ..Default::default() },
         ]);
         // Other agents and other lines never report limits.
         assert!(parse_limits(AgentKind::Codex, RATE_LIMIT_LINE).is_none());
@@ -403,6 +413,7 @@ pub fn codex_limits_from_line(line: &str) -> Option<Vec<LimitWindow>> {
             utilization: w["used_percent"].as_f64().filter(|p| p.is_finite() && *p >= 0.0)? / 100.0,
             resets_at: w["resets_at"].as_u64().map(|s| s * 1000),
             status: None,
+            ..Default::default()
         })
     }).collect();
     (!windows.is_empty()).then_some(windows)

@@ -26,7 +26,7 @@ import { ChatState } from '../chat.state';
   <header class="turn-who">
     <tg-agent-avatar [agent]="tr.agent" [size]="24" />
     <strong>{{ meta[tr.agent].name }}</strong>
-    <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ permLabel(tr) }} · {{ duration(tr) }}@if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
+    <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ permLabel(tr) }} · {{ duration(tr) }}@if (tr.credits; as c) { · <span [title]="creditsTitle(tr)">{{ fmtCredits(c.turn) }} credit</span> } @else if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
     <span class="spacer"></span>
     <span class="pill" [attr.data-status]="turnStatus(tr)">
       @switch (turnStatus(tr)) {
@@ -139,6 +139,17 @@ export class ChatTurn {
   protected failureOf(r: Run): string {
     const last = [...r.lines].reverse().find((l) => l.tone === 'error');
     return last?.text ?? 'Lượt chạy thất bại. Xem chi tiết ở Cài đặt → Chẩn đoán.';
+  }
+
+  protected fmtCredits(n: number): string {
+    return n.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+  }
+
+  /** Kiro shows credits per answer; the session total and its rough USD stay in the tooltip. */
+  protected creditsTitle(r: Run): string {
+    const c = r.credits!;
+    const usd = this.costOf(r);
+    return `Credit ước tính của lượt này: ${this.fmtCredits(c.turn)}\nCả cuộc trò chuyện: ${this.fmtCredits(c.total)} credit${usd !== null ? ` (≈ ${this.usd(usd)})` : ''}`;
   }
 
   protected costOf(r: Run): number | null {
