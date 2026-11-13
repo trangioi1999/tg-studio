@@ -144,7 +144,7 @@ function toConsoleLine(agent: AgentId, kind: StoredRun['lines'][number]['kind'],
   if (kind === 'message') return { text: line, tone: 'text', key: MESSAGE_KEY };
   if (kind === 'user') return { text: line, tone: 'user' };
   if (kind === 'log') return describeLine(agent, line);
-  return { text: line, tone: ADAPTER_TIMING.test(line) ? 'muted' : 'error' };
+  return { text: line, tone: ADAPTER_TIMING.test(line) || line.startsWith('◇ kiro ') ? 'muted' : 'error' };
 }
 
 /** Timing notes the Claude ACP adapter writes to stderr while opening or resuming a session; local work, not errors. */

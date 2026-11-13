@@ -60,9 +60,11 @@ export class StatusBar {
     const installed = new Set<AgentId>(this.agents.agents().filter((a) => a.path).map((a) => a.id));
     return AGENT_IDS.flatMap((agent) => {
       const limits = this.runs.limits()[agent];
-      if (limits?.windows.length) return [{ agent, windows: limits.windows.map((w) => limitView(w, now)), title: limitsTitle(limits, now) }];
+      const error = this.runs.limitErrors()[agent];
+      if (limits?.windows.length) return [{ agent, windows: limits.windows.map((w) => limitView(w, now)), title: limitsTitle(limits, now) + (error ? `\nLần đọc gần nhất lỗi: ${error}` : '') }];
       if (!installed.has(agent) || !LIMIT_SOURCES.includes(agent)) return [];
-      return [{ agent, windows: [], title: agent === 'claude' ? 'Chưa đọc được hạn mức từ Claude Code.' : agent === 'kiro' ? 'Chưa đọc được credit của gói từ Kiro CLI (lệnh /usage). Cần đăng nhập kiro-cli.' : 'Số hạn mức có sau lượt chạy đầu tiên của agent này.' }];
+      const fallback = agent === 'claude' ? 'Chưa đọc được hạn mức từ Claude Code.' : agent === 'kiro' ? 'Chưa đọc được credit của gói từ Kiro CLI (lệnh /usage).' : 'Số hạn mức có sau lượt chạy đầu tiên của agent này.';
+      return [{ agent, windows: [], title: error ?? fallback }];
     });
   });
 

@@ -4,6 +4,10 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Kiro: thanh dưới không đọc được credit của gói khi Kiro phải chờ MCP server (lệnh `/usage` mất hơn 25 giây); giờ chờ tới 2 phút, và Kiro bản cũ từ chối cờ `--v2` thì app chạy lại không có cờ. Không đọc được thì tooltip ghi đúng lý do và những gì Kiro in ra, thay cho câu "cần đăng nhập". Claude và Kiro hiện số riêng, không chờ nhau.
+- Kiro: thông báo riêng đầu tiên của mỗi loại mà Kiro gửi (`_kiro.dev/…`) được ghi vào tab Log (dòng mờ), để tìm ra cách Kiro bản đang dùng báo credit.
+
 ## [0.6.8] - 2026-11-13
 
 ### Thay đổi
