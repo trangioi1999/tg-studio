@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.6.5] - 2026-11-13
+
 ### Sửa lỗi
 - Windows: Sửa code với Claude không còn báo "Lỗi RPC -32603: Internal error" khi adapter thiếu `claude.exe` riêng. App tự dùng Claude Code đã cài trên máy (`~/.local/bin/claude.exe` hoặc bản cài qua npm); nếu không thấy, lỗi ghi rõ cần cài Claude Code.
 
