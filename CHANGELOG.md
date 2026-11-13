@@ -4,6 +4,14 @@
 
 ## [Chưa phát hành]
 
+### Sửa lỗi
+- Commit hoặc hoàn tác không còn lấy nhầm phần agent đang ghi dở: kiểm tra và thao tác chạy trong cùng một khoá thư mục; agent chỉ bắt đầu lượt mới sau khi commit đang chạy xong.
+- Bản nháp đang có agent làm vẫn commit được phần đã áp vào thư mục.
+- Áp bản nháp, commit tệp đã áp và áp/commit bản ghép bị chặn khi có agent đang ghi trong thư mục của bạn; hai bản nháp áp cùng lúc không còn tranh index; áp lần hai không làm mất tệp của lần đầu khỏi commit.
+
+### Thay đổi
+- Sắp xếp lại giao diện theo tính năng, service, bố cục và `shared/ui`, `shared/utils`.
+
 ## [0.6.2] - 2026-11-10
 
 ### Thay đổi
