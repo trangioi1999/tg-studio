@@ -33,7 +33,7 @@ const log = readFileSync('CHANGELOG.md', 'utf8');
 if (!log.includes('## [Chưa phát hành]')) fail('CHANGELOG.md thiếu mục "## [Chưa phát hành]".');
 writeFileSync('CHANGELOG.md', log.replace('## [Chưa phát hành]', `## [Chưa phát hành]\n\n## [${next}] - ${day}`));
 
-run('git', ['add', 'package.json', 'package-lock.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json', 'src/app/core/mock-backend.ts', 'CHANGELOG.md']);
+run('git', ['add', 'package.json', 'package-lock.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/tauri.conf.json', 'src/app/core/mock/mock-backend.ts', 'CHANGELOG.md']);
 run('git', ['commit', '-m', `chore(release): v${next}`]);
 run('git', ['tag', '-a', `v${next}`, '-m', `TG Studio v${next}`]);
 console.log(`\nĐã nâng lên ${next}, commit và gắn tag v${next}.`);
