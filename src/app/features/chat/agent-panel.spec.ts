@@ -44,6 +44,10 @@ interface Composer {
   planGit(): Promise<void>;
   prepareGit(): Promise<void>;
   pending(): { text: string } | null;
+  addFiles(files: File[]): Promise<void>;
+  attachments(): { name: string; image: boolean }[];
+  removeAttachment(id: number): void;
+  onPaste(e: ClipboardEvent): void;
 }
 
 async function setup() {
@@ -356,6 +360,45 @@ describe('AgentPanel composer', () => {
     expect(panel.pending()?.text).toBe('sửa lỗi đăng nhập');
     finish('run');
     await sending;
+  });
+
+  it('sends attached files as lines naming their saved paths, even with no words', async () => {
+    const { backend, panel } = await setup();
+    await panel.addFiles([new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' }), new File(['lỗi'], 'app.log')]);
+    expect(panel.attachments().map((a) => a.image)).toEqual([true, false]);
+    expect(panel.attachments()[0].name).toMatch(/^anh-\d{8}-\d{6}\.png$/);
+    expect(panel.canRun()).toBe(true);
+    await panel.send();
+    const lines = backend.lastStart!.prompt.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^📎 .*attachments\/1\/anh-.*\.png$/);
+    expect(lines[1]).toMatch(/^📎 .*\/app\.log$/);
+    expect(panel.attachments()).toEqual([]);
+  });
+
+  it('keeps pasted text as text and refuses files over the limit by name', async () => {
+    const { panel } = await setup();
+    const prevented: string[] = [];
+    const paste = (files: File[], text: string) => ({ clipboardData: { files, getData: () => text }, preventDefault: () => prevented.push(text) }) as unknown as ClipboardEvent;
+    panel.onPaste(paste([], 'chỉ chữ'));
+    panel.onPaste(paste([new File(['x'], 'a.png', { type: 'image/png' })], ''));
+    await vi.waitFor(() => expect(panel.attachments()).toHaveLength(1));
+    expect(prevented).toEqual(['']);
+    const big = new File(['x'], 'to.zip');
+    Object.defineProperty(big, 'size', { value: 26 * 1024 * 1024 });
+    await panel.addFiles([big]);
+    expect(panel.error()).toContain('to.zip (quá 25 MB)');
+    expect(panel.attachments()).toHaveLength(1);
+  });
+
+  it('gives the attached files back with the words when the agent cannot start', async () => {
+    const { backend, panel } = await setup();
+    backend.startResult = () => Promise.reject(new Error('không chạy được'));
+    panel.prompt.set('xem ảnh');
+    await panel.addFiles([new File(['x'], 'b.png', { type: 'image/png' })]);
+    await panel.send();
+    expect(panel.prompt()).toBe('xem ảnh');
+    expect(panel.attachments().map((a) => a.name)).toEqual(['b.png']);
   });
 
   it('gives the words back when the agent cannot start', async () => {

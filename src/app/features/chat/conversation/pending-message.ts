@@ -2,14 +2,15 @@ import { Component, inject } from '@angular/core';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { ChatState } from '../chat.state';
+import { UserMessage } from './user-message';
 
 /** The message just sent, shown while the agent starts (that takes seconds). */
 @Component({
   selector: 'tg-pending-message',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, UserMessage],
   template: `
 @if (chat.pending(); as p) {
-  <div class="msg-user">{{ p.text }}</div>
+  <tg-user-message [text]="p.text" />
   <div class="boot-status" role="status">
     @if (p.agent) { <tg-agent-avatar [agent]="p.agent" [size]="20" /> }
     <span>Đang khởi động {{ p.agent ? meta[p.agent].name : 'các agent' }}</span>

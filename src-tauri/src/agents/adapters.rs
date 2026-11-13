@@ -91,7 +91,7 @@ impl AgentKind {
     /// agent takes its prompt as an argument and answers once.
     pub fn headless_input(self, prompt: &str) -> Option<String> {
         match self {
-            AgentKind::Claude => Some(format!("{}\n", serde_json::json!({"type": "user", "message": {"role": "user", "content": prompt}}))),
+            AgentKind::Claude => Some(format!("{}\n", serde_json::json!({"type": "user", "message": {"role": "user", "content": crate::system::attachments::claude_content(prompt)}}))),
             _ => None,
         }
     }

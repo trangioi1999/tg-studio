@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { withoutAttachments } from '../shared/utils/attachments';
 import { AgentBackend } from '../core/backend';
 import { fmtTokens, fmtUsd } from '../shared/utils/format';
 import { IS_MAC } from '../shared/utils/keys';
@@ -71,7 +72,7 @@ export class TitleBar {
   protected readonly title = computed(() => {
     if (this.ui.screen() !== 'chat') return null;
     const r = this.runs.selected();
-    return r ? r.prompt.split('\n')[0] : 'Trò chuyện mới';
+    return r ? withoutAttachments(r.prompt).split('\n')[0] : 'Trò chuyện mới';
   });
   /** Cost and tokens of the open conversation. */
   protected readonly cost = computed(() => {

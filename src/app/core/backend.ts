@@ -85,6 +85,10 @@ export abstract class AgentBackend {
   abstract resourceUsage(): Promise<ResourceReport>;
   /** This build's version and commit. */
   abstract appVersion(): Promise<AppVersion>;
+  /** Saves a file attached to a message (base64) and returns its full path. */
+  abstract saveAttachment(name: string, data: string): Promise<string>;
+  /** An attached image as a data URL, for its preview. */
+  abstract readAttachment(path: string): Promise<string>;
   /** The newest published version; needs the network. */
   abstract latestVersion(): Promise<LatestVersion>;
   /** Stops a leftover child process that belongs to no live conversation. */
@@ -263,6 +267,12 @@ export class TauriBackend extends AgentBackend {
   }
   resourceUsage() {
     return invoke<ResourceReport>('resource_usage');
+  }
+  saveAttachment(name: string, data: string) {
+    return invoke<string>('save_attachment', { name, data });
+  }
+  readAttachment(path: string) {
+    return invoke<string>('read_attachment', { path });
   }
   appVersion() {
     return invoke<AppVersion>('app_version');

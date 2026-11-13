@@ -1,4 +1,5 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import { withoutAttachments } from '../../shared/utils/attachments';
 import { AgentId } from '../../core/protocol';
 import { RunsService } from './runs.service';
 import { Run } from './run';
@@ -58,7 +59,7 @@ export function buildThreads(runs: Run[]): Thread[] {
       id,
       project: sorted.find((r) => r.project)?.project ?? '',
       scope: talked[0].scope,
-      title: (talked[0].prompt || 'Cuộc trò chuyện').slice(0, 80),
+      title: (withoutAttachments(talked[0].prompt) || 'Cuộc trò chuyện').slice(0, 80),
       agents: [...new Set(talked.map((r) => r.agent))],
       status: statusOf(sorted, latest),
       updatedAt: Math.max(...sorted.map((r) => r.endedAt ?? r.startedAt)),

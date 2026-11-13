@@ -10,6 +10,7 @@ import { Markdown, plainText } from '../../../shared/ui/markdown';
 import { costOf } from '../../../services/usage/pricing';
 import { turnStart } from '../../../services/runs/run';
 import { Delegations } from './delegations';
+import { UserMessage } from './user-message';
 import { segmentsOf } from './timeline';
 import { TurnStatus, turnStatus } from './turn-status';
 import { ChatState } from '../chat.state';
@@ -17,10 +18,10 @@ import { ChatState } from '../chat.state';
 /** One run of the conversation: the user's message, then what the agent said and did. */
 @Component({
   selector: 'tg-chat-turn',
-  imports: [AgentAvatar, Delegations, Markdown],
+  imports: [AgentAvatar, Delegations, Markdown, UserMessage],
   template: `
 @let tr = run();
-<div class="msg-user">{{ tr.prompt }}</div>
+<tg-user-message [text]="tr.prompt" />
 <article class="turn">
   <header class="turn-who">
     <tg-agent-avatar [agent]="tr.agent" [size]="24" />
@@ -49,7 +50,7 @@ import { ChatState } from '../chat.state';
   }
   @for (seg of segments(); track $index; let last = $last) {
     @switch (seg.kind) {
-      @case ('user') { <div class="msg-user">{{ seg.text }}</div> }
+      @case ('user') { <tg-user-message [text]="seg.text" /> }
       @case ('text') { <tg-markdown [animate]="last && tr.status === 'running'" class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
       @case ('work') {
         <details class="worklog" [open]="seg.live" [class.live]="seg.live">

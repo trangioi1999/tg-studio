@@ -5,3 +5,4 @@ pub(crate) mod resources;
 pub(crate) mod version;
 
 pub(crate) mod terminal;
+pub mod attachments;

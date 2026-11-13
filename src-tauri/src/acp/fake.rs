@@ -55,6 +55,11 @@ pub fn spawn_with_config(config: Value, steps: Vec<Step>) -> (Reader, Writer, Lo
     spawn_with(1, json!({}), Value::Null, config, steps)
 }
 
+/// An agent with these `agentCapabilities` (for example `promptCapabilities`).
+pub fn spawn_with_capabilities(capabilities: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
+    spawn_with(1, capabilities, Value::Null, Value::Null, steps)
+}
+
 pub fn spawn_with_version(version: u64, steps: Vec<Step>) -> (Reader, Writer, Log) {
     spawn_with(version, json!({}), Value::Null, Value::Null, steps)
 }

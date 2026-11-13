@@ -31,6 +31,8 @@ pub struct AcpClient {
     setup_timeout: Duration,
     /// `configOptions` of the latest opened session (model, effort…), updated by `set_config_option`.
     config: Arc<Mutex<Value>>,
+    /// What `session/prompt` may carry besides text (`image`, `embeddedContext`), from `initialize`.
+    prompt_caps: Arc<Mutex<Value>>,
 }
 
 impl AcpClient {
@@ -70,7 +72,7 @@ impl AcpClient {
             }
             handler.on_closed();
         });
-        AcpClient { transport, setup_timeout, config: Arc::new(Mutex::new(Value::Null)) }
+        AcpClient { transport, setup_timeout, config: Arc::new(Mutex::new(Value::Null)), prompt_caps: Arc::new(Mutex::new(Value::Null)) }
     }
 
     pub async fn initialize(&self) -> Result<Value, String> {
@@ -103,6 +105,7 @@ impl AcpClient {
                 "Agent dùng phiên bản ACP {version:?}, TG Studio cần {PROTOCOL_VERSION}."
             ));
         }
+        *self.prompt_caps.lock().unwrap() = result["agentCapabilities"]["promptCapabilities"].clone();
         Ok(result)
     }
 
@@ -180,7 +183,7 @@ impl AcpClient {
             .transport
             .request(
                 "session/prompt",
-                json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": text }] }),
+                json!({ "sessionId": session_id, "prompt": crate::system::attachments::acp_prompt(text, &self.prompt_caps.lock().unwrap().clone()) }),
                 None,
             )
             .await
@@ -267,6 +270,28 @@ mod tests {
                 }
             }).await.expect("setup must use the configured timeout");
             assert!(error.contains("Hết thời gian chờ phản hồi ACP"), "{error}");
+            client.close();
+        }
+    }
+
+    #[tokio::test]
+    async fn attached_images_go_only_to_agents_that_take_them() {
+        use base64::Engine;
+        let root = std::env::temp_dir().join("tg-attachments-client-test");
+        crate::system::attachments::init(root.clone());
+        let png = crate::system::attachments::save_attachment("lỗi.png".into(), base64::engine::general_purpose::STANDARD.encode(b"png")).unwrap();
+        let text = format!("Sửa chỗ này\n\n{}{png}", crate::system::attachments::MARK);
+        for (caps, blocks) in [(json!({ "promptCapabilities": { "image": true } }), 2), (json!({}), 1)] {
+            let (reader, writer, log) = fake::spawn_with_capabilities(caps, vec![Step::End("end_turn")]);
+            let client = AcpClient::start(reader, writer, Arc::new(Handler(Arc::new(Recorder::default()))));
+            client.initialize().await.unwrap();
+            let id = client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+            client.prompt_turn(&id, &text).await.unwrap();
+            let sent = log.lock().unwrap().iter().find(|v| v["method"] == "session/prompt").cloned().unwrap();
+            let prompt = sent["params"]["prompt"].as_array().unwrap().clone();
+            assert_eq!(prompt.len(), blocks, "{prompt:?}");
+            assert_eq!(prompt[0]["text"], text);
+            if blocks == 2 { assert_eq!(prompt[1]["type"], "image"); }
             client.close();
         }
     }

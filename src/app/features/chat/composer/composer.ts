@@ -13,20 +13,34 @@ import { ChatState } from '../chat.state';
   selector: 'tg-composer',
   imports: [AgentMenu, CommandMenu, GitSetup, PermMenu, PipelineSteps, PlaceMenu],
   template: `
-<section class="cmp" [class.big]="!chat.run()" aria-label="Giao việc">
+<section class="cmp" [class.big]="!chat.run()" [class.dropping]="chat.dragging()" aria-label="Giao việc"
+  (dragover)="chat.onDragOver($event)" (dragleave)="chat.dragging.set(false)" (drop)="chat.onDrop($event)">
   @if (chat.scopeShown(); as scope) {
     <div class="cmp-scope dim">Trong thư mục <code>{{ scope }}/</code>
       @if (!chat.run()) { <button class="link" (click)="chat.threads.draftScope.set(null)">Bỏ</button> }
     </div>
   }
   <tg-command-menu />
+  @if (chat.attachments().length) {
+    <ul class="cmp-attach" aria-label="Tệp đính kèm">
+      @for (a of chat.attachments(); track a.id) {
+        <li class="attach-item" [class.image]="a.image" [title]="a.name">
+          @if (a.url) { <img [src]="a.url" [alt]="a.name" /> }
+          @else { <span class="attach-name"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>{{ a.name }}</span> }
+          <button class="attach-x" [attr.aria-label]="'Bỏ ' + a.name" title="Bỏ" (click)="chat.removeAttachment(a.id)">×</button>
+        </li>
+      }
+    </ul>
+  }
   <label class="sr-only" for="prompt">Yêu cầu cho agent</label>
   <textarea id="prompt" #box [rows]="chat.run() ? 2 : 3" [placeholder]="chat.placeholder()"
     [value]="chat.prompt()" (input)="chat.onInput($any($event.target))"
     (click)="chat.caret.set($any($event.target).selectionStart)" (keyup)="chat.onKeyUp($any($event))"
     [attr.aria-controls]="chat.cmdMenu() ? 'cmd-list' : null" [attr.aria-expanded]="!!chat.cmdMenu()"
-    (keydown)="chat.onKeyDown($any($event))"></textarea>
+    (keydown)="chat.onKeyDown($any($event))" (paste)="chat.onPaste($event)"></textarea>
   <div class="cmp-bar">
+    <input #picker type="file" multiple hidden (change)="pick(picker)" />
+    <button class="chip-btn icon-only" aria-label="Đính kèm tệp hoặc ảnh" title="Đính kèm tệp hoặc ảnh (hoặc dán, kéo thả vào đây)" (click)="picker.click()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.5l-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button>
     <tg-agent-menu />
     <tg-perm-menu />
     @if (chat.perm() !== 'read' && !chat.run()?.task) {
@@ -71,4 +85,9 @@ export class Composer {
   private readonly shareBox = effect(() => {
     this.chat.box = this.box()?.nativeElement ?? null;
   });
+
+  protected pick(input: HTMLInputElement): void {
+    void this.chat.addFiles(Array.from(input.files ?? []));
+    input.value = '';
+  }
 }
