@@ -34,7 +34,8 @@ export abstract class AgentBackend {
    */
   /** Opens the agent's session ahead of the first message of a new conversation in `repo`. */
   abstract warmTask(agent: AgentId, repo: string, scope: string | null): Promise<void>;
-  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null, prefs?: SessionPrefs | null, place?: Place | null, base?: string | null, approval?: Approval | null): Promise<string>;
+  /** `fresh`: keep `reuse`'s folder but open a new session told `recap`, instead of reloading the old one. */
+  abstract startTask(agent: AgentId, prompt: string, repo: string, group?: string | null, reuse?: string | null, singleTurn?: boolean, recap?: string | null, thread?: string | null, scope?: string | null, prefs?: SessionPrefs | null, place?: Place | null, base?: string | null, approval?: Approval | null, fresh?: boolean): Promise<string>;
   /** Changes how an open code task answers permission requests. */
   abstract setApproval(runId: string, approval: Approval): Promise<void>;
   /** Local branches a draft can start from. */
@@ -183,8 +184,8 @@ export class TauriBackend extends AgentBackend {
   warmTask(agent: AgentId, repo: string, scope: string | null) {
     return invoke<void>('warm_task', { agent, repo, scope });
   }
-  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null, place: Place | null = null, base: string | null = null, approval: Approval | null = null) {
-    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs, place, base, approval });
+  startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null, thread: string | null = null, scope: string | null = null, prefs: SessionPrefs | null = null, place: Place | null = null, base: string | null = null, approval: Approval | null = null, fresh = false) {
+    return invoke<string>('start_task', { agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs, place, base, approval, fresh });
   }
   setApproval(runId: string, approval: Approval) {
     return invoke<void>('set_approval', { runId, approval });

@@ -38,6 +38,17 @@ import { ChatState } from '../chat.state';
     (click)="chat.caret.set($any($event.target).selectionStart)" (keyup)="chat.onKeyUp($any($event))"
     [attr.aria-controls]="chat.cmdMenu() ? 'cmd-list' : null" [attr.aria-expanded]="!!chat.cmdMenu()"
     (keydown)="chat.onKeyDown($any($event))" (paste)="chat.onPaste($event)"></textarea>
+  @if (chat.resumeChoice(); as rc) {
+    <div class="cmp-resume" role="radiogroup" aria-label="Phiên trước đã đóng, gửi tin này bằng">
+      <span class="dim">Phiên trước đã đóng ({{ rc.turns }} lượt):</span>
+      <button role="radio" class="lg-chip" [class.active]="chat.resumeMode() === 'resume'" [attr.aria-checked]="chat.resumeMode() === 'resume'"
+        title="Agent nhớ đủ mọi thứ, nhưng tin đầu phải đọc lại cả cuộc trò chuyện (kể cả tệp đã đọc, kết quả lệnh): càng dài càng tốn token."
+        (click)="chat.resumePick.set('resume')">Tiếp tục phiên cũ</button>
+      <button role="radio" class="lg-chip" [class.active]="chat.resumeMode() === 'fresh'" [attr.aria-checked]="chat.resumeMode() === 'fresh'"
+        title="Mở phiên mới, chỉ gửi kèm bản tóm tắt cuộc trò chuyện: ít token hơn nhiều, nhưng agent không nhớ chi tiết và có thể phải đọc lại tệp."
+        (click)="chat.resumePick.set('fresh')">Bắt đầu mới kèm tóm tắt · ~{{ rc.recapTokens }} token</button>
+    </div>
+  }
   <div class="cmp-bar">
     <input #picker type="file" multiple hidden (change)="pick(picker)" />
     <button class="chip-btn icon-only" aria-label="Đính kèm tệp hoặc ảnh" title="Đính kèm tệp hoặc ảnh (hoặc dán, kéo thả vào đây)" (click)="picker.click()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.5l-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button>

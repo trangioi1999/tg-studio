@@ -405,8 +405,8 @@ async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &s
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>, place: Option<String>, base: Option<String>, approval: Option<Approval>) -> Result<String, String> {
-    start_task_with(app, TaskRequest { group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, ..TaskRequest::new(agent, prompt, repo) }).await
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>, place: Option<String>, base: Option<String>, approval: Option<Approval>, fresh: Option<bool>) -> Result<String, String> {
+    start_task_with(app, TaskRequest { group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, fresh, ..TaskRequest::new(agent, prompt, repo) }).await
 }
 
 /// What starting a task needs, from the UI (`start_task`) or from an agent delegating.
@@ -432,16 +432,19 @@ pub(crate) struct TaskRequest {
     pub approval: Option<Approval>,
     /// Set when another agent delegated this task.
     pub child: Option<ChildSpec>,
+    /// Keep `reuse`'s folder but open a new session (told the `recap`) instead of reloading
+    /// the old one, whose whole history the model would read again.
+    pub fresh: Option<bool>,
 }
 
 impl TaskRequest {
     pub fn new(agent: AgentKind, prompt: String, repo: String) -> Self {
-        Self { agent, prompt, repo, group: None, reuse: None, single_turn: None, recap: None, thread: None, scope: None, prefs: None, place: None, base: None, approval: None, child: None }
+        Self { agent, prompt, repo, group: None, reuse: None, single_turn: None, recap: None, thread: None, scope: None, prefs: None, place: None, base: None, approval: None, child: None, fresh: None }
     }
 }
 
 pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Result<String, String> {
-    let TaskRequest { agent, prompt, repo, group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, child } = request;
+    let TaskRequest { agent, prompt, repo, group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, child, fresh } = request;
     let approval = approval.unwrap_or_default();
     let single_turn = Some(single_turn.unwrap_or(false) || child.is_some());
     let (parent, child_done) = match child {
@@ -471,8 +474,8 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
     };
     let timeout = setup_timeout(&command.0);
-    // Back to the same agent: reopen its session instead of starting over.
-    let resumed = match previous_run.as_deref() {
+    // Back to the same agent: reopen its session instead of starting over, unless asked not to.
+    let resumed = match previous_run.as_deref().filter(|_| !fresh.unwrap_or(false)) {
         Some(previous) => {
             let (owner, session, cost) = app.state::<Store>().session_of(previous).map_err(|e| format!("Không đọc được phiên cũ: {e}"))?;
             let same = serde_json::to_value(agent).ok().and_then(|v| v.as_str().map(|s| s == owner)).unwrap_or(false);
