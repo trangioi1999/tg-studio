@@ -51,6 +51,21 @@ pub fn parse_acp(update: &Value) -> Option<Usage> {
     Some(Usage {cost_usd:Some(cost),source:"reported",cumulative:true,..Default::default()})
 }
 
+/// What one Kiro credit costs, for the cost column: Kiro's price for credits beyond a plan.
+pub const KIRO_USD_PER_CREDIT: f64 = 0.04;
+
+/// Credits in Kiro's `_kiro.dev/metadata` notification. Kiro reports no tokens over ACP,
+/// only `meteringUsage` entries (summed by `unitPlural`); each frame covers the turn so far.
+pub fn kiro_credits(params: &Value) -> Option<f64> {
+    let entries = params["meteringUsage"].as_array()?;
+    let credits: f64 = entries.iter()
+        .filter(|e| e["unitPlural"] == "credits" || e["unit"] == "credit")
+        .filter_map(|e| e["value"].as_f64())
+        .filter(|v| v.is_finite() && *v >= 0.0)
+        .sum();
+    (!entries.is_empty()).then_some(credits)
+}
+
 /// Token counts from a `session/prompt` result (`usage`: input, output, cache read/write).
 /// Cache writes count as input, as for Claude headless. `cost` is the last `usage_update` cost.
 pub fn parse_acp_turn(result: &Value, cost: Option<f64>) -> Option<Usage> {
@@ -203,6 +218,17 @@ fn parse_gemini(v: &Value) -> Option<Usage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kiro_metadata_reports_credits_not_tokens() {
+        use serde_json::json;
+        let frame = json!({"sessionId":"s","contextUsagePercentage":7.11,"meteringUsage":[
+            {"unit":"credit","unitPlural":"credits","value":0.018},{"unit":"credit","unitPlural":"credits","value":0.002}],"turnDurationMs":1948});
+        assert!((kiro_credits(&frame).unwrap() - 0.02).abs() < 1e-9);
+        // Sent once at session creation with the context share only.
+        assert_eq!(kiro_credits(&json!({"contextUsagePercentage":0.7})), None);
+        assert_eq!(kiro_credits(&json!({"meteringUsage":[{"unitPlural":"requests","value":3.0}]})), Some(0.0));
+    }
 
     #[test]
     fn acp_cost_only_never_invents_tokens_from_context() {

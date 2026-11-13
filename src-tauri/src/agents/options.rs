@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::acp::client::{method_not_found, AcpClient, ClientHandler, HandlerFuture};
 use crate::agents::adapters::{setup_timeout, AgentKind};
@@ -61,10 +61,64 @@ pub struct AgentCommand {
     pub insert: String,
 }
 
+/// The command list a notification carries: ACP's `available_commands_update`, or Kiro's
+/// own `_kiro.dev/commands/available` (its skills are slash commands since Kiro CLI 2.1).
+pub fn commands_in(method: &str, params: &Value) -> Option<Value> {
+    if method == "session/update" && params["update"]["sessionUpdate"] == "available_commands_update" {
+        return Some(params["update"].clone());
+    }
+    if method.trim_start_matches('_') == "kiro.dev/commands/available" {
+        let commands: Vec<Value> = params["commands"].as_array().into_iter().flatten()
+            .filter(|c| c["meta"]["type"] != "prompt")
+            .map(|c| json!({ "name": c["name"], "description": c["description"], "input": { "hint": c["meta"]["hint"] } }))
+            .collect();
+        return Some(json!({ "availableCommands": commands }));
+    }
+    None
+}
+
+/// A Kiro skill folder with this name: in the project, else in the user's home.
+fn kiro_skill(name: &str, cwd: Option<&Path>) -> Option<&'static str> {
+    if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." { return None; }
+    let has = |root: &Path| root.join(".kiro/skills").join(name).join("SKILL.md").is_file();
+    if cwd.is_some_and(has) { return Some("project"); }
+    crate::agents::detect::home_dir().filter(|h| has(Path::new(h))).map(|_| "user")
+}
+
+/// Kiro skills on disk, for when Kiro does not list them itself.
+fn kiro_disk_skills(cwd: Option<&Path>) -> Vec<AgentCommand> {
+    let mut roots: Vec<(&str, std::path::PathBuf)> = Vec::new();
+    if let Some(dir) = cwd { roots.push(("project", dir.join(".kiro/skills"))); }
+    if let Some(home) = crate::agents::detect::home_dir() { roots.push(("user", Path::new(&home).join(".kiro/skills"))); }
+    let mut found = Vec::new();
+    for (source, root) in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else { continue };
+        let mut dirs: Vec<_> = entries.flatten().filter(|e| e.path().join("SKILL.md").is_file()).collect();
+        dirs.sort_by_key(|e| e.file_name());
+        for entry in dirs {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
+            let description = std::fs::read_to_string(entry.path().join("SKILL.md")).ok()
+                .and_then(|text| crate::integrations::skills::front_matter(&text).ok()).map(|(_, d)| d).unwrap_or_default();
+            found.push(AgentCommand { insert: format!("/{name} "), name, description, kind: "skill".into(), source: Some(source.into()), plugin: None, hint: None });
+        }
+    }
+    found
+}
+
 pub fn parse_commands(agent: AgentKind, update: &Value, cwd: Option<&Path>) -> Vec<AgentCommand> {
+    let mut parsed = parse_listed(agent, update, cwd);
+    if agent == AgentKind::Kiro {
+        for skill in kiro_disk_skills(cwd) {
+            if !parsed.iter().any(|c| c.name == skill.name) { parsed.push(skill); }
+        }
+    }
+    parsed
+}
+
+fn parse_listed(agent: AgentKind, update: &Value, cwd: Option<&Path>) -> Vec<AgentCommand> {
     let Some(commands) = update["availableCommands"].as_array() else { return vec![]; };
     commands.iter().filter_map(|command| {
-        let name = command["name"].as_str().filter(|name| !name.is_empty())?;
+        let name = command["name"].as_str().map(|n| if agent == AgentKind::Kiro { n.trim_start_matches('/') } else { n }).filter(|name| !name.is_empty())?;
         let mut description = command["description"].as_str().unwrap_or_default();
         let mut source = None;
         let mut plugin = None;
@@ -104,7 +158,13 @@ pub fn parse_commands(agent: AgentKind, update: &Value, cwd: Option<&Path>) -> V
                     }
                 }
             }
-            _ => {}
+            AgentKind::Kiro => {
+                if let Some(where_) = kiro_skill(name, cwd) {
+                    kind = "skill";
+                    source = Some(where_.into());
+                }
+            }
+            AgentKind::Gemini => {}
         }
         Some(AgentCommand {
             name: name.into(), description: description.into(), kind: kind.into(), source, plugin,
@@ -204,9 +264,9 @@ pub async fn agent_options(agent: AgentKind, cwd: Option<String>) -> Result<Agen
 struct CommandsHandler(std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Value>>>);
 impl ClientHandler for CommandsHandler {
     fn on_notification(&self, method: &str, params: Value) {
-        if method == "session/update" && params["update"]["sessionUpdate"] == "available_commands_update" {
+        if let Some(update) = commands_in(method, &params) {
             if let Some(sender) = self.0.lock().unwrap().take() {
-                let _ = sender.send(params["update"].clone());
+                let _ = sender.send(update);
             }
         }
     }
@@ -226,7 +286,8 @@ pub async fn agent_commands(agent: AgentKind, cwd: Option<String>) -> Result<Vec
 async fn wait_commands(agent: AgentKind, dir: &Path, receiver: tokio::sync::oneshot::Receiver<Value>) -> Vec<AgentCommand> {
     match tokio::time::timeout(Duration::from_secs(5), receiver).await {
         Ok(Ok(update)) => parse_commands(agent, &update, Some(dir)),
-        _ => vec![],
+        // Nothing listed: Kiro's skills on disk still are.
+        _ => parse_commands(agent, &Value::Null, Some(dir)),
     }
 }
 
@@ -368,6 +429,27 @@ mod tests {
         assert_eq!(commands[5].source.as_deref(), Some("plugin"));
         assert_eq!(commands[5].plugin.as_deref(), Some("documents"));
         assert_eq!(commands[5].insert, "$documents:documents ");
+    }
+
+    #[test]
+    fn kiro_skills_of_the_project_are_listed_even_when_kiro_does_not() {
+        let dir = std::env::temp_dir().join(format!("tg-kiro-{}", uuid::Uuid::new_v4()));
+        for (name, desc) in [("pr-review", "Review a PR"), ("deploy", "Ship it")] {
+            std::fs::create_dir_all(dir.join(".kiro/skills").join(name)).unwrap();
+            std::fs::write(dir.join(".kiro/skills").join(name).join("SKILL.md"), format!("---\nname: {name}\ndescription: {desc}\n---\nBody")).unwrap();
+        }
+        let update = json!({"availableCommands":[{"name":"/pr-review","description":"Kiro's text"},{"name":"/context","description":"Show context"}]});
+        let commands = parse_commands(AgentKind::Kiro, &update, Some(&dir));
+        let by = |n: &str| commands.iter().find(|c| c.name == n).unwrap().clone();
+        assert_eq!((by("pr-review").kind.as_str(), by("pr-review").source.as_deref(), by("pr-review").description.as_str()), ("skill", Some("project"), "Kiro's text"));
+        assert_eq!(by("context").kind, "command");
+        assert_eq!((by("deploy").kind.as_str(), by("deploy").insert.as_str(), by("deploy").description.as_str()), ("skill", "/deploy ", "Ship it"));
+        assert_eq!(commands.iter().filter(|c| c.name == "pr-review").count(), 1);
+        // Kiro's own notification is read like ACP's.
+        let kiro = commands_in("_kiro.dev/commands/available", &json!({"commands":[{"name":"/x","description":"d"}]})).unwrap();
+        assert_eq!(kiro["availableCommands"][0]["name"], "/x");
+        assert!(commands_in("session/update", &json!({"update":{"sessionUpdate":"plan"}})).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

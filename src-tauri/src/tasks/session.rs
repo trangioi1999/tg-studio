@@ -1,6 +1,6 @@
 //! ACP request routing without a desktop runtime, shared by real and fake agents.
 use std::{collections::{HashMap, VecDeque}, path::Path, sync::{Arc, Mutex}};
-use std::sync::atomic::{AtomicBool,Ordering};
+use std::sync::atomic::{AtomicBool,AtomicU64,Ordering};
 use serde_json::{json, Value};
 use tokio::sync::oneshot;
 use crate::{acp::{client::{ClientHandler, HandlerFuture, method_not_found}, handlers::{Sandbox, Terminals}}, agents::adapters::AgentKind, integrations::policy::{self, Verdict}, tasks::headless::AgentEvent};
@@ -46,6 +46,10 @@ pub struct TaskSession {
     reply: Mutex<(String, bool)>,
     /// The agent's own subagents (ACP child sessions): session id → (run id, still working).
     subagents: Mutex<HashMap<String, (String, bool)>>,
+    /// Counts turns, so Kiro's credit frames can tell a new turn from the same one.
+    turn_seq: AtomicU64,
+    /// Kiro credits: finished turns, and the latest frame per Kiro session (turn, credits).
+    kiro: Mutex<(f64, HashMap<String, (u64, f64)>)>,
 }
 
 /// How permission requests are answered. `Ask` shows a card; `Auto` allows without asking
@@ -59,7 +63,7 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),reply:Mutex::default(),subagents:Mutex::default()})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default()})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     pub fn set_approval(&self, approval:Approval) { *self.approval.lock().unwrap() = approval; }
@@ -135,9 +139,35 @@ impl TaskSession {
     pub fn is_busy(&self) -> bool { self.busy.load(Ordering::SeqCst) }
     /// The folder the agent works in.
     pub fn root(&self) -> &Path { &self.cwd }
-    pub fn set_busy(&self, busy:bool) { self.busy.store(busy,Ordering::SeqCst); }
+    pub fn set_busy(&self, busy:bool) {
+        if busy && !self.busy.swap(true,Ordering::SeqCst) { self.turn_seq.fetch_add(1,Ordering::SeqCst); }
+        else { self.busy.store(busy,Ordering::SeqCst); }
+    }
     /// True for the one caller that may start the next turn.
-    pub fn claim_turn(&self) -> bool { self.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_ok() }
+    pub fn claim_turn(&self) -> bool {
+        let claimed = self.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_ok();
+        if claimed { self.turn_seq.fetch_add(1,Ordering::SeqCst); }
+        claimed
+    }
+    /// Kiro reports credits, not tokens (`_kiro.dev/metadata`), after each model call; a
+    /// frame covers its session's turn so far, so a later frame of the same turn replaces it.
+    /// Frames of a sub-agent session count too: that work belongs to this run.
+    fn kiro_metering(&self, params:&Value) {
+        let Some(credits) = crate::usage::kiro_credits(params) else { return };
+        let turn = self.turn_seq.load(Ordering::SeqCst);
+        let key = params["sessionId"].as_str().unwrap_or_default().to_string();
+        let total = {
+            let mut kiro = self.kiro.lock().unwrap();
+            if let Some((seen, earlier)) = kiro.1.get(&key).copied() { if seen != turn { kiro.0 += earlier; } }
+            kiro.1.insert(key, (turn, credits));
+            kiro.0 + kiro.1.values().map(|f| f.1).sum::<f64>()
+        };
+        let cost = total * crate::usage::KIRO_USD_PER_CREDIT;
+        *self.last_cost.lock().unwrap() = Some(cost);
+        let usage = self.with_totals(crate::usage::Usage {cost_usd:Some(cost),source:"reported",cumulative:true,..Default::default()});
+        let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
+        event.usage = Some(usage); self.queue(event);
+    }
     fn with_totals(&self, mut usage:crate::usage::Usage) -> crate::usage::Usage {
         let t=*self.totals.lock().unwrap();
         usage.input_tokens=t.0; usage.cached_input_tokens=t.1; usage.output_tokens=t.2;
@@ -286,7 +316,14 @@ impl TaskSession {
 impl ClientHandler for TaskSession {
     fn on_notification(&self, method:&str, params:Value) {
         if self.muted.load(Ordering::SeqCst) { return; }
-        if method != "session/update" {return;}
+        if method.trim_start_matches('_') == "kiro.dev/metadata" { self.kiro_metering(&params); self.flush_events(); return; }
+        if method != "session/update" {
+            if let Some(update) = crate::agents::options::commands_in(method, &params) {
+                self.queue_data("commands", json!({"commands": crate::agents::options::parse_commands(self.agent, &update, Some(&self.cwd))}));
+                self.flush_events();
+            }
+            return;
+        }
         let permissions=self.permissions.lock().unwrap();
         if permissions.closed {return;}
         let update = &params["update"];
@@ -393,6 +430,44 @@ mod tests {
         assert_eq!(events[0].kind, "limits");
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["utilization"], 0.3);
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["resetsAt"], 5000);
+    }
+
+    #[test]
+    fn kiro_credit_frames_replace_within_a_turn_and_add_up_across_turns() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Kiro, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        let frame = |sid: &str, credits: &[f64]| json!({"sessionId": sid, "meteringUsage": credits.iter().map(|v| json!({"unit":"credit","unitPlural":"credits","value":v})).collect::<Vec<_>>()});
+        let cost = |sink: &Recorder| sink.0.lock().unwrap().iter().rev().find_map(|e| e.usage.as_ref().and_then(|u| u.cost_usd)).unwrap();
+        // Session creation: context share only, no usage yet.
+        session.on_notification("_kiro.dev/metadata", json!({"sessionId":"main","contextUsagePercentage":0.7}));
+        assert!(sink.0.lock().unwrap().is_empty());
+        assert!(session.claim_turn());
+        session.on_notification("_kiro.dev/metadata", frame("main", &[0.5]));
+        session.on_notification("_kiro.dev/metadata", frame("main", &[0.5, 0.25]));
+        assert!((cost(&sink) - 0.75 * crate::usage::KIRO_USD_PER_CREDIT).abs() < 1e-9);
+        session.set_busy(false);
+        // The turn's last frame may come after the turn ended: still the same turn.
+        session.on_notification("_kiro.dev/metadata", frame("main", &[0.5, 0.5]));
+        assert!((cost(&sink) - 1.0 * crate::usage::KIRO_USD_PER_CREDIT).abs() < 1e-9);
+        session.set_busy(true);
+        session.on_notification("_kiro.dev/metadata", frame("main", &[0.25]));
+        session.on_notification("_kiro.dev/metadata", frame("sub", &[0.25]));
+        assert!((cost(&sink) - 1.5 * crate::usage::KIRO_USD_PER_CREDIT).abs() < 1e-9);
+        let events = sink.0.lock().unwrap();
+        assert!(events.iter().all(|e| e.kind == "usage" && e.usage.as_ref().unwrap().cumulative));
+    }
+
+    #[test]
+    fn kiro_commands_notification_lists_its_commands() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Kiro, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification("_kiro.dev/commands/available", json!({"commands":[{"name":"/context","description":"Show context","meta":{"hint":"show"}},{"name":"p","description":"x","meta":{"type":"prompt"}}],"tools":[]}));
+        let events = sink.0.lock().unwrap();
+        assert_eq!(events[0].kind, "commands");
+        let commands = events[0].data.as_ref().unwrap()["commands"].as_array().unwrap().clone();
+        assert_eq!(commands[0]["name"], "context");
+        assert_eq!(commands[0]["insert"], "/context ");
+        assert!(commands.iter().all(|c| c["name"] != "p"));
     }
 
     #[tokio::test]
