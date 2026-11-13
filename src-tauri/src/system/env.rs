@@ -238,9 +238,70 @@ pub fn which(bin: &str) -> Option<PathBuf> {
     None
 }
 
+/// The native `claude.exe` for claude-agent-acp. The adapter looks for it in an optional
+/// npm package that installs can leave out ("Claude native binary not found for
+/// win32-x64"), and the session then fails with only "Internal error". Pointing
+/// `CLAUDE_CODE_EXECUTABLE` at the Claude Code the user already installed avoids that.
+/// Windows only: elsewhere the adapter's own binary has been reliable, and a different
+/// CLI version should not replace it there. An existing variable is left alone.
+pub fn claude_executable() -> Option<PathBuf> {
+    if !cfg!(windows) || std::env::var_os("CLAUDE_CODE_EXECUTABLE").is_some() { return None; }
+    let home = crate::agents::detect::home_dir().map(PathBuf::from);
+    pick_claude(which("claude").as_deref(), home.as_deref())
+}
+
+/// Where Claude Code puts `claude.exe`: on PATH itself, the native installer
+/// (`~/.local/bin`), or the npm package behind a `claude.cmd` shim. Small files are npm
+/// placeholders for a binary that was never installed, so they do not count.
+fn pick_claude(on_path: Option<&std::path::Path>, home: Option<&std::path::Path>) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(found) = on_path {
+        if found.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) { candidates.push(found.to_path_buf()); }
+    }
+    if let Some(home) = home { candidates.push(home.join(".local").join("bin").join("claude.exe")); }
+    if let Some(dir) = on_path.and_then(|p| p.parent()) {
+        let scope = dir.join("node_modules").join("@anthropic-ai");
+        candidates.push(scope.join("claude-code").join("bin").join("claude.exe"));
+        for arch in ["win32-x64", "win32-arm64"] { candidates.push(scope.join(format!("claude-code-{arch}")).join("claude.exe")); }
+    }
+    candidates.into_iter().find(|c| std::fs::metadata(c).is_ok_and(|m| m.is_file() && m.len() > 1_000_000))
+}
+
+/// Settings every ACP adapter process gets, whichever agent it is.
+pub fn adapter_env(cmd: &mut tokio::process::Command) {
+    if let Some(claude) = claude_executable() { cmd.env("CLAUDE_CODE_EXECUTABLE", claude); }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
+
+    #[test]
+    fn claude_exe_is_found_beside_the_npm_shim_or_in_the_native_install() {
+        let root = std::env::temp_dir().join(format!("tg-claude-{}", uuid::Uuid::new_v4()));
+        let npm = root.join("npm");
+        let home = root.join("home");
+        let shim = npm.join("claude.cmd");
+        fs::create_dir_all(&npm).unwrap();
+        fs::write(&shim, "@echo off").unwrap();
+        assert_eq!(super::pick_claude(Some(&shim), Some(&home)), None);
+
+        // npm's placeholder for a binary that was never installed does not count.
+        let packaged = npm.join("node_modules/@anthropic-ai/claude-code/bin/claude.exe");
+        fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+        fs::write(&packaged, b"stub").unwrap();
+        assert_eq!(super::pick_claude(Some(&shim), Some(&home)), None);
+        fs::write(&packaged, vec![0u8; 1_100_000]).unwrap();
+        assert_eq!(super::pick_claude(Some(&shim), Some(&home)), Some(packaged.clone()));
+
+        // The native installer comes first.
+        let native = home.join(".local/bin/claude.exe");
+        fs::create_dir_all(native.parent().unwrap()).unwrap();
+        fs::write(&native, vec![0u8; 1_100_000]).unwrap();
+        assert_eq!(super::pick_claude(Some(&shim), Some(&home)), Some(native.clone()));
+        assert_eq!(super::pick_claude(Some(&packaged), Some(&home)), Some(packaged));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn paths_of_several_shells_merge_in_order_without_repeats() {

@@ -114,6 +114,7 @@ pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Res
         .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
         .stderr(Stdio::piped()).kill_on_drop(true);
     env::isolate(&mut process);
+    env::adapter_env(&mut process);
     process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", command.0.display()))
 }
 
