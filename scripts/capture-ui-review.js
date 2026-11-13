@@ -100,6 +100,13 @@ function hasFfmpeg() {
   await p.waitForSelector('.chg-row');
   await shot('17-changes');
 
+  // The terminal sits under the Changes tab of the run just finished.
+  await p.click('button.term-tab:has-text("Terminal")');
+  await p.waitForTimeout(1200);
+  await p.keyboard.type('npm test');
+  await p.keyboard.press('Enter');
+  await shot('20-terminal');
+
   await fresh();
   await ask('Sửa tiêu đề trang chủ, chia việc viết test cho agent khác');
   await p.waitForSelector('tg-permission-card');
@@ -108,6 +115,19 @@ function hasFfmpeg() {
   await done();
   await p.click('.dlg-toggle >> nth=0');
   await shot('18-delegate');
+
+  // A screenshot of the bug and a log, attached to the request.
+  // Tự động, so no approval card covers the sent message and its thumbnail.
+  await fresh();
+  await chip(1);
+  await p.click('button.opt:has-text("Tự động")');
+  await p.setInputFiles('input[type=file]', [path.join(out, '../../images/approval.png'), path.resolve('package.json')]);
+  await ask('Nút Gửi bị lệch như trong ảnh, sửa giúp');
+  await p.waitForSelector('tg-user-message .msg-thumb img');
+  await done();
+  await p.setInputFiles('input[type=file]', [path.join(out, '../../images/skills.png')]);
+  await p.fill('textarea#prompt', 'Màn này cũng lệch');
+  await shot('19-attach');
 
   // Hỏi đáp
   await fresh();
@@ -127,6 +147,12 @@ function hasFfmpeg() {
     await shot(id);
     await p.click(`button.tl-screen[aria-label="${label}"]`);
   }
+
+  await fresh();
+  await p.click('button[aria-label^="Thiết lập dự án"]');
+  await p.fill('.hk-form textarea', 'npm ci');
+  await p.fill('.hk-form input.mono', 'npm test');
+  await shot('21-project-settings');
 
   await browser.close();
   if (!webp) console.log('Không có ffmpeg: giữ ảnh PNG, hãy đổi sang WebP trước khi commit.');

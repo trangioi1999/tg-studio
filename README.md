@@ -2,17 +2,19 @@
 
 App desktop để chat và giao việc cho nhiều coding agent (**Claude Code, Codex, Gemini CLI, Kiro CLI**) trên cùng một dự án. Chạy trên macOS và Windows; giao diện Angular, lõi Rust (Tauri 2).
 
-> **Trạng thái: v0.6.1, mốc M5 của đợt làm lại trải nghiệm chính (chat-first).**
+> **Trạng thái: v0.6.6, mốc M5 của đợt làm lại trải nghiệm chính (chat-first).**
 >
 > Đã có:
 > - chat nhiều câu trong một phiên agent, 3 quyền (Chỉ hỏi, Hỏi trước, Tự động), làm thẳng trong thư mục hoặc trong bản nháp;
-> - tab Thay đổi kiểu git: commit hoặc hoàn tác theo tệp;
+> - đính kèm ảnh chụp màn hình và tệp vào tin nhắn (dán, kéo thả, nút kẹp giấy);
+> - tab Thay đổi kiểu git: commit hoặc hoàn tác theo tệp, Push và Tạo PR;
+> - terminal riêng cho từng cuộc trò chuyện; thiết lập dự án (script chuẩn bị bản nháp, lệnh kiểm tra sau mỗi lượt);
 > - agent tự giao một phần việc cho agent khác, hiện lồng trong cuộc trò chuyện;
 > - chạy song song, so sánh và ghép kết quả, Theo các bước, Giám sát;
 > - Chi phí: giá, ngân sách, CSV, hạn mức gói Claude và Codex;
 > - MCP, gọi skill bằng `/`, báo khi có bản mới.
 >
-> Đã kiểm chứng với Claude và Codex thật; Gemini, Kiro và phần agent con chưa.
+> Đã kiểm chứng với Claude và Codex thật; Gemini, Kiro, phần agent con và đính kèm chưa.
 >
 > Còn lại: nghiệm thu trên máy thật macOS và Windows, ký số, tự cập nhật. Xem [docs/02-roadmap.md](docs/02-roadmap.md); cách dùng: [docs/user-guide.md](docs/user-guide.md).
 
@@ -20,7 +22,11 @@ App desktop để chat và giao việc cho nhiều coding agent (**Claude Code, 
 
 **Chat với agent:** cột trái là dự án và các cuộc trò chuyện, có nhãn trạng thái (Đang làm, Chờ duyệt, Xong, Lỗi). Các bước agent làm gom vào một dòng Nhật ký làm việc, câu trả lời hiển thị Markdown.
 
-**Thay đổi kiểu git:** tab Thay đổi giống Source Control. Đầu tab ghi tổng (ví dụ "12 tệp · +340 −120") và có ô nội dung commit gợi ý sẵn từ yêu cầu. Tệp chia hai nhóm: tệp agent sửa (mặc định chọn để commit) và tệp bạn tự sửa trước đó (mặc định không chọn). Commit chỉ lấy tệp đã chọn. Hoàn tác trả tệp về đúng như trước khi agent sửa, không về commit cuối, nên phần bạn đang sửa dở không mất.
+**Đính kèm ảnh và tệp:** dán ảnh chụp lỗi giao diện (Ctrl+V), kéo thả tệp vào ô chat hoặc bấm nút kẹp giấy. Ảnh hiện thành ảnh nhỏ, tệp thành thẻ tên, bấm × để bỏ. Ảnh gửi thẳng cho agent nhận ảnh (Claude, Codex…), tệp chữ nhỏ gửi kèm nội dung, tệp khác gửi đường dẫn để agent tự mở. Tệp lưu trong thư mục dữ liệu của app, không ghi vào repo, và vẫn hiện khi mở lại cuộc trò chuyện.
+
+![Tin nhắn có ảnh chụp lỗi và tệp đính kèm](docs/images/attach.png)
+
+**Thay đổi kiểu git:** tab Thay đổi giống Source Control. Đầu tab ghi tổng (ví dụ "12 tệp · +340 −120") và có ô nội dung commit gợi ý sẵn từ yêu cầu. Tệp chia hai nhóm: tệp agent sửa (mặc định chọn để commit) và tệp bạn tự sửa trước đó (mặc định không chọn). Commit chỉ lấy tệp đã chọn. Hoàn tác trả tệp về đúng như trước khi agent sửa, không về commit cuối, nên phần bạn đang sửa dở không mất. Dòng nhánh cho biết số commit chưa đẩy, có nút **Push** và **Tạo PR** (cần GitHub CLI `gh`); app không bao giờ push `--force`. Editor chỉ đánh dấu đoạn agent sửa bằng vạch màu, không còn duyệt từng đoạn.
 
 ![Chat, thẻ thay đổi và tab Thay đổi](docs/images/chat-review.png)
 
@@ -31,6 +37,16 @@ App desktop để chat và giao việc cho nhiều coding agent (**Claude Code, 
 - Subagent có sẵn của Claude Code cũng hiện như vậy.
 
 ![Claude giao Codex viết test và một Claude phụ cập nhật docs](docs/images/delegate.png)
+
+**Terminal:** khung dưới có tab Terminal, mỗi cuộc trò chuyện một shell, mở đúng thư mục agent đang làm (bản nháp hoặc thư mục dự án). Tab Log bên cạnh vẫn xem log của từng lượt.
+
+![Terminal của cuộc trò chuyện dưới tab Thay đổi](docs/images/terminal.png)
+
+**Thiết lập dự án:** nút ⚙ cạnh tên dự án ở cột trái.
+- *Script chuẩn bị* chạy một lần trong mỗi bản nháp mới, trước khi agent bắt đầu (ví dụ `npm ci`, chép `.env` qua `TG_ROOT_PATH`).
+- *Lệnh kiểm tra* chạy sau mỗi lượt agent có sửa tệp; hỏng thì app gửi lỗi cho agent tự sửa, tối đa số lần bạn chọn.
+
+![Thiết lập dự án](docs/images/project-settings.png)
 
 **Duyệt lệnh:** thẻ duyệt ghim ngay trên ô chat, kể cả thẻ của agent con.
 
@@ -58,10 +74,10 @@ App desktop để chat và giao việc cho nhiều coding agent (**Claude Code, 
 
 <sub>Ảnh chụp ở chế độ mock (`npm start`), dữ liệu là mẫu. Chụp lại: `npm start -- --port 4321`, rồi chạy `scripts/capture-screens.js` bằng Playwright (ảnh trong `docs/images/`) và `node scripts/capture-ui-review.js` (ảnh của trang review và trang tải).</sub>
 
-**Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt.
-- **Toàn cảnh** xếp 18 màn hình theo luồng trên một bảng kéo, phóng to được.
-- **▶ Trình chiếu** chạy lần lượt từng màn kèm chú thích.
+**Review giao diện:** mở `docs/ui-review/index.html` trong trình duyệt (bản trên trang tải: `/ui-review/`).
+- **Bộ sưu tập** (mặc định) hiện 21 màn hình theo luồng, lọc theo luồng, màn mới có nhãn "Mới"; bấm để xem lớn.
 - **Review** để đánh dấu Đạt / Cần sửa và chép kết quả.
+- **Toàn cảnh** xếp các màn trên một bảng kéo, phóng to được; **▶ Trình chiếu** chạy lần lượt từng màn kèm chú thích.
 
 ## Cài môi trường (một lần)
 
@@ -79,7 +95,7 @@ Cần Node 20 trở lên (`node -v`; dùng nvm cũng được).
 
 Windows: cài Rust (rustup), Node 20+, và *Visual Studio Build Tools* với gói "Desktop development with C++".
 
-Agent nào muốn dùng thì cài CLI của agent đó và đăng nhập một lần trong terminal (`claude`, `codex`, `gemini`, `kiro-cli`). Chế độ Sửa code chạy qua adapter ACP; cài sẵn thì khỏi tải bằng `npx` mỗi lần mở phiên:
+Agent nào muốn dùng thì cài CLI của agent đó và đăng nhập một lần trong terminal (`claude`, `codex`, `gemini`, `kiro-cli`). Trên Windows, Sửa code với Claude dùng `claude.exe` của Claude Code đã cài (bộ cài chính thức `irm https://claude.ai/install.ps1 | iex`, hoặc `npm i -g @anthropic-ai/claude-code` bản 2.x). Chế độ Sửa code chạy qua adapter ACP; cài sẵn thì khỏi tải bằng `npx` mỗi lần mở phiên:
 
 ```bash
 npm i -g @agentclientprotocol/claude-agent-acp@0.100.0 @agentclientprotocol/codex-acp@2.5.0
@@ -138,25 +154,22 @@ Chi tiết: [docs/user-guide.md](docs/user-guide.md).
 ## Cấu trúc
 
 ```
-src/app/                 giao diện, chia theo tính năng
-  chat/                  ô chat, dòng chat, thẻ duyệt, agent con (delegations)
-  workspace/             cây tệp, editor Monaco, tab Thay đổi, so sánh và ghép
-  runs/                  run, cuộc trò chuyện, Theo các bước, Giám sát
-  agents/                dò agent, model, onboarding
-  usage/                 Chi phí, giá, ngân sách, hạn mức
-  integrations/          MCP, skills, tg-bridge
-  shell/                 khung app: cột trái, thanh tiêu đề, thanh dưới
-  shared/                tiện ích dùng chung
+src/app/                 giao diện
   core/                  protocol (kiểu chung với Rust), backend (Tauri | mock)
+  services/              state dùng chung: runs, agents, usage, app (UI, layout, terminal, đính kèm)
+  layout/                khung app: cột trái, thanh tiêu đề, thanh dưới, thiết lập dự án
+  features/              mỗi màn một thư mục: chat, files, editor, changes, compare,
+                         workbench (khung dưới, terminal), monitor, usage, connections, agents
+  shared/                ui/ widget dùng chung, utils/ hàm thuần
 src-tauri/src/           lõi Rust
   agents/                danh sách agent, dò CLI, model và lệnh của agent
   acp/                   ACP client (JSON-RPC), fs và terminal cho agent
   tasks/                 task sửa code: phiên, thay đổi, agent con, phiên mở sẵn
-  workspace/             dự án, worktree, diff, ghép
+  workspace/             dự án, worktree, diff, ghép, push/PR, hook dự án
   integrations/          tg-bridge, MCP, skills, chính sách lệnh
   usage/                 chuẩn hoá token và chi phí, sổ usage
   store/                 lịch sử (SQLite)
-  system/                PATH, tài nguyên, chẩn đoán, phiên bản
+  system/                PATH, tài nguyên, chẩn đoán, phiên bản, terminal, đính kèm
 docs/ARCHITECTURE.md     kiến trúc và hợp đồng sự kiện
 ```
 

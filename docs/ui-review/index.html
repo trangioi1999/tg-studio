@@ -262,7 +262,7 @@ textarea.note::placeholder { color: var(--faint); }
 
 <script>
 /* Update after `node scripts/capture-ui-review.js`. */
-const META = { version: '0.6.1', date: '10/11/2026' };
+const META = { version: '0.6.6', date: '13/11/2026' };
 const FLOWS = [
   { id: 'start', title: 'Bắt đầu', desc: 'Mở app lần đầu và vào một dự án.', screens: [
     { id: '01-welcome', title: 'Màn chào khi chưa mở dự án', checks: ['Một nút chính duy nhất: Mở thư mục dự án', 'Logo thật của 4 agent, nhãn Sẵn sàng / Chép lệnh cài', 'Thanh tiêu đề riêng của app, có nút cửa sổ'] },
@@ -278,9 +278,11 @@ const FLOWS = [
   { id: 'working', title: 'Agent làm việc', desc: 'Từ lúc gửi yêu cầu tới lúc duyệt thay đổi.', screens: [
     { id: '07-approval-status', title: 'Agent xin phép chạy lệnh', checks: ['Thẻ duyệt vàng ghim ngay trên ô chat', 'Dòng trạng thái vàng "đang chờ bạn" + Dừng (Esc)', 'Cột trái: nhãn vàng Chờ duyệt; icon Giám sát có số 1'] },
     { id: '08-running-status', title: 'Agent đang làm', checks: ['Dòng trạng thái xanh: tên agent, 3 chấm, đồng hồ, việc đang làm', 'Nhật ký làm việc mở và chạy trực tiếp', 'Nút gửi đổi thành nút dừng'] },
-    { id: '09-done-changes', title: 'Agent làm xong, có thay đổi', checks: ['Câu trả lời Markdown; nhật ký thu gọn còn 1 dòng', 'Thẻ "N tệp đã đổi · đã ở trong code của bạn"', 'Editor đánh dấu đoạn agent sửa, nút Hoàn tác đoạn này (không bắt buộc)', 'Chép / Chép Markdown dưới câu trả lời'] },
-    { id: '17-changes', isNew: true, title: 'Tab Thay đổi kiểu git', checks: ['Tổng "N tệp · +A −R", ô nội dung commit gợi ý từ yêu cầu, nút Commit N tệp', 'Nhóm Của agent (đã chọn) và Bạn tự sửa (chưa chọn), có avatar agent', 'Nút ↶ hoàn tác từng tệp và Hoàn tác tất cả'] },
-    { id: '18-delegate', isNew: true, title: 'Agent giao việc cho agent khác', checks: ['Dòng Codex và Claude phụ lồng ngay chỗ Claude đã giao', 'Mỗi dòng: trạng thái, thời gian, chi phí, tệp đã gộp', 'Bấm vào để xem nhật ký của agent con ngay tại chỗ'] },
+    { id: '09-done-changes', title: 'Agent làm xong, có thay đổi', checks: ['Câu trả lời Markdown; nhật ký thu gọn còn 1 dòng', 'Thẻ "N tệp đã đổi · đã ở trong code của bạn"', 'Editor đánh dấu đoạn agent sửa bằng vạch màu', 'Chép / Chép Markdown dưới câu trả lời'] },
+    { id: '17-changes', title: 'Tab Thay đổi kiểu git', checks: ['Tổng "N tệp · +A −R", ô nội dung commit gợi ý từ yêu cầu, nút Commit N tệp', 'Dòng nhánh: số commit chưa push, Tạo PR, Push', 'Nhóm Của agent (đã chọn) và Bạn tự sửa (chưa chọn), có avatar agent', 'Nút ↶ hoàn tác từng tệp và Hoàn tác tất cả'] },
+    { id: '18-delegate', title: 'Agent giao việc cho agent khác', checks: ['Dòng Codex và Claude phụ lồng ngay chỗ Claude đã giao', 'Mỗi dòng: trạng thái, thời gian, chi phí, tệp đã gộp', 'Bấm vào để xem nhật ký của agent con ngay tại chỗ'] },
+    { id: '19-attach', isNew: true, title: 'Đính kèm ảnh và tệp', checks: ['Dán ảnh (Ctrl+V), kéo thả, hoặc nút kẹp giấy ở góc ô chat', 'Ảnh nhỏ và thẻ tên tệp, mỗi cái có nút ×', 'Tin đã gửi hiện ảnh và tên tệp, kể cả khi mở lại'] },
+    { id: '20-terminal', isNew: true, title: 'Terminal của cuộc trò chuyện', checks: ['Tab Terminal ở khung dưới, mở đúng thư mục agent đang làm', 'Tab Log bên cạnh vẫn xem được log của từng lượt', 'Thu gọn / Mở'] },
   ]},
   { id: 'ask', title: 'Hỏi đáp', desc: 'Câu hỏi Chỉ hỏi: đọc, trả lời, không sửa tệp.', screens: [
     { id: '10-question-typing', title: 'Agent đang trả lời', checks: ['Con trỏ nhấp nháy ở cuối câu đang viết', 'Dòng trạng thái "đang trả lời" ngay trên ô chat'] },
@@ -291,6 +293,7 @@ const FLOWS = [
     { id: '14-usage', title: 'Chi phí', checks: ['Biểu đồ theo ngày, bảng lượt chạy có logo agent', 'Ngân sách và bảng giá ở cột phải'] },
     { id: '15-agents', title: 'Agent', checks: ['Danh sách agent, phiên bản, trạng thái đăng nhập', 'Nút Dò lại'] },
     { id: '16-integrations', title: 'Kết nối', checks: ['MCP server và Skills'] },
+    { id: '21-project-settings', isNew: true, title: 'Thiết lập dự án', checks: ['Nút ⚙ cạnh tên dự án ở cột trái', 'Script chuẩn bị chạy trong mỗi bản nháp mới', 'Lệnh kiểm tra sau mỗi lượt; hỏng thì gửi lỗi cho agent tự sửa, tối đa N lần'] },
   ]},
 ];
 const SCREENS = FLOWS.flatMap((f) => f.screens.map((s) => ({ ...s, flow: f })));
