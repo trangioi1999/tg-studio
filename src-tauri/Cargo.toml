@@ -1,6 +1,6 @@
 [package]
 name = "tg-studio"
-version = "0.6.3"
+version = "0.6.4"
 description = "TG Studio — multi-agent coding desktop app"
 authors = ["Trần Giỏi"]
 edition = "2021"

@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.6.4] - 2026-11-13
+
 ### Thêm
 - Tab Thay đổi có **Push** và **Tạo PR** (cần GitHub CLI), hiện nhánh và số commit chưa đẩy.
 - Terminal cho từng cuộc trò chuyện ở khung dưới (tab Terminal), mở đúng thư mục agent đang làm.
