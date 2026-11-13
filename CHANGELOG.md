@@ -4,7 +4,12 @@
 
 ## [Chưa phát hành]
 
+### Thay đổi
+- Khối code trong khung chat được tô màu cú pháp (TypeScript, JavaScript, HTML, CSS/SCSS, JSON, Bash/PowerShell, Python, Rust, Java, Go, C#, SQL, YAML, diff) theo bảng màu tối giống editor, thay cho chữ trắng toàn bộ.
+- Nút chép trên khối code và trong tab Log là icon copy (bấm xong hiện dấu ✓), thay cho chữ "Chép".
+
 ### Sửa lỗi
+- Nhật ký làm việc không còn hiện dấu "!" cho ghi chú bình thường: dòng `[session/…] sessionId=… resume=…` của adapter Claude khi nối lại phiên và dòng "Đang chuẩn bị adapter…" của app. Hai dòng này vẫn xem được trong tab Log.
 - Kiro: thanh dưới không đọc được credit của gói khi Kiro phải chờ MCP server (lệnh `/usage` mất hơn 25 giây); giờ chờ tới 2 phút, và Kiro bản cũ từ chối cờ `--v2` thì app chạy lại không có cờ. Không đọc được thì tooltip ghi đúng lý do và những gì Kiro in ra, thay cho câu "cần đăng nhập". Claude và Kiro hiện số riêng, không chờ nhau.
 - Kiro: thông báo riêng đầu tiên của mỗi loại mà Kiro gửi (`_kiro.dev/…`) được ghi vào tab Log (dòng mờ), để tìm ra cách Kiro bản đang dùng báo credit.
 

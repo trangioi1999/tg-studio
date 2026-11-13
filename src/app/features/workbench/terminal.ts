@@ -81,7 +81,10 @@ function readTab(): BottomTab {
           <button class="lg-chip" [class.active]="errorsOnly()" [attr.aria-pressed]="errorsOnly()" (click)="errorsOnly.set(!errorsOnly())">Chỉ lỗi</button>
           <input class="lg-search" type="search" placeholder="Tìm trong log" aria-label="Tìm trong log" [value]="logQuery()" (input)="logQuery.set($any($event.target).value)" />
           @if (sections().length) {
-            <button class="btn ghost sm" (click)="copyLog()" title="Chép log đang hiện (theo bộ lọc)">{{ copied() ? 'Đã chép' : 'Chép' }}</button>
+            <button class="lg-copy" [class.done]="copied()" (click)="copyLog()" [title]="copied() ? 'Đã chép' : 'Chép log đang hiện (theo bộ lọc)'" [attr.aria-label]="copied() ? 'Đã chép' : 'Chép log đang hiện'">
+              @if (copied()) { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg> }
+              @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg> }
+            </button>
           }
         </div>
         <div #body class="term-body lg-body">

@@ -144,11 +144,14 @@ function toConsoleLine(agent: AgentId, kind: StoredRun['lines'][number]['kind'],
   if (kind === 'message') return { text: line, tone: 'text', key: MESSAGE_KEY };
   if (kind === 'user') return { text: line, tone: 'user' };
   if (kind === 'log') return describeLine(agent, line);
-  return { text: line, tone: ADAPTER_TIMING.test(line) || line.startsWith('◇ kiro ') ? 'muted' : 'error' };
+  return { text: line, tone: ADAPTER_TIMING.test(line) || INFO_NOTE.test(line) ? 'muted' : 'error' };
 }
 
-/** Timing notes the Claude ACP adapter writes to stderr while opening or resuming a session; local work, not errors. */
-const ADAPTER_TIMING = /^\[session\/[\w-]+\] sessionId=\S+ phase=/;
+/** Notes the Claude ACP adapter writes to stderr while opening or resuming a session
+ * (`[session/query] sessionId=… phase=…` or `… resume=…`); local work, not errors. */
+const ADAPTER_TIMING = /^\[session\/[\w-]+\] sessionId=\S+/;
+/** The app's own progress notes: shown in the Log tab, not as warnings in the work log. */
+const INFO_NOTE = /^(Đang chuẩn bị adapter|◇ kiro )/;
 
 /** A tool call has one console line, updated in place as its status changes. */
 function applyTool(lines: ConsoleLine[], update: Json): ConsoleLine[] {

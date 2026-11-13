@@ -1,5 +1,6 @@
 import { Component, DestroyRef, ElementRef, afterRenderEffect, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { marked } from 'marked';
+import { Marked } from 'marked';
+import { highlightCode } from '../utils/highlight';
 import { nextReveal } from '../utils/reveal';
 import { copyText } from '../utils/clipboard';
 
@@ -49,7 +50,8 @@ export class Markdown {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'copy-code';
-        button.textContent = 'Chép';
+        button.innerHTML = COPY_ICON;
+        button.title = 'Chép đoạn code';
         button.setAttribute('aria-label', 'Chép đoạn code');
         pre.prepend(button);
       }
@@ -86,9 +88,24 @@ export class Markdown {
   }
 }
 
+/** Markdown with coloured code blocks (`hljs-*` spans survive Angular's sanitizer). */
+const markdown = new Marked({
+  async: false,
+  gfm: true,
+  breaks: true,
+  renderer: {
+    code({ text, lang }) {
+      const { html, language } = highlightCode(text, lang);
+      const name = lang?.trim().split(/\s+/)[0] || language?.toLowerCase();
+      // The trailing newline, as marked writes it: the copy button copies the block with it.
+      return `<pre><code class="hljs${name ? ` language-${name.replace(/[^\w+#-]/g, '')}` : ''}">${html}\n</code></pre>\n`;
+    },
+  },
+});
+
 export function renderMarkdown(text: string): string {
   try {
-    return marked.parse(text, { async: false, gfm: true, breaks: true }) as string;
+    return markdown.parse(text) as string;
   } catch {
     return text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
   }
@@ -102,11 +119,18 @@ export function plainText(markdown: string): string {
   return (doc.body.textContent ?? '').replace(/\n\s*\n+/g, '\n').trim();
 }
 
+const COPY_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+const DONE_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
 function flash(button: HTMLElement): void {
-  button.textContent = 'Đã chép ✓';
+  button.innerHTML = DONE_ICON;
+  button.title = 'Đã chép';
+  button.setAttribute('aria-label', 'Đã chép');
   button.classList.add('done');
   setTimeout(() => {
-    button.textContent = 'Chép';
+    button.innerHTML = COPY_ICON;
+    button.title = 'Chép đoạn code';
+    button.setAttribute('aria-label', 'Chép đoạn code');
     button.classList.remove('done');
   }, 1500);
 }

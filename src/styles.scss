@@ -342,6 +342,10 @@ tg-workbench { display: flex; flex-direction: column; }
 .lg-chip.active { color: var(--text); border-color: var(--line-strong); background: var(--hover); }
 .lg-tools { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 5px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .lg-search { height: 22px; flex: 1 1 120px; min-width: 100px; max-width: 260px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--text); font-size: var(--fs-xs); }
+.lg-copy { width: 24px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.lg-copy:hover { color: var(--text); background: var(--hover); }
+.lg-copy.done { color: var(--done); }
+.lg-copy .ic { width: 14px; height: 14px; }
 .lg-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 14px 14px; line-height: 18px; }
 .lg-sec { display: flex; flex-direction: column; gap: 4px; }
 .lg-sec[data-role='delegate'], .lg-sec[data-role='subagent'] { margin-left: 26px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
@@ -750,7 +754,21 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .md h1 { font-size: var(--fs-xl); } .md h2 { font-size: var(--fs-lg); }
 .md code { font-family: var(--mono); font-size: var(--fs-sm); background: var(--hover); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 1px 5px; color: var(--text-2); }
 .md pre { margin: 0 0 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: auto; }
-.md pre code { background: none; border: 0; padding: 0; font-size: var(--fs-sm); line-height: 1.55; }
+.md pre code { background: none; border: 0; padding: 0; font-size: var(--fs-sm); line-height: 1.55; color: #c9d1d9; }
+/* Syntax colours in chat code blocks (highlight.js classes), close to the editor's dark theme. */
+.hljs-comment, .hljs-quote { color: #6a9955; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-meta .hljs-keyword { color: #c586c0; }
+.hljs-built_in, .hljs-type, .hljs-class .hljs-title, .hljs-title.class_ { color: #4ec9b0; }
+.hljs-string, .hljs-regexp, .hljs-template-tag, .hljs-addition .hljs-string { color: #ce9178; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: #b5cea8; }
+.hljs-title, .hljs-title.function_, .hljs-section { color: #dcdcaa; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-property, .hljs-params { color: #9cdcfe; }
+.hljs-tag, .hljs-name, .hljs-selector-id, .hljs-selector-class { color: #569cd6; }
+.hljs-meta, .hljs-subst { color: #9aa4b2; }
+.hljs-addition { color: #7ee2a8; background: rgba(46, 160, 67, 0.15); }
+.hljs-deletion { color: #ff9b9b; background: rgba(248, 81, 73, 0.15); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
 .md a { color: #a9b4ff; text-decoration: none; border-bottom: 1px dotted currentColor; cursor: copy; }
 .md blockquote { margin: 0 0 8px; padding-left: 12px; border-left: 2px solid var(--line-strong); color: var(--muted); }
 .md table { border-collapse: collapse; margin: 0 0 8px; font-size: var(--fs-sm); }
@@ -962,7 +980,8 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 @keyframes tg-blink { 50% { opacity: 0; } }
 .md.typing > div > :last-child::after, .md.revealing > div > :last-child::after { content: ''; display: inline-block; width: 7px; height: 15px; margin-left: 3px; vertical-align: -2px; background: var(--run); animation: tg-blink 1s step-end infinite; }
 .md pre { position: relative; }
-.copy-code { position: absolute; top: 6px; right: 6px; height: 24px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--raised); color: var(--muted); font: 500 11.5px var(--font); cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.copy-code { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--raised); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.copy-code .ic { width: 14px; height: 14px; }
 .md pre:hover .copy-code, .copy-code:focus-visible, .copy-code.done { opacity: 1; }
 .copy-code:hover { color: var(--text); }
 .copy-code.done { color: var(--done); }
