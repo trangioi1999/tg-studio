@@ -12,7 +12,7 @@ describe('renderMarkdown', () => {
   });
 
   it('keeps fenced code as a code block', () => {
-    expect(renderMarkdown('```ts\nconst a = 1;\n```')).toContain('<pre><code class="language-ts">const a = 1;');
+    expect(renderMarkdown('```ts\nconst a = 1;\n```')).toContain('<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;');
   });
 
   it('copies as plain text without Markdown marks', () => {
@@ -146,10 +146,20 @@ describe('Markdown copy button', () => {
     const button = (fixture.nativeElement as HTMLElement).querySelector('.copy-code') as HTMLElement;
     button.click();
     await new Promise((r) => setTimeout(r));
-    expect(button.textContent).not.toContain('Đã chép');
+    expect(button.getAttribute('aria-label')).toBe('Chép đoạn code');
     button.click();
     await new Promise((r) => setTimeout(r));
-    expect(button.textContent).toContain('Đã chép');
+    expect(button.getAttribute('aria-label')).toBe('Đã chép');
+    expect(button.classList).toContain('done');
     expect(writeText).toHaveBeenCalledWith('const a = 1;\n');
+  });
+  it('colours code blocks by their language, and guesses only when sure', () => {
+    const ts = renderMarkdown('```ts\nconst a = 1; // x\n```');
+    expect(ts).toContain('class="hljs language-ts"');
+    expect(ts).toContain('<span class="hljs-keyword">const</span>');
+    expect(ts).toContain('hljs-comment');
+    const plain = renderMarkdown('```\nchỉ là chữ <b>\n```');
+    expect(plain).toContain('chỉ là chữ &lt;b&gt;');
+    expect(plain).not.toContain('<span');
   });
 });

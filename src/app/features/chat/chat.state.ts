@@ -16,6 +16,9 @@ import { GROUP_LABEL, commandQuery, filterCommands, insertCommand } from './comp
 type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
 
 const PIPELINE_KEY = 'tg.pipeline';
+/** About this much visible text (and much more context: files read, command output) makes
+ * reloading a closed session costly enough to suggest a fresh one. */
+const LONG_CONVERSATION = 40_000;
 
 const EFFORT_VI: Record<string, string> = { default: 'Mặc định', minimal: 'Rất thấp', low: 'Thấp', medium: 'Vừa', high: 'Cao', xhigh: 'Rất cao', max: 'Tối đa' };
 
@@ -320,6 +323,35 @@ export class ChatState {
     return 'Giao việc, hỏi, hoặc @mention agent… (Enter để gửi, Shift+Enter để xuống dòng)';
   });
   readonly sending = signal(false);
+  /**
+   * The open conversation's agent session has closed (app restarted, idle limit, finished).
+   * Its next message either reloads that session, whose whole history the model reads again,
+   * or opens a new one told a summary: far fewer tokens for a long conversation, fewer details.
+   */
+  readonly resumeChoice = computed(() => {
+    const r = this.run();
+    if (!r || this.team() !== 'single' || this.agent() !== r.agent || r.status === 'running') return null;
+    if (!r.restored && r.status === 'idle') return null; // still open: the next message is cheap
+    if (this.perm() === 'read' ? r.task || this.readViaAcp() : !r.task || r.perm === 'read') return null;
+    const turns = 1 + r.lines.filter((l) => l.tone === 'user').length;
+    const chars = r.lines.reduce((n, l) => n + l.text.length, r.prompt.length);
+    // Only Claude's code sessions take `/compact` as a turn (through its ACP adapter).
+    const canCompact = r.agent === 'claude' && this.perm() !== 'read';
+    return { turns, long: chars > LONG_CONVERSATION || turns >= 10, recapTokens: Math.max(1, Math.round(recapOf(r).length / 3)), canCompact };
+  });
+  /** The user's pick for that choice; null: the default for its length. */
+  readonly resumePick = signal<'resume' | 'compact' | 'fresh' | null>(null);
+  readonly resumeMode = computed(() => {
+    const choice = this.resumeChoice();
+    if (!choice) return null;
+    const pick = this.resumePick();
+    return pick === 'compact' && !choice.canCompact ? 'resume' : (pick ?? (choice.long ? 'fresh' : 'resume'));
+  });
+  private readonly forgetResumePick = effect(() => {
+    this.run()?.id;
+    untracked(() => this.resumePick.set(null));
+  });
+
   readonly canRun = computed(() => !this.blocked() && (!!this.text() || this.attachments().length > 0) && !this.sending());
 
   async addFiles(files: File[]): Promise<void> {
@@ -555,12 +587,13 @@ export class ChatState {
           }
         } else if (perm === 'read' && !this.readViaAcp()) {
           // Read-only CLI run on the real folder; the core resumes this agent's CLI session.
-          const resumable = current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;
+          const fresh = this.resumeMode() === 'fresh';
+          const resumable = !fresh && current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;
           await this.runs.start(agent, text, cwd, thread, resumable?.id ?? null, scope, resumable || !current ? null : (recap ?? null));
         } else {
           // A code task (or an ACP question). An earlier code task's draft or folder is reused.
           const reuse = current?.task && current.perm !== 'read' && perm !== 'read' ? current.id : undefined;
-          await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval });
+          await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval, fresh: this.resumeMode() === 'fresh', compact: this.resumeMode() === 'compact' });
         }
       }
       this.tab.set('thread');

@@ -292,6 +292,9 @@ struct SessionPlan<'a> {
     idle_limit: Duration,
     /// Model and effort picked in the composer, applied once the session is open.
     prefs: SessionPrefs,
+    /// A reopened session is compacted (`/compact`, Claude) before the first prompt, so it
+    /// and every later turn read a summary instead of the whole history.
+    compact: bool,
 }
 
 const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
@@ -367,6 +370,18 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
     if !plan.prefs.is_empty() {
         for note in options::apply(client, &session_id, &plan.prefs).await { session.note(note); }
     }
+    if plan.compact && loaded {
+        session.note("Đang thu gọn phiên cũ trước khi gửi tin của bạn…".into());
+        let end = run_turn(client, session, &session_id, "/compact", &mut stop, &mut dead).await;
+        if end.status == "stopped" || !end.alive {
+            session.set_busy(false);
+            session.finish().await;
+            return (end.status, end.error);
+        }
+        if end.status == "failed" {
+            session.note(format!("Không thu gọn được phiên cũ, gửi tiếp trên phiên đó. {}", end.error.unwrap_or_default()));
+        }
+    }
     let mut prompt = match plan.recap.take().filter(|_| !loaded) {
         Some(recap) => format!("{recap}\n\n{}", plan.prompt),
         None => std::mem::take(&mut plan.prompt),
@@ -400,13 +415,13 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
 #[cfg(test)]
 async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     let mut stop = Some(stop);
-    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+    let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
     drive_session(client, session, plan, || stop.take().expect("một lượt chỉ có một tín hiệu dừng"), |_| {}, |_| {}, dead).await
 }
 
 #[tauri::command]
-pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>, place: Option<String>, base: Option<String>, approval: Option<Approval>) -> Result<String, String> {
-    start_task_with(app, TaskRequest { group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, ..TaskRequest::new(agent, prompt, repo) }).await
+pub async fn start_task(app: AppHandle, agent: AgentKind, prompt: String, repo: String, group: Option<String>, reuse: Option<String>, single_turn: Option<bool>, recap: Option<String>, thread: Option<String>, scope: Option<String>, prefs: Option<SessionPrefs>, place: Option<String>, base: Option<String>, approval: Option<Approval>, fresh: Option<bool>, compact: Option<bool>) -> Result<String, String> {
+    start_task_with(app, TaskRequest { group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, fresh, compact, ..TaskRequest::new(agent, prompt, repo) }).await
 }
 
 /// What starting a task needs, from the UI (`start_task`) or from an agent delegating.
@@ -432,16 +447,21 @@ pub(crate) struct TaskRequest {
     pub approval: Option<Approval>,
     /// Set when another agent delegated this task.
     pub child: Option<ChildSpec>,
+    /// Keep `reuse`'s folder but open a new session (told the `recap`) instead of reloading
+    /// the old one, whose whole history the model would read again.
+    pub fresh: Option<bool>,
+    /// Reopen `reuse`'s session and compact it before the prompt (Claude's `/compact`).
+    pub compact: Option<bool>,
 }
 
 impl TaskRequest {
     pub fn new(agent: AgentKind, prompt: String, repo: String) -> Self {
-        Self { agent, prompt, repo, group: None, reuse: None, single_turn: None, recap: None, thread: None, scope: None, prefs: None, place: None, base: None, approval: None, child: None }
+        Self { agent, prompt, repo, group: None, reuse: None, single_turn: None, recap: None, thread: None, scope: None, prefs: None, place: None, base: None, approval: None, child: None, fresh: None, compact: None }
     }
 }
 
 pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Result<String, String> {
-    let TaskRequest { agent, prompt, repo, group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, child } = request;
+    let TaskRequest { agent, prompt, repo, group, reuse, single_turn, recap, thread, scope, prefs, place, base, approval, child, fresh, compact } = request;
     let approval = approval.unwrap_or_default();
     let single_turn = Some(single_turn.unwrap_or(false) || child.is_some());
     let (parent, child_done) = match child {
@@ -471,8 +491,8 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
     };
     let timeout = setup_timeout(&command.0);
-    // Back to the same agent: reopen its session instead of starting over.
-    let resumed = match previous_run.as_deref() {
+    // Back to the same agent: reopen its session instead of starting over, unless asked not to.
+    let resumed = match previous_run.as_deref().filter(|_| !fresh.unwrap_or(false)) {
         Some(previous) => {
             let (owner, session, cost) = app.state::<Store>().session_of(previous).map_err(|e| format!("Không đọc được phiên cũ: {e}"))?;
             let same = serde_json::to_value(agent).ok().and_then(|v| v.as_str().map(|s| s == owner)).unwrap_or(false);
@@ -596,7 +616,7 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
         let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
         session.set_cost_base(base);
-        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, opened: opened_id, next, idle_limit: IDLE_LIMIT, prefs: prefs.unwrap_or_default() };
+        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, opened: opened_id, next, idle_limit: IDLE_LIMIT, prefs: prefs.unwrap_or_default(), compact: compact.unwrap_or(false) };
         let next_stop = || {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut runs) = app.state::<Runs>().0.lock() { runs.insert(task_id.clone(), tx); }

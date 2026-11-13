@@ -121,6 +121,19 @@ pub fn parse_usage_text(raw: &str, now: DateTime<Local>) -> Option<Vec<LimitWind
     Some(windows)
 }
 
+/** Why a report gave no numbers, in words for the status bar's tooltip. */
+pub fn usage_problem(raw: &str) -> String {
+    let text = strip_ansi(raw);
+    let lower = text.to_lowercase();
+    if lower.contains("not logged in") || lower.contains("kiro-cli login") {
+        return "Kiro CLI báo chưa đăng nhập. Chạy kiro-cli login trong terminal.".into();
+    }
+    let tail: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).rev().take(3).collect();
+    if tail.is_empty() { return "Lệnh /usage của Kiro không in ra gì.".into(); }
+    let tail: Vec<&str> = tail.into_iter().rev().collect();
+    format!("Lệnh /usage của Kiro không có số credit. Kiro in ra: {}", tail.join(" · "))
+}
+
 fn saved_limits(store: &Store) -> Result<Option<AccountLimits>, String> {
     store.all_limits()
         .map(|limits| limits.into_iter().find(|limits| limits.agent == AgentKind::Kiro))
@@ -135,8 +148,10 @@ async fn usage_report(kiro: &std::path::Path, v2: bool) -> Result<String, String
     if v2 { command.arg("--v2"); }
     command.env("PATH", env::login_path()).env("NO_COLOR", "1")
         .current_dir(&dir).stdin(Stdio::null()).kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(25), command.output()).await
-        .map_err(|_| "Đọc hạn mức Kiro quá 25 giây; đã dừng tiến trình.".to_string())?
+    // Kiro waits for the user's MCP servers before it answers (up to its
+    // mcp.noInteractiveTimeout), so this can take a while.
+    let output = tokio::time::timeout(Duration::from_secs(120), command.output()).await
+        .map_err(|_| "Đọc hạn mức Kiro quá 2 phút; đã dừng. Kiro có thể đang chờ MCP server (xem q settings mcp.noInteractiveTimeout).".to_string())?
         .map_err(|e| format!("Không chạy được lệnh đọc hạn mức Kiro: {e}"))?;
     Ok(format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
 }
@@ -148,12 +163,13 @@ pub async fn refresh_kiro_limits(store: State<'_, Store>) -> Result<Option<Accou
     if last.is_some_and(|at| at.elapsed() < Duration::from_secs(60)) { return saved_limits(&store); }
     let Some(kiro) = env::which("kiro-cli") else { return Ok(None); };
     *last = Some(Instant::now());
+    let now = Local::now();
     let mut report = usage_report(&kiro, true).await?;
-    if report.contains("--v2") && (report.contains("unexpected argument") || report.contains("unrecognized") || report.contains("unknown option")) {
+    // An older CLI rejects the flag (its wording varies by version): ask again without it.
+    if parse_usage_text(&report, now).is_none() && report.contains("--v2") {
         report = usage_report(&kiro, false).await?;
     }
-    let now = Local::now();
-    let Some(windows) = parse_usage_text(&report, now) else { return Ok(None); };
+    let Some(windows) = parse_usage_text(&report, now) else { return Err(usage_problem(&report)); };
     let now_ms = u64::try_from(now.timestamp_millis()).map_err(|_| "Đồng hồ hệ thống không hợp lệ.".to_string())?;
     store.set_limits(AgentKind::Kiro, &windows, now_ms).map_err(|e| format!("Không lưu được hạn mức Kiro: {e}"))?;
     saved_limits(&store)
@@ -190,6 +206,25 @@ mod tests {
         assert_eq!((w.used, w.limit), (Some(334.17), Some(2000.0)));
         assert!((w.utilization - 334.17 / 2000.0).abs() < 1e-9);
         assert_eq!(w.resets_at, Some(midnight(2026, 12, 1)));
+    }
+
+    #[test]
+    fn kiro_2_12_report_after_mcp_errors_on_windows() {
+        // kiro-cli 2.12.3 on Windows, plan through an organization, two MCP servers failing.
+        let report = "\u{1b}[31mError:\u{1b}[0m File URI not found: file://C:\\Users\\u\\AppData\\Local\\Programs\\KiroCrew\\prompt.md (resolved to C:\\Users\\u\\prompt.md)\nNot all mcp servers loaded. Configure non-interactive timeout with q settings mcp.noInteractiveTimeout\n------\n\n\u{1b}[1mEstimated Usage\u{1b}[0m | resets on 2026-12-01 | \u{1b}[35mKIRO PRO+\u{1b}[0m\n\u{1b}[1mCredits\u{1b}[0m (334.87 of 2000 covered in plan)\n\u{1b}[45m          \u{1b}[47m                                        \u{1b}[0m 16%\n\nSince your account is through your organization, for account management please contact your account administrator.\n\nTip: to see context window usage, run /context\n";
+        let windows = parse_usage_text(report, local(2026, 11, 13)).unwrap();
+        assert_eq!(windows.len(), 1);
+        let w = &windows[0];
+        assert_eq!((w.plan.as_deref(), w.used, w.limit), (Some("Kiro Pro+"), Some(334.87), Some(2000.0)));
+        assert!((w.utilization - 334.87 / 2000.0).abs() < 1e-9);
+        assert_eq!(w.resets_at, Some(midnight(2026, 12, 1)));
+    }
+
+    #[test]
+    fn a_report_without_numbers_says_what_kiro_printed() {
+        assert!(usage_problem("error: unexpected argument '--v2' found\n\nUsage: kiro-cli chat [OPTIONS]").contains("unexpected argument"));
+        assert!(usage_problem("You are not logged in").contains("chưa đăng nhập"));
+        assert_eq!(usage_problem("  \n"), "Lệnh /usage của Kiro không in ra gì.");
     }
 
     #[test]

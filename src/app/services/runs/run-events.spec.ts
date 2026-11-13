@@ -21,6 +21,14 @@ describe('applyEvent', () => {
     expect(applyEvent(run(), ev({ kind: 'exit', code: 0 }), { stopping: false }).run.status).toBe('done');
   });
 
+  it('keeps adapter resume notes and the app\'s own progress notes out of the warnings', () => {
+    const tone = (line: string) => applyEvent(run({ lines: [] }), ev({ kind: 'stderr', line }), { stopping: false }).run.lines.at(-1)?.tone;
+    expect(tone('[session/query] sessionId=6eaa resume=6eaa phase=start')).toBe('muted');
+    expect(tone('[session/query] sessionId=6eaa22a0 resume=6eaa22a0-8066')).toBe('muted');
+    expect(tone('Đang chuẩn bị adapter. Lần đầu có thể mất vài phút để tải.')).toBe('muted');
+    expect(tone('Error: spawn claude ENOENT')).toBe('error');
+  });
+
   it('keeps the credits Kiro reported next to its usage', () => {
     const usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0.04, source: 'reported' as const, cumulative: true };
     const first = applyEvent(run({ agent: 'kiro' }), ev({ agent: 'kiro', kind: 'usage', usage, data: { credits: 1, turnCredits: 0.32 } }), { stopping: false }).run;

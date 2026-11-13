@@ -100,6 +100,8 @@ export class RunsService {
 
   private claudeLimitsAt = 0;
   readonly refreshingLimits = signal(false);
+  /** Why the last read of an agent's plan limits gave nothing, for the status bar's tooltip. */
+  readonly limitErrors = signal<Partial<Record<AgentId, string>>>({});
   /**
    * Saved limits (Codex's are re-read from its own logs), plus Claude's and Kiro's from
    * their local `/usage`, which spawns each CLI: at most every 5 minutes unless the user asks.
@@ -110,12 +112,18 @@ export class RunsService {
     this.claudeLimitsAt = Date.now();
     this.refreshingLimits.set(true);
     try {
-      // Both start a local CLI command; neither spends tokens or credits.
-      const read = (name: string, call: () => Promise<AccountLimits | null>) =>
-        call().catch((e) => { console.warn(`Không đọc được hạn mức ${name}`, e); return null; });
-      const found = await Promise.all([read('Claude', () => this.backend.refreshClaudeLimits()), read('Kiro', () => this.backend.refreshKiroLimits())]);
-      const limits = found.filter((l): l is AccountLimits => !!l);
-      if (limits.length) this.mergeLimits(limits);
+      // Each starts a local CLI command; neither spends tokens or credits. Kiro can take a
+      // while (it waits for its MCP servers), so each shows its numbers as soon as it has them.
+      const read = async (agent: AgentId, call: () => Promise<AccountLimits | null>) => {
+        try {
+          const limits = await call();
+          if (limits) this.mergeLimits([limits]);
+          this.limitErrors.update(({ [agent]: _, ...rest }) => rest);
+        } catch (e) {
+          this.limitErrors.update((all) => ({ ...all, [agent]: errorText(e) }));
+        }
+      };
+      await Promise.all([read('claude', () => this.backend.refreshClaudeLimits()), read('kiro', () => this.backend.refreshKiroLimits())]);
     } finally {
       this.refreshingLimits.set(false);
     }
@@ -155,11 +163,11 @@ export class RunsService {
    * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
    * `title` is what the UI shows when the prompt sent to the agent is long.
    */
-  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null; place?: Place; base?: string | null; approval?: Approval } = {}): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null; place?: Place; base?: string | null; approval?: Approval; fresh?: boolean; compact?: boolean } = {}): Promise<string> {
     const thread = opts.thread ?? crypto.randomUUID();
     const approval = opts.approval ?? 'ask';
     const place: Place = approval === 'deny' ? 'draft' : opts.reuse ? (this.runs().find((r) => r.id === opts.reuse)?.place ?? 'draft') : (opts.place ?? 'draft');
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent), opts.place ?? null, opts.base ?? null, approval);
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent), opts.place ?? null, opts.base ?? null, approval, opts.fresh ?? false, opts.compact ?? false);
     const model = this.agents.modelLabel(agent);
     const perm = approval === 'deny' ? 'read' : approval;
     this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null, model, perm, place }));
