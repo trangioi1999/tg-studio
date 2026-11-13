@@ -44,6 +44,11 @@ import { ChatState } from '../chat.state';
       <button role="radio" class="lg-chip" [class.active]="chat.resumeMode() === 'resume'" [attr.aria-checked]="chat.resumeMode() === 'resume'"
         title="Agent nhớ đủ mọi thứ, nhưng tin đầu phải đọc lại cả cuộc trò chuyện (kể cả tệp đã đọc, kết quả lệnh): càng dài càng tốn token."
         (click)="chat.resumePick.set('resume')">Tiếp tục phiên cũ</button>
+      @if (rc.canCompact) {
+        <button role="radio" class="lg-chip" [class.active]="chat.resumeMode() === 'compact'" [attr.aria-checked]="chat.resumeMode() === 'compact'"
+          title="Nạp lại phiên cũ rồi để Claude tự tóm tắt nó (/compact) trước khi gửi tin của bạn. Lần thu gọn vẫn đọc hết lịch sử một lần, nhưng các tin sau chỉ đọc bản tóm tắt nên rẻ hơn; tóm tắt của Claude kỹ hơn tóm tắt của app."
+          (click)="chat.resumePick.set('compact')">Thu gọn rồi tiếp tục</button>
+      }
       <button role="radio" class="lg-chip" [class.active]="chat.resumeMode() === 'fresh'" [attr.aria-checked]="chat.resumeMode() === 'fresh'"
         title="Mở phiên mới, chỉ gửi kèm bản tóm tắt cuộc trò chuyện: ít token hơn nhiều, nhưng agent không nhớ chi tiết và có thể phải đọc lại tệp."
         (click)="chat.resumePick.set('fresh')">Bắt đầu mới kèm tóm tắt · ~{{ rc.recapTokens }} token</button>

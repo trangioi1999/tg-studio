@@ -163,11 +163,11 @@ export class RunsService {
    * A code task in its own worktree, or in `reuse`'s worktree for a later pipeline step.
    * `title` is what the UI shows when the prompt sent to the agent is long.
    */
-  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null; place?: Place; base?: string | null; approval?: Approval; fresh?: boolean } = {}): Promise<string> {
+  async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null; place?: Place; base?: string | null; approval?: Approval; fresh?: boolean; compact?: boolean } = {}): Promise<string> {
     const thread = opts.thread ?? crypto.randomUUID();
     const approval = opts.approval ?? 'ask';
     const place: Place = approval === 'deny' ? 'draft' : opts.reuse ? (this.runs().find((r) => r.id === opts.reuse)?.place ?? 'draft') : (opts.place ?? 'draft');
-    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent), opts.place ?? null, opts.base ?? null, approval, opts.fresh ?? false);
+    const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent), opts.place ?? null, opts.base ?? null, approval, opts.fresh ?? false, opts.compact ?? false);
     const model = this.agents.modelLabel(agent);
     const perm = approval === 'deny' ? 'read' : approval;
     this.upsert(id, agent, (r) => ({ ...r, prompt: opts.title ?? prompt, cwd: repo, task: true, thread, project: repo, scope: opts.scope ?? null, model, perm, place }));

@@ -335,13 +335,17 @@ export class ChatState {
     if (this.perm() === 'read' ? r.task || this.readViaAcp() : !r.task || r.perm === 'read') return null;
     const turns = 1 + r.lines.filter((l) => l.tone === 'user').length;
     const chars = r.lines.reduce((n, l) => n + l.text.length, r.prompt.length);
-    return { turns, long: chars > LONG_CONVERSATION || turns >= 10, recapTokens: Math.max(1, Math.round(recapOf(r).length / 3)) };
+    // Only Claude's code sessions take `/compact` as a turn (through its ACP adapter).
+    const canCompact = r.agent === 'claude' && this.perm() !== 'read';
+    return { turns, long: chars > LONG_CONVERSATION || turns >= 10, recapTokens: Math.max(1, Math.round(recapOf(r).length / 3)), canCompact };
   });
   /** The user's pick for that choice; null: the default for its length. */
-  readonly resumePick = signal<'resume' | 'fresh' | null>(null);
+  readonly resumePick = signal<'resume' | 'compact' | 'fresh' | null>(null);
   readonly resumeMode = computed(() => {
     const choice = this.resumeChoice();
-    return choice ? (this.resumePick() ?? (choice.long ? 'fresh' : 'resume')) : null;
+    if (!choice) return null;
+    const pick = this.resumePick();
+    return pick === 'compact' && !choice.canCompact ? 'resume' : (pick ?? (choice.long ? 'fresh' : 'resume'));
   });
   private readonly forgetResumePick = effect(() => {
     this.run()?.id;
@@ -589,7 +593,7 @@ export class ChatState {
         } else {
           // A code task (or an ACP question). An earlier code task's draft or folder is reused.
           const reuse = current?.task && current.perm !== 'read' && perm !== 'read' ? current.id : undefined;
-          await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval, fresh: this.resumeMode() === 'fresh' });
+          await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval, fresh: this.resumeMode() === 'fresh', compact: this.resumeMode() === 'compact' });
         }
       }
       this.tab.set('thread');

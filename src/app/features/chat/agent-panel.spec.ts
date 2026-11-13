@@ -11,7 +11,7 @@ import { ChatState } from './chat.state';
 
 class FakeBackend extends MockBackend {
   starts = 0;
-  lastStart: { agent: AgentId; prompt: string; reuse: string | null; recap: string | null; thread?: string | null; place?: string | null; base?: string | null; approval?: string | null; fresh?: boolean } | null = null;
+  lastStart: { agent: AgentId; prompt: string; reuse: string | null; recap: string | null; thread?: string | null; place?: string | null; base?: string | null; approval?: string | null; fresh?: boolean; compact?: boolean } | null = null;
   startResult: (() => Promise<string>) | null = null;
   warms: [AgentId, string, string | null][] = [];
   override warmTask(agent: AgentId, repo: string, scope: string | null) {
@@ -19,9 +19,9 @@ class FakeBackend extends MockBackend {
     return Promise.resolve();
   }
   override startTask(agent: AgentId, prompt: string, repo: string, group: string | null = null, reuse: string | null = null, singleTurn = false, recap: string | null = null,
-    thread: string | null = null, scope: string | null = null, prefs: unknown = null, place: string | null = null, base: string | null = null, approval: string | null = null, fresh = false) {
+    thread: string | null = null, scope: string | null = null, prefs: unknown = null, place: string | null = null, base: string | null = null, approval: string | null = null, fresh = false, compact = false) {
     this.starts += 1;
-    this.lastStart = { agent, prompt, reuse, recap, thread, place, base, approval, fresh };
+    this.lastStart = { agent, prompt, reuse, recap, thread, place, base, approval, fresh, compact };
     return this.startResult ? this.startResult() : super.startTask(agent, prompt, repo, group, reuse, singleTurn, recap, thread, scope, prefs, place, base, approval);
   }
 }
@@ -45,9 +45,9 @@ interface Composer {
   prepareGit(): Promise<void>;
   pending(): { text: string } | null;
   addFiles(files: File[]): Promise<void>;
-  resumeChoice(): { turns: number; long: boolean; recapTokens: number } | null;
-  resumeMode(): 'resume' | 'fresh' | null;
-  resumePick: { set(v: 'resume' | 'fresh' | null): void };
+  resumeChoice(): { turns: number; long: boolean; recapTokens: number; canCompact: boolean } | null;
+  resumeMode(): 'resume' | 'compact' | 'fresh' | null;
+  resumePick: { set(v: 'resume' | 'compact' | 'fresh' | null): void };
   attachments(): { name: string; image: boolean }[];
   removeAttachment(id: number): void;
   onPaste(e: ClipboardEvent): void;
@@ -418,8 +418,20 @@ describe('AgentPanel composer', () => {
     panel.resumePick.set('fresh');
     panel.prompt.set('câu tiếp');
     await panel.send();
-    expect(backend.lastStart).toMatchObject({ reuse: id, fresh: true });
+    expect(backend.lastStart).toMatchObject({ reuse: id, fresh: true, compact: false });
     expect(backend.lastStart!.recap).toContain('câu đầu');
+  });
+
+  it('compacts Claude\'s old session before the message when asked', async () => {
+    const { backend, panel } = await setup();
+    const runs = TestBed.inject(RunsService);
+    const id = await runs.startTask('claude', 'câu đầu', '/demo', { approval: 'ask', place: 'direct' });
+    runs.runs.update((all) => all.map((r) => (r.id === id ? { ...r, status: 'done' as const, restored: true } : r)));
+    expect(panel.resumeChoice()?.canCompact).toBe(true);
+    panel.resumePick.set('compact');
+    panel.prompt.set('câu tiếp');
+    await panel.send();
+    expect(backend.lastStart).toMatchObject({ reuse: id, fresh: false, compact: true });
   });
 
   it('suggests starting fresh for a long closed conversation', async () => {

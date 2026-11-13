@@ -151,7 +151,7 @@ function toConsoleLine(agent: AgentId, kind: StoredRun['lines'][number]['kind'],
  * (`[session/query] sessionId=… phase=…` or `… resume=…`); local work, not errors. */
 const ADAPTER_TIMING = /^\[session\/[\w-]+\] sessionId=\S+/;
 /** The app's own progress notes: shown in the Log tab, not as warnings in the work log. */
-const INFO_NOTE = /^(Đang chuẩn bị adapter|◇ kiro )/;
+const INFO_NOTE = /^(Đang chuẩn bị adapter|Đang thu gọn phiên cũ|◇ kiro )/;
 
 /** A tool call has one console line, updated in place as its status changes. */
 function applyTool(lines: ConsoleLine[], update: Json): ConsoleLine[] {

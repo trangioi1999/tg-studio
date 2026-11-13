@@ -5,7 +5,7 @@
 ## [Chưa phát hành]
 
 ### Thêm
-- Gửi tin vào cuộc trò chuyện mà phiên agent đã đóng (mở lại app, phiên hết hạn): ô chat cho chọn **Tiếp tục phiên cũ** (agent nhớ đủ, nhưng tin đầu đọc lại cả lịch sử nên tốn token theo độ dài) hoặc **Bắt đầu mới kèm tóm tắt** (phiên mới trong cùng thư mục, chỉ gửi tóm tắt, ít token hơn nhiều). Cuộc trò chuyện dài (≥ 10 lượt hoặc nhiều chữ) mặc định chọn bắt đầu mới.
+- Gửi tin vào cuộc trò chuyện mà phiên agent đã đóng (mở lại app, phiên hết hạn): ô chat cho chọn **Tiếp tục phiên cũ** (agent nhớ đủ, nhưng tin đầu đọc lại cả lịch sử nên tốn token theo độ dài) hoặc **Bắt đầu mới kèm tóm tắt** (phiên mới trong cùng thư mục, chỉ gửi tóm tắt, ít token hơn nhiều). Với Claude (Sửa code) còn có **Thu gọn rồi tiếp tục**: nạp lại phiên rồi chạy `/compact` trước khi gửi tin của bạn, lần thu gọn vẫn đọc hết lịch sử một lần nhưng các tin sau chỉ đọc bản tóm tắt của Claude. Cuộc trò chuyện dài (≥ 10 lượt hoặc nhiều chữ) mặc định chọn bắt đầu mới.
 
 ### Thay đổi
 - Khối code trong khung chat được tô màu cú pháp (TypeScript, JavaScript, HTML, CSS/SCSS, JSON, Bash/PowerShell, Python, Rust, Java, Go, C#, SQL, YAML, diff) theo bảng màu tối giống editor, thay cho chữ trắng toàn bộ.

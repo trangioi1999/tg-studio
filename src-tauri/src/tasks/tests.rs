@@ -206,7 +206,7 @@ async fn wait_permission(sink: &Recorder) {
 async fn session_with(client: &AcpClient, session: &TaskSession, resume: Option<String>, recap: Option<String>, messages: Vec<&'static str>, stop_each_turn: bool) -> (&'static str, Vec<&'static str>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let cwd = std::env::temp_dir();
-    let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, opened: None, next: Some(rx), idle_limit: Duration::from_millis(100), prefs: SessionPrefs::default() };
+    let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap, servers: &[], resume, opened: None, next: Some(rx), idle_limit: Duration::from_millis(100), prefs: SessionPrefs::default(), compact: false };
     let stops = Mutex::new(Vec::new());
     let turns = Mutex::new(Vec::new());
     let remaining = Mutex::new(messages.into_iter());
@@ -259,7 +259,7 @@ async fn a_warm_session_goes_straight_to_the_prompt() {
     client.initialize().await.unwrap();
     let id = client.new_session(&std::env::temp_dir(), json!([])).await.unwrap();
     let cwd = std::env::temp_dir();
-    let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap: Some("TÓM TẮT".into()), servers: &[], resume: None, opened: Some(id.clone()), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+    let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap: Some("TÓM TẮT".into()), servers: &[], resume: None, opened: Some(id.clone()), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
     let (_keep, rx) = oneshot::channel();
     let mut stop = Some(rx);
     let opened = Mutex::new(None);
@@ -297,6 +297,22 @@ async fn a_reopened_session_needs_no_recap() {
     assert_eq!(count(&log, "session/load"), 1);
     assert_eq!(count(&log, "session/new"), 0);
     assert_eq!(prompts(&log), vec!["đầu"]);
+}
+
+#[tokio::test]
+async fn a_reopened_session_is_compacted_before_the_prompt_when_asked() {
+    use crate::acp::fake::Step;
+    for (loadable, expected) in [(true, vec!["/compact", "đầu"]), (false, vec!["TÓM TẮT\n\nđầu"])] {
+        let (client, session, log, _) = fixture(vec![Step::End("end_turn")], loadable);
+        let cwd = std::env::temp_dir();
+        let plan = SessionPlan { cwd: &cwd, prompt: "đầu".into(), recap: Some("TÓM TẮT".into()), servers: &[], resume: Some("cũ".into()), opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: true };
+        let keep = Mutex::new(Vec::new());
+        let next_stop = || { let (tx, rx) = oneshot::channel::<()>(); keep.lock().unwrap().push(tx); rx };
+        let (status, _) = tokio::time::timeout(Duration::from_secs(5), drive_session(&client, &session, plan, next_stop, |_| {}, |_: &TurnEnd| {}, std::future::pending())).await.unwrap();
+        assert_eq!(status, "done");
+        // Without a session to reopen there is nothing to compact: the recap goes instead.
+        assert_eq!(prompts(&log), expected, "loadable: {loadable}");
+    }
 }
 
 #[tokio::test]
@@ -622,7 +638,7 @@ async fn live_claude_warm_session_answers_after_attach() {
     let sink = Arc::new(Recorder::default());
     let session = Arc::new(TaskSession::new("warm", AgentKind::Claude, &dir, sink.clone(), Arc::new(Rules)).unwrap());
     late.attach(session.clone()).unwrap();
-    let plan = SessionPlan { cwd: &dir, prompt: "Trả lời đúng một từ: xin chào".into(), recap: None, servers: &[], resume: None, opened: Some(id), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default() };
+    let plan = SessionPlan { cwd: &dir, prompt: "Trả lời đúng một từ: xin chào".into(), recap: None, servers: &[], resume: None, opened: Some(id), next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
     let (_keep, rx) = oneshot::channel();
     let mut stop = Some(rx);
     let asked = std::time::Instant::now();
