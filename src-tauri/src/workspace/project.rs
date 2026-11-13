@@ -148,7 +148,7 @@ fn check_opened(opened: &HashSet<PathBuf>, root: &str) -> Result<PathBuf, String
 }
 
 impl OpenedProjects {
-    fn root(&self, root: &str) -> Result<PathBuf, String> {
+    pub(crate) fn root(&self, root: &str) -> Result<PathBuf, String> {
         let opened = self.0.lock().map_err(|_| "Không truy cập được danh sách dự án.".to_string())?;
         check_opened(&opened, root)
     }

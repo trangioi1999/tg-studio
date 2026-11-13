@@ -4,7 +4,6 @@ use super::*;
 
 /// Shown when another agent writes in the user's repo.
 pub(crate) const BUSY_REPO: &str = "Một agent đang sửa trong thư mục của bạn. Hãy chờ nó xong rồi làm tiếp.";
-const BUSY_EDITING: &str = "Agent đang sửa trong thư mục này. Hãy dừng hoặc chờ agent xong rồi mới giữ hay bỏ đoạn sửa.";
 
 pub(super) fn stored_worktree(store: &Store, id: &str) -> Result<(PathBuf, Worktree), String> {
     store.run_worktree(id).map_err(|e| format!("Không tìm thấy bản nháp của lượt chạy: {e}"))
@@ -15,23 +14,11 @@ pub fn get_diff(store: State<'_, Store>, run_id: String) -> Result<Vec<FileDiff>
     diff::exclusive(&wt, || diff::pending(&wt))
 }
 #[tauri::command(async)]
-pub fn accept_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
-    let (repo, wt) = stored_worktree(&store, &run_id)?;
-    // A draft's hunk is kept by applying it to the user's repo: both must be quiet.
-    tasks.quiet_in(Some((&run_id, BUSY_EDITING)), &[(&wt.path, Some(BUSY_EDITING)), (&repo, Some(BUSY_REPO))],
-        || diff::accept_hunk(&repo, &wt, &path, &hunk_id))
-}
-#[tauri::command(async)]
 pub fn accept_all(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String) -> Result<usize, String> {
     let (repo, wt) = stored_worktree(&store, &run_id)?;
     // Applying writes into the user's folder: not while an agent works there.
     let running = "Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.";
     tasks.quiet_in(Some((&run_id, running)), &[(&wt.path, Some(running)), (&repo, Some(BUSY_REPO))], || diff::accept_all(&repo, &wt))
-}
-#[tauri::command(async)]
-pub fn reject_hunk(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, path: String, hunk_id: String) -> Result<(), String> {
-    let (_, wt) = stored_worktree(&store, &run_id)?;
-    tasks.quiet_in(Some((&run_id, BUSY_EDITING)), &[(&wt.path, Some(BUSY_EDITING))], || diff::reject_hunk(&wt, &path, &hunk_id))
 }
 #[tauri::command(async)]
 pub fn commit_accepted(store: State<'_, Store>, tasks: State<'_, TaskRuns>, run_id: String, message: String) -> Result<String, String> {
@@ -87,4 +74,12 @@ pub fn write_worktree_file(store: State<'_, Store>, tasks: State<'_, TaskRuns>, 
     let busy = "Agent đang chạy. Hãy chờ agent xong rồi mới sửa tệp.";
     // Under the folder's lock: a draft applied to the same repo, or a commit, may be running.
     tasks.quiet_in(Some((&run_id, busy)), &[(&wt.path, Some(busy))], || files::write_file(&wt, &path, &content))
+}
+
+/// Where the run's agent works: its draft, or the user's folder with the conversation's subfolder.
+#[tauri::command(async)]
+pub fn run_dir(store: State<'_, Store>, run_id: String) -> Result<String, String> {
+    let (_, wt) = stored_worktree(&store, &run_id)?;
+    let scope = store.live_run_scope(&run_id).map_err(|e| format!("Không đọc được lượt chạy: {e}"))?.flatten();
+    Ok(crate::system::env::scoped_dir(&wt.path, scope.as_deref())?.to_string_lossy().into_owned())
 }

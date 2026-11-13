@@ -3,6 +3,7 @@ import { AgentBackend } from '../../core/backend';
 import { MockBackend } from '../../core/mock/mock-backend';
 import { RunsService } from './runs.service';
 import { Run } from './run';
+import { TerminalsService } from '../app/terminals.service';
 import { ThreadsService, buildThreads, groupByProject } from './threads.service';
 import { WorkspaceService } from '../workspace.service';
 
@@ -117,6 +118,15 @@ describe('ThreadsService', () => {
     expect(runs.selectedId()).toBeNull();
     emit({ runId: 'a', agent: 'claude', kind: 'exit', line: null, usage: null, code: null, data: null, atMs: 9 } as never);
     expect(runs.runs().map((r) => r.id)).toEqual(['c']);
+  });
+
+  it('closes the terminal of a deleted conversation', async () => {
+    TestBed.inject(AgentBackend).deleteRuns = async () => {};
+    const closed: string[] = [];
+    TestBed.inject(TerminalsService).close = async (key: string) => { closed.push(key); };
+    TestBed.inject(RunsService).runs.set([run({ id: 'a', thread: 't1' })]);
+    await TestBed.inject(ThreadsService).remove('t1');
+    expect(closed).toEqual(['t1']);
   });
 
   it('keeps a conversation when its agent is still busy', async () => {

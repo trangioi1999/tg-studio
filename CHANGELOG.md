@@ -4,6 +4,26 @@
 
 ## [Chưa phát hành]
 
+## [0.6.4] - 2026-11-13
+
+### Thêm
+- Tab Thay đổi có **Push** và **Tạo PR** (cần GitHub CLI), hiện nhánh và số commit chưa đẩy.
+- Terminal cho từng cuộc trò chuyện ở khung dưới (tab Terminal), mở đúng thư mục agent đang làm.
+- Thiết lập dự án (⚙ ở cột trái): script chuẩn bị chạy trong mỗi bản nháp mới trước khi agent bắt đầu, và lệnh kiểm tra chạy sau mỗi lượt agent có sửa tệp, hỏng thì gửi lỗi cho agent tự sửa.
+
+### Bỏ
+- Duyệt từng đoạn (nút giữ/bỏ đoạn trong editor). Giữ hay bỏ thay đổi theo tệp ở tab Thay đổi; editor chỉ còn vạch màu của agent.
+
+## [0.6.3] - 2026-11-13
+
+### Sửa lỗi
+- Commit hoặc hoàn tác không còn lấy nhầm phần agent đang ghi dở: kiểm tra và thao tác chạy trong cùng một khoá thư mục; agent chỉ bắt đầu lượt mới sau khi commit đang chạy xong.
+- Bản nháp đang có agent làm vẫn commit được phần đã áp vào thư mục.
+- Áp bản nháp, commit tệp đã áp và áp/commit bản ghép bị chặn khi có agent đang ghi trong thư mục của bạn; hai bản nháp áp cùng lúc không còn tranh index; áp lần hai không làm mất tệp của lần đầu khỏi commit.
+
+### Thay đổi
+- Sắp xếp lại giao diện theo tính năng, service, bố cục và `shared/ui`, `shared/utils`.
+
 ## [0.6.2] - 2026-11-10
 
 ### Thay đổi

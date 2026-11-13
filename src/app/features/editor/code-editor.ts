@@ -3,7 +3,7 @@ import type * as Monaco from 'monaco-editor/editor/editor.api.js';
 import { KEYS } from '../../shared/utils/keys';
 import { lineMarks } from './line-marks';
 import { EDITOR_OPTIONS, EditorStatus, MonacoApi, addWrapToggle, loadMonaco, trackStatus } from './monaco';
-import { AgentId, Hunk } from '../../core/protocol';
+import { AgentId } from '../../core/protocol';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { RunsService } from '../../services/runs/runs.service';
 import { WorkspaceService, tabKey } from '../../services/workspace.service';
@@ -17,10 +17,14 @@ interface Buffer {
 }
 
 /**
- * Monaco on one file of a task's worktree. The agent's lines get a bar in its colour,
- * each pending hunk gets an Accept/Reject bar underneath, and the agent's cursor shows
- * while it works. Each file keeps its own model, so unsaved edits survive tab switches.
+ * Monaco on one file of a task's worktree. The agent's lines get a bar in its colour and
+ * the agent's cursor shows while it works; keeping or undoing changes happens per file in
+ * the Changes tab. Each file keeps its own model, so unsaved edits survive tab switches.
  */
+/** A change's status colours for Monaco's scrollbar and minimap marks, which take colours, not CSS variables. */
+const ADDED = '#6fd3a8';
+const REMOVED = '#f29b8b';
+
 @Component({
   selector: 'tg-code-editor',
   imports: [EditorStatusBar],
@@ -38,7 +42,6 @@ interface Buffer {
         @if (agentHere()) {
           <span class="live-dot" aria-hidden="true"></span><span class="dim">{{ meta[agent()].name }} {{ hereLabel() }}</span>
         }
-        @if (hunks().length) { <span class="dim">· {{ hunks().length }} đoạn agent sửa</span> }
         @if (dirty()) { <button class="btn ghost sm" [disabled]="busy()" (click)="revert()">Hoàn tác</button> }
         <button class="btn primary sm" [disabled]="busy() || running() || !dirty()" (click)="save()">Lưu<span class="kbd">{{ keys.save }}</span></button>
       </div>
@@ -53,8 +56,6 @@ export class CodeEditor implements OnDestroy {
   private readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
-  /** The agent worked in the user's folder: changes are already there, so keep or undo them. */
-  protected readonly direct = computed(() => this.runs.runs().find((r) => r.id === this.runId())?.place === 'direct');
   readonly running = input(false);
   readonly path = input.required<string>();
 
@@ -70,7 +71,6 @@ export class CodeEditor implements OnDestroy {
   protected readonly wrap = signal(false);
   protected toggleWrap: (() => void) | null = null;
   private readonly file = computed(() => (this.workspace.diffs()[this.runId()] ?? []).find((f) => f.path === this.path()));
-  protected readonly hunks = computed<Hunk[]>(() => this.file()?.hunks ?? []);
   private readonly marks = computed(() => lineMarks(this.file()));
   private readonly activity = computed(() => (this.running() ? (this.runs.activity()[this.runId()] ?? null) : null));
   protected readonly agentHere = computed(() => {
@@ -82,8 +82,6 @@ export class CodeEditor implements OnDestroy {
   private monaco: MonacoApi | null = null;
   private editor: Monaco.editor.IStandaloneCodeEditor | null = null;
   private decorations: Monaco.editor.IEditorDecorationsCollection | null = null;
-  private zones: string[] = [];
-  private widgets: Monaco.editor.IContentWidget[] = [];
   private readonly buffers = new Map<string, Buffer>();
 
   constructor() {
@@ -95,10 +93,9 @@ export class CodeEditor implements OnDestroy {
     effect(() => {
       this.editor?.updateOptions({ readOnly: this.running() });
     });
-    // Repaint bars, hunk zones and the cursor whenever the diff or the agent moves.
+    // Repaint bars and the cursor whenever the diff or the agent moves.
     effect(() => {
       this.marks();
-      this.hunks();
       this.agentHere();
       this.activity()?.line;
       untracked(() => this.paint());
@@ -166,11 +163,8 @@ export class CodeEditor implements OnDestroy {
     });
     this.decorations = this.editor.createDecorationsCollection();
     this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void this.save());
-    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => void this.actAtCursor('accept'));
-    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backspace, () => void this.actAtCursor('reject'));
     trackStatus(monaco, this.editor, (st) => this.status.set(st));
     this.toggleWrap = addWrapToggle(monaco, this.editor, (on) => this.wrap.set(on));
-    this.editor.onDidLayoutChange(() => this.paint());
     this.editor.onDidChangeModelContent(() => {
       const b = this.buffers.get(this.key);
       this.dirty.set(!!b && b.model.getValue() !== b.saved);
@@ -240,8 +234,16 @@ export class CodeEditor implements OnDestroy {
     const cursor = this.cursorLine();
     const at = cursor === null ? null : Math.min(cursor, last);
     this.decorations.set([
-      ...marks.added.map((l) => whole(l, { className: 'agent-line', linesDecorationsClassName: 'agent-gutter' })),
-      ...marks.removedBefore.map((l) => whole(l, { linesDecorationsClassName: 'agent-gutter-del' })),
+      ...marks.added.map((l) => whole(l, {
+        className: 'agent-line', linesDecorationsClassName: 'agent-gutter',
+        overviewRuler: { color: ADDED, position: monaco.editor.OverviewRulerLane.Left },
+        minimap: { color: ADDED, position: monaco.editor.MinimapPosition.Gutter },
+      })),
+      ...marks.removedBefore.map((l) => whole(l, {
+        linesDecorationsClassName: 'agent-gutter-del',
+        overviewRuler: { color: REMOVED, position: monaco.editor.OverviewRulerLane.Left },
+        minimap: { color: REMOVED, position: monaco.editor.MinimapPosition.Gutter },
+      })),
       ...(at === null ? [] : [{
         range: new monaco.Range(at, model.getLineMaxColumn(at), at, model.getLineMaxColumn(at)),
         options: {
@@ -252,101 +254,6 @@ export class CodeEditor implements OnDestroy {
         },
       }]),
     ]);
-    this.paintZones(last);
-  }
-
-  /**
-   * An Accept/Reject bar under each pending hunk. A view zone keeps the space; the bar
-   * itself is a content widget, because Monaco's text layer covers view zones and
-   * would swallow the clicks.
-   */
-  private paintZones(last: number): void {
-    const editor = this.editor!;
-    const monaco = this.monaco!;
-    const hunks = this.dirty() ? [] : this.hunks();
-    for (const w of this.widgets) editor.removeContentWidget(w);
-    const width = Math.max(240, editor.getLayoutInfo().contentWidth - 28);
-    const lines = hunks.map((h) => Math.max(1, Math.min(last, h.newLines === 0 ? h.newStart : h.newStart + h.newLines - 1)));
-    editor.changeViewZones((acc) => {
-      for (const id of this.zones) acc.removeZone(id);
-      this.zones = lines.map((line) => acc.addZone({ afterLineNumber: line, heightInPx: 36, domNode: document.createElement('div') }));
-    });
-    this.widgets = hunks.map((h, i) => {
-      // Monaco sets its own display on the widget node, so the flex bar goes inside it.
-      const node = document.createElement('div');
-      node.style.width = `${width}px`;
-      node.append(this.hunkBar(h));
-      return {
-        getId: () => `tg.hunk.${h.id}.${i}`,
-        getDomNode: () => node,
-        getPosition: () => ({ position: { lineNumber: lines[i], column: 1 }, preference: [monaco.editor.ContentWidgetPositionPreference.BELOW] }),
-      };
-    });
-    for (const w of this.widgets) editor.addContentWidget(w);
-  }
-
-  private hunkBar(h: Hunk): HTMLElement {
-    const meta = AGENT_META[this.agent()];
-    const bar = document.createElement('div');
-    bar.className = 'hunk-zone';
-    bar.style.setProperty('--agent', meta.color);
-    const avatar = document.createElement('span');
-    avatar.className = 'avatar';
-    Object.assign(avatar.style, { width: '18px', height: '18px' });
-    const logo = document.createElement('img');
-    Object.assign(logo, { src: `agents/${this.agent()}.svg`, alt: meta.name, width: 13, height: 13 });
-    avatar.append(logo);
-    const label = document.createElement('span');
-    label.className = 'hunk-zone-label ellipsis';
-    label.textContent = `${meta.name} · ${h.header.replace(/^@@[^@]*@@\s*/, '') || this.path()}`;
-    const count = document.createElement('span');
-    count.className = 'hunk-count';
-    count.innerHTML = `<span class="plus">+${h.added}</span> <span class="minus">−${h.removed}</span>`;
-    const spacer = document.createElement('span');
-    spacer.className = 'spacer';
-    const button = (text: string, kbd: string, cls: string, action: 'accept' | 'reject') => {
-      const b = document.createElement('button');
-      b.className = `btn sm ${cls}`;
-      b.textContent = text;
-      const k = document.createElement('span');
-      k.className = 'kbd';
-      k.textContent = kbd;
-      b.append(k);
-      b.addEventListener('mousedown', (e) => e.stopPropagation());
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        void this.act(action, h);
-      });
-      return b;
-    };
-    // In the user's folder the change is already there: it only needs undoing, and committing
-    // happens per file in the Changes tab. A draft's hunk can still be taken one by one.
-    if (this.direct()) bar.append(avatar, label, count, spacer, button('Hoàn tác đoạn này', KEYS.backspace, 'ghost', 'reject'));
-    else bar.append(avatar, label, count, spacer, button('Bỏ', KEYS.backspace, 'ghost', 'reject'), button('Nhận', KEYS.enter, 'primary', 'accept'));
-    return bar;
-  }
-
-  private async actAtCursor(action: 'accept' | 'reject'): Promise<void> {
-    if (action === 'accept' && this.direct()) return;
-    const line = this.editor?.getPosition()?.lineNumber;
-    if (!line) return;
-    const h = this.hunks().find((x) => line >= x.newStart - 1 && line <= x.newStart + Math.max(x.newLines, 1));
-    if (h) await this.act(action, h);
-  }
-
-  private async act(action: 'accept' | 'reject', h: Hunk): Promise<void> {
-    if (this.busy()) return;
-    if (this.running()) {
-      this.error.set('Agent đang sửa tệp này. Hãy chờ agent xong rồi mới giữ hay bỏ đoạn sửa.');
-      return;
-    }
-    await this.guard(async () => {
-      if (action === 'accept') await this.runs.acceptHunk(this.runId(), this.path(), h.id);
-      else await this.runs.rejectHunk(this.runId(), this.path(), h.id);
-      await this.workspace.refresh(this.runId());
-      // Reject rewrites the file in the worktree.
-      if (action === 'reject') await this.reload();
-    });
   }
 
   private async guard(work: () => Promise<void>): Promise<boolean> {

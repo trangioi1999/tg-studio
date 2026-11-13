@@ -13,6 +13,7 @@ Thiết kế: `docs/superpowers/specs/2026-11-04-chat-first-design.md`. Thứ t�
 - [x] **M2** Khởi động nhanh: cache, dò song song, kiểm tra đăng nhập
 - [x] **M3** Chat trong một phiên agent: kiểm chứng với Claude và Codex thật (Codex 2026-11-07: cùng tiến trình nhớ câu trước, `session/load` nối lại được)
 - [x] **M4** Bố cục mới: chat ở giữa, cây dự án → cuộc trò chuyện, panel phải, xoá cuộc trò chuyện (thay cho lưu trữ, theo chủ repo); gọi skill của agent bằng `/`
+- [x] **Đợt 2** (2026-11-12) Source Control (bỏ duyệt từng đoạn, Push, Tạo PR), terminal theo cuộc trò chuyện, hook dự án (script chuẩn bị, vòng kiểm tra). Thiết kế: `docs/superpowers/specs/2026-11-12-source-control-terminal-hooks-design.md`. Chưa thử trên Windows thật (ConPTY, PowerShell)
 - [ ] **M5** Đã xong: thuật ngữ, tài liệu người dùng, README, CHANGELOG, ảnh chụp (`scripts/capture-screens.js`). Còn: nghiệm thu trên máy thật macOS và Windows (spec §12), cần chủ repo
 
 ## Giai đoạn 0 — Nền móng (tuần 1–2)

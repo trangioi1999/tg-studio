@@ -187,34 +187,6 @@ pub(crate) fn selected_patch(wt: &Worktree, path: &str, id: &str) -> Result<Stri
     Ok(format!("{}{}\n{}\n", file.patch_header, hunk.header, hunk.lines.join("\n")))
 }
 
-pub fn accept_hunk(repo: &Path, wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), String> {
-    let patch = selected_patch(wt, path, hunk_id)?;
-    if wt.is_direct() {
-        // The change is already in the folder: keeping it stages it for the commit box.
-        run_git(wt, &["apply", "--check", "--cached", "--recount"], Some(patch.as_bytes()))?;
-        // The agent may have staged or committed it itself (`git add`, `git commit`): then
-        // the user's index already holds it and keeping only records that.
-        if !already_staged(repo, &patch, &["--recount"]) {
-            git(repo, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))
-                .map_err(|e| format!("Không đưa được đoạn này vào commit (có thể bạn đã stage nội dung khác cùng chỗ): {e}"))?;
-        }
-        run_git(wt, &["apply", "--cached", "--recount"], Some(patch.as_bytes()))?;
-        return save_accepted(wt);
-    }
-    // Check the exact mode used below, including consistency with the user's index.
-    git(repo, &["apply", "--check", "--index", "--recount"], Some(patch.as_bytes()))?;
-    git(&wt.path, &["apply", "--check", "--cached", "--recount"], Some(patch.as_bytes()))?;
-    git(repo, &["apply", "--index", "--recount"], Some(patch.as_bytes()))?;
-    if let Err(error) = git(&wt.path, &["apply", "--cached", "--recount"], Some(patch.as_bytes())) {
-        // Git has no cross-worktree transaction. Attempt rollback if the second apply fails.
-        if let Err(rollback) = git(repo, &["apply", "-R", "--index", "--recount"], Some(patch.as_bytes())) {
-            return Err(format!("{error}; Không hoàn tác được thay đổi đã duyệt: {rollback}"));
-        }
-        return Err(error);
-    }
-    save_accepted(wt)
-}
-
 /// The user's index already has this change (it reverses cleanly there).
 fn already_staged(repo: &Path, patch: &str, extra: &[&str]) -> bool {
     let mut args = vec!["apply", "--check", "--cached", "--reverse"];
@@ -250,17 +222,6 @@ pub fn accept_all(repo: &Path, wt: &Worktree) -> Result<usize, String> {
     }
     save_accepted(wt)?;
     Ok(files.len())
-}
-
-/// Reject: the hunk goes back to how it was, in the worktree or (direct run) in the user's folder.
-pub fn reject_hunk(wt: &Worktree, path: &str, hunk_id: &str) -> Result<(), String> {
-    let patch = selected_patch(wt, path, hunk_id)?;
-    git(&wt.path, &["apply", "-R", "--recount"], Some(patch.as_bytes()))?;
-    if patch.lines().any(|line| line.starts_with("new file mode ")) {
-        // Reverse application deletes the file but leaves its intent-to-add entry.
-        run_git(wt, &["--literal-pathspecs", "rm", "--cached", "--", path], None)?;
-    }
-    Ok(())
 }
 
 /// What the user's index holds: tests check that reviewing never touches it.
@@ -466,17 +427,13 @@ mod tests {
         let files = pending(&w).unwrap();
         assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["file.txt", "gone.txt", "new.txt"]);
         assert_eq!(staged(&r.0).unwrap(), staged_before, "reviewing must not touch the user's index");
-        // Keep one hunk: it is staged for the commit and leaves the review.
-        let hunk = files[0].hunks[0].id.clone();
-        accept_hunk(&r.0, &w, "file.txt", &hunk).unwrap();
-        assert!(staged(&r.0).unwrap().contains(&"file.txt".to_string()));
-        let left = pending(&w).unwrap();
-        assert_eq!(left.iter().find(|f| f.path == "file.txt").unwrap().hunks.len(), 1);
-        // Undo the new file: it is gone from the folder and from the review.
-        let new = left.iter().find(|f| f.path == "new.txt").unwrap().hunks[0].id.clone();
-        reject_hunk(&w, "new.txt", &new).unwrap();
+        // Undo the new file before accepting the remaining changes.
+        revert_files(&w, &s(&["new.txt"])).unwrap();
         assert!(!r.0.join("new.txt").exists());
         assert!(!pending(&w).unwrap().iter().any(|f| f.path == "new.txt"));
+        accept_all(&r.0, &w).unwrap();
+        assert_eq!(staged(&r.0).unwrap(), ["file.txt", "gone.txt", "staged.txt"]);
+        assert!(pending(&w).unwrap().is_empty());
         // The user's files were never touched.
         assert_eq!(fs::read_to_string(r.0.join("mine.txt")).unwrap(), "mine, edited\n");
         assert_eq!(fs::read_to_string(r.0.join("notes.txt")).unwrap(), "untracked\n");
@@ -595,10 +552,9 @@ mod tests {
         git(&r.0, &["commit", "-qm", "mockup"], None).unwrap();
         let files = pending(&w).unwrap();
         assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["docs/mock.html"]);
-        let hunk = files[0].hunks[0].id.clone();
-        accept_hunk(&r.0, &w, "docs/mock.html", &hunk).unwrap();
+        accept_all(&r.0, &w).unwrap();
         assert!(pending(&w).unwrap().is_empty());
-        // Keep all works the same way.
+        // Keeping a change the agent only staged works the same way.
         let w = crate::workspace::worktree::direct(&r.0, "direct-run-4").unwrap();
         r.write("b.txt", "b\n");
         git(&r.0, &["add", "b.txt"], None).unwrap();
@@ -628,25 +584,27 @@ mod tests {
         let r = Repo::new(); let w = r.wt(); change(&w);
         let files = pending(&w).unwrap();
         assert_eq!(files[0].hunks.len(), 2);
-        let accepted = files[0].hunks[0].id.clone();
-        let remaining = files[0].hunks[1].id.clone();
-        accept_hunk(&r.0, &w, "file.txt", &accepted).unwrap();
+        accept_all(&r.0, &w).unwrap();
+        assert!(pending(&w).unwrap().is_empty());
+        let accepted = fs::read_to_string(w.path.join("file.txt")).unwrap();
+        fs::write(w.path.join("file.txt"), accepted.replace("line 15\n", "later edit\n")).unwrap();
+        let remaining = pending(&w).unwrap()[0].hunks[0].id.clone();
         fs::write(w.path.join("extra.txt"), "later change\n").unwrap();
         git(&w.path, &["add", "-A"], None).unwrap();
         if commit_changes {
             git(&w.path, &["commit", "-m", "agent changes"], None).unwrap();
         }
         let left = pending(&w).unwrap();
-        let file = left.iter().find(|f| f.path == "file.txt").expect("unaccepted hunk stays pending");
+        let file = left.iter().find(|f| f.path == "file.txt").expect("later edit stays pending");
         assert_eq!(file.hunks.len(), 1);
         assert_eq!(file.hunks[0].id, remaining);
-        assert!(left.iter().flat_map(|f| &f.hunks).all(|h| h.id != accepted));
+        assert_eq!(fs::read_to_string(r.0.join("file.txt")).unwrap(), accepted);
         assert!(left.iter().any(|f| f.path == "extra.txt"));
         assert_eq!(git(&w.path, &["rev-parse", "HEAD"], None).unwrap().trim(), w.base);
         assert_eq!(pending(&w).unwrap(), left);
     }
 
-    #[test] fn agent_commit_keeps_accepted_hunks_accepted() {
+    #[test] fn agent_commit_keeps_accepted_changes_accepted() {
         agent_updates_after_accept(true);
     }
 
@@ -672,8 +630,7 @@ mod tests {
         r.write(special, "user staged\n");
         git(&r.0, &["add", "a user.txt", special], None).unwrap();
         r.write("unstaged.txt", "not staged\n");
-        let files = pending(&w).unwrap();
-        accept_hunk(&r.0, &w, "file.txt", &files[0].hunks[0].id).unwrap();
+        accept_all(&r.0, &w).unwrap();
         assert_eq!(staged(&r.0).unwrap(), vec!["a user.txt", "file.txt", special]);
     }
 
@@ -732,31 +689,30 @@ mod tests {
         fs::write(w.path.join("binary"), [0, 1, 2]).unwrap();
         let f = pending(&w).unwrap();
         assert!(f[0].binary);
-        assert!(accept_hunk(&r.0, &w, "binary", "unknown").unwrap_err().contains("nhị phân"));
-        assert!(reject_hunk(&w, "missing", "unknown").is_err());
+        assert!(selected_patch(&w, "binary", "unknown").unwrap_err().contains("nhị phân"));
+        assert!(selected_patch(&w, "missing", "unknown").is_err());
     }
     #[test] fn no_newline_accept_and_reject() {
         for accept in [true, false] {
             let r = Repo::new(); let w = r.wt();
             fs::write(w.path.join("new.txt"), "no newline").unwrap();
-            let f = pending(&w).unwrap();
             if accept {
-                accept_hunk(&r.0, &w, "new.txt", &f[0].hunks[0].id).unwrap();
+                accept_all(&r.0, &w).unwrap();
                 assert_eq!(fs::read_to_string(r.0.join("new.txt")).unwrap(), "no newline");
-            } else { reject_hunk(&w, "new.txt", &f[0].hunks[0].id).unwrap(); }
+            } else { revert_files(&w, &s(&["new.txt"])).unwrap(); }
             assert!(pending(&w).unwrap().is_empty());
         }
     }
     #[test] fn index_mismatch_leaves_both_indexes_untouched() {
         let r = Repo::new(); let w = r.wt(); change(&w);
-        let f = pending(&w).unwrap();
+        pending(&w).unwrap();
         let original = fs::read(r.0.join("file.txt")).unwrap();
         r.write("file.txt", "staged user change\n");
         git(&r.0, &["add", "file.txt"], None).unwrap();
         fs::write(r.0.join("file.txt"), &original).unwrap();
         let before = git(&r.0, &["diff", "--cached"], None).unwrap();
         let wt_before = git(&w.path, &["diff", "--cached"], None).unwrap();
-        assert!(accept_hunk(&r.0, &w, "file.txt", &f[0].hunks[0].id).is_err());
+        assert!(accept_all(&r.0, &w).is_err());
         assert_eq!(before, git(&r.0, &["diff", "--cached"], None).unwrap());
         assert_eq!(wt_before, git(&w.path, &["diff", "--cached"], None).unwrap());
         assert_eq!(fs::read(r.0.join("file.txt")).unwrap(), original);
@@ -795,72 +751,40 @@ mod tests {
 
         let files = pending(&w).unwrap();
         assert_eq!(files[0].hunks.len(), 2);
-        let first = files[0].hunks.iter().find(|h| h.lines.iter().any(|l| l.contains("two"))).unwrap();
-        accept_hunk(&r.0, &w, "file.txt", &first.id).unwrap();
+        accept_all(&r.0, &w).unwrap();
 
         let repo_file = fs::read_to_string(r.0.join("file.txt")).unwrap();
         assert!(repo_file.contains("two\r\n"));
-        assert!(repo_file.contains("line 25\r\n"), "the other hunk must not be applied");
+        assert!(repo_file.contains("twenty five\r\n"));
         assert!(!repo_file.replace("\r\n", "").contains('\n'), "line endings must stay CRLF");
-
-        let left = pending(&w).unwrap();
-        assert_eq!(left[0].hunks.len(), 1);
-        reject_hunk(&w, "file.txt", &left[0].hunks[0].id).unwrap();
         assert!(pending(&w).unwrap().is_empty());
-        assert!(fs::read_to_string(w.path.join("file.txt")).unwrap().contains("line 25"));
+
+        // Reverting a later edit restores the accepted tree, with CRLF on disk.
+        fs::write(w.path.join("file.txt"), repo_file.replace("twenty five\r\n", "later edit\n")).unwrap();
+        revert_files(&w, &s(&["file.txt"])).unwrap();
+        assert!(pending(&w).unwrap().is_empty());
+        assert_eq!(fs::read_to_string(w.path.join("file.txt")).unwrap(), repo_file);
 
         commit(&r.0, "fix").unwrap();
         let committed = git(&r.0, &["show", "HEAD:file.txt"], None).unwrap();
         assert!(committed.contains("two\n") && !committed.contains('\r'), "blobs stay LF");
     }
 
-    #[test] fn accept_one_of_two_hunks_applies_only_that_hunk() {
-        let r = Repo::new(); let w = r.wt(); change(&w);
-        let f = pending(&w).unwrap(); assert_eq!(f[0].hunks.len(), 2);
-        let remaining = f[0].hunks[1].id.clone();
-        accept_hunk(&r.0, &w, "file.txt", &f[0].hunks[0].id).unwrap();
-        assert_eq!(pending(&w).unwrap()[0].hunks[0].id, remaining);
-        let s = fs::read_to_string(r.0.join("file.txt")).unwrap();
-        assert!(s.contains("changed 2\n")); assert!(s.contains("line 28\n"));
-    }
-    #[test] fn reject_removes_hunk_from_worktree() {
-        let r = Repo::new(); let w = r.wt(); change(&w);
-        let f = pending(&w).unwrap();
-        reject_hunk(&w, "file.txt", &f[0].hunks[0].id).unwrap();
-        assert_eq!(pending(&w).unwrap()[0].hunks.len(), 1);
-    }
-    #[test] fn new_file_accept_and_reject() {
-        for accept in [true, false] {
-            let r = Repo::new(); let w = r.wt();
-            fs::write(w.path.join("new.txt"), "new\n").unwrap();
-            let f = pending(&w).unwrap();
-            if accept { accept_hunk(&r.0, &w, "new.txt", &f[0].hunks[0].id).unwrap(); }
-            else { reject_hunk(&w, "new.txt", &f[0].hunks[0].id).unwrap(); }
-            assert!(pending(&w).unwrap().is_empty());
-            assert_eq!(r.0.join("new.txt").exists(), accept);
-        }
-    }
-    #[test] fn deleted_file_accept() {
-        let r = Repo::new(); let w = r.wt(); fs::remove_file(w.path.join("file.txt")).unwrap();
-        let f = pending(&w).unwrap();
-        accept_hunk(&r.0, &w, "file.txt", &f[0].hunks[0].id).unwrap();
-        assert!(!r.0.join("file.txt").exists()); assert!(pending(&w).unwrap().is_empty());
-    }
     #[test] fn path_with_space_and_unicode_accepts() {
         let r = Repo::new(); let w = r.wt(); let path = "thư mục có dấu cách/tệp mới.txt";
         fs::create_dir_all(w.path.join("thư mục có dấu cách")).unwrap();
         fs::write(w.path.join(path), "hello\n").unwrap();
         let f = pending(&w).unwrap();
         assert_eq!(f[0].path, path);
-        accept_hunk(&r.0, &w, path, &f[0].hunks[0].id).unwrap();
+        accept_all(&r.0, &w).unwrap();
         assert_eq!(fs::read_to_string(r.0.join(path)).unwrap(), "hello\n");
     }
     #[test] fn accept_conflict_leaves_both_sides_untouched() {
         let r = Repo::new(); let w = r.wt(); change(&w);
-        let f = pending(&w).unwrap(); r.write("file.txt", "user edit\n");
+        pending(&w).unwrap(); r.write("file.txt", "user edit\n");
         let before = [git(&r.0, &["status", "--porcelain"], None).unwrap(), git(&w.path, &["status", "--porcelain"], None).unwrap()];
         let content = fs::read(w.path.join("file.txt")).unwrap();
-        assert!(accept_hunk(&r.0, &w, "file.txt", &f[0].hunks[0].id).is_err());
+        assert!(accept_all(&r.0, &w).is_err());
         assert_eq!(before, [git(&r.0, &["status", "--porcelain"], None).unwrap(), git(&w.path, &["status", "--porcelain"], None).unwrap()]);
         assert_eq!(fs::read(w.path.join("file.txt")).unwrap(), content);
         assert_eq!(fs::read_to_string(r.0.join("file.txt")).unwrap(), "user edit\n");
@@ -872,14 +796,16 @@ mod tests {
         assert_eq!(pending(&w).unwrap()[0].hunks.len(), 2);
         assert_eq!(crate::workspace::worktree::list(&r.0).unwrap()[0].base, w.base);
     }
-    #[test] fn commit_only_contains_accepted_hunks() {
+    #[test] fn commit_only_contains_accepted_changes() {
         let r = Repo::new(); let w = r.wt(); change(&w);
-        let f = pending(&w).unwrap();
-        accept_hunk(&r.0, &w, "file.txt", &f[0].hunks[0].id).unwrap();
+        accept_all(&r.0, &w).unwrap();
+        fs::write(w.path.join("later.txt"), "not accepted\n").unwrap();
         r.write("untracked.txt", "keep");
         let hash = commit(&r.0, "accepted").unwrap();
         let s = git(&r.0, &["show", &format!("{hash}:file.txt")], None).unwrap();
-        assert!(s.contains("changed 2\n")); assert!(s.contains("line 28\n"));
+        assert!(s.contains("changed 2\n")); assert!(s.contains("changed 28\n"));
         assert!(git(&r.0, &["show", &format!("{hash}:untracked.txt")], None).is_err());
+        assert!(git(&r.0, &["show", &format!("{hash}:later.txt")], None).is_err());
+        assert_eq!(paths(&pending(&w).unwrap()), ["later.txt"]);
     }
 }

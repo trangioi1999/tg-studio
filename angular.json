@@ -50,8 +50,12 @@
               }
             ],
             "styles": [
+              "node_modules/@fontsource-variable/inter/wght.css",
+              "node_modules/@fontsource-variable/jetbrains-mono/wght.css",
+              "node_modules/@xterm/xterm/css/xterm.css",
               "src/styles.scss"
             ],
+            "allowedCommonJsDependencies": ["@xterm/xterm", "@xterm/addon-fit"],
             "webWorkerTsConfig": "tsconfig.worker.json",
             "loader": {
               ".ttf": "file"

@@ -1,6 +1,6 @@
 [package]
 name = "tg-studio"
-version = "0.6.2"
+version = "0.6.4"
 description = "TG Studio — multi-agent coding desktop app"
 authors = ["Trần Giỏi"]
 edition = "2021"
@@ -25,3 +25,4 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
+portable-pty = "0.9"

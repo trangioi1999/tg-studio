@@ -37,8 +37,6 @@ describe('Tauri task commands', () => {
     expect(lastCall()).toEqual(['respond_permission', { runId: 'run', requestId: 'request', optionId: 'allow', always: true }]);
     await backend.getDiff('run');
     expect(lastCall()).toEqual(['get_diff', { runId: 'run' }]);
-    await backend.acceptHunk('run', 'file', 'hunk');
-    expect(lastCall()).toEqual(['accept_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' }]);
     await backend.acceptAll('run');
     expect(lastCall()).toEqual(['accept_all', { runId: 'run' }]);
     await backend.listFiles('run');
@@ -47,8 +45,6 @@ describe('Tauri task commands', () => {
     expect(lastCall()).toEqual(['read_worktree_file', { runId: 'run', path: 'a b.ts' }]);
     await backend.writeFile('run', 'a b.ts', 'x');
     expect(lastCall()).toEqual(['write_worktree_file', { runId: 'run', path: 'a b.ts', content: 'x' }]);
-    await backend.rejectHunk('run', 'file', 'hunk');
-    expect(lastCall()).toEqual(['reject_hunk', { runId: 'run', path: 'file', hunkId: 'hunk' }]);
     expect(await backend.commitAccepted('run', 'commit')).toBe('result');
     expect(lastCall()).toEqual(['commit_accepted', { runId: 'run', message: 'commit' }]);
     await backend.bridgeNotes('run');
