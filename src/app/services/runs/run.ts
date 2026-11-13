@@ -21,6 +21,8 @@ export interface Run {
   status: RunStatus;
   lines: ConsoleLine[];
   usage: Usage | null;
+  /** Kiro counts credits: the whole session's and the current turn's. Live runs only. */
+  credits?: { total: number; turn: number } | null;
   exitCode: number | null;
   /** Loaded from an earlier app session: shown, but not part of this session's usage. */
   restored: boolean;

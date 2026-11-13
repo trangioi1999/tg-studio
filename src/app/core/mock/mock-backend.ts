@@ -583,6 +583,17 @@ export class MockBackend extends AgentBackend {
     };
   }
 
+  async refreshKiroLimits(): Promise<AccountLimits | null> {
+    const next = new Date();
+    next.setMonth(next.getMonth() + 1, 1);
+    next.setHours(0, 0, 0, 0);
+    return {
+      agent: 'kiro',
+      at: Date.now(),
+      windows: [{ id: 'monthly', utilization: 334.17 / 2000, resetsAt: next.getTime(), status: null, used: 334.17, limit: 2000, plan: 'Kiro Pro+' }],
+    };
+  }
+
   /** Two weeks of plausible history plus this session's runs. */
   async usageReport(since: number): Promise<UsageRow[]> {
     const day = 86_400_000;

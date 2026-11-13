@@ -23,8 +23,9 @@ import { AgentAvatar } from '../../shared/ui/agent-avatar';
           @for (w of l.windows; track w.id) {
             <div class="limit-row" [attr.data-level]="level(w)">
               <div class="limit-line">
-                <span>{{ windowLabel(w.id) }}</span>
+                <span>{{ w.plan ? w.plan + ' · ' : '' }}{{ windowLabel(w.id) }}</span>
                 <span class="spacer"></span>
+                @if (w.used != null && w.limit != null) { <span class="dim mono">{{ credits(w.used) }} / {{ credits(w.limit) }} credit</span> }
                 <strong class="mono">{{ percent(w.utilization) }}</strong>
               </div>
               <div class="meter" role="meter" [attr.aria-label]="windowLabel(w.id)" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="percentValue(w.utilization)">
@@ -56,6 +57,10 @@ export class UsagePanel implements OnDestroy {
 
   ngOnDestroy(): void {
     clearInterval(this.timer);
+  }
+
+  protected credits(n: number): string {
+    return n.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
   }
 
   protected windowLabel(id: string): string {
@@ -100,4 +105,6 @@ const WINDOW_LABELS: Record<string, string> = {
   seven_day: '7 ngày · mọi model',
   seven_day_opus: '7 ngày · Opus',
   seven_day_sonnet: '7 ngày · Sonnet',
+  monthly: 'Credit trong tháng',
+  bonus: 'Credit thưởng',
 };

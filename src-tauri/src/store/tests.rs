@@ -206,7 +206,7 @@ fn settings_round_trip() {
 #[test]
 fn limits_keep_the_newest_report_per_agent() {
     let store = Store::open_in_memory().unwrap();
-    let window = |u: f64| vec![LimitWindow { id: "five_hour".into(), utilization: u, resets_at: Some(9), status: Some("allowed".into()) }];
+    let window = |u: f64| vec![LimitWindow { id: "five_hour".into(), utilization: u, resets_at: Some(9), status: Some("allowed".into()), ..Default::default() }];
     store.set_limits(AgentKind::Claude, &window(0.2), 10).unwrap();
     store.set_limits(AgentKind::Claude, &window(0.5), 20).unwrap();
     store.set_limits(AgentKind::Claude, &window(0.1), 15).unwrap();

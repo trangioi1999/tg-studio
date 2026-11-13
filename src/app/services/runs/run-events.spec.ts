@@ -21,6 +21,14 @@ describe('applyEvent', () => {
     expect(applyEvent(run(), ev({ kind: 'exit', code: 0 }), { stopping: false }).run.status).toBe('done');
   });
 
+  it('keeps the credits Kiro reported next to its usage', () => {
+    const usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0.04, source: 'reported' as const, cumulative: true };
+    const first = applyEvent(run({ agent: 'kiro' }), ev({ agent: 'kiro', kind: 'usage', usage, data: { credits: 1, turnCredits: 0.32 } }), { stopping: false }).run;
+    expect(first.credits).toEqual({ total: 1, turn: 0.32 });
+    // A usage event without credits (tokens from the prompt result) keeps them.
+    expect(applyEvent(first, ev({ agent: 'kiro', kind: 'usage', usage }), { stopping: false }).run.credits).toEqual({ total: 1, turn: 0.32 });
+  });
+
   it('joins a delegated run to its parent\'s conversation', () => {
     const parent = run({ id: 'p', thread: 'tp', project: '/repo', scope: 'src', perm: 'auto' });
     const { run: child } = applyEvent(run({ id: 'c', thread: 'c', project: '' }), ev({ runId: 'c', kind: 'started', line: 'x', data: { parent: 'p' } }), { parent, stopping: false });

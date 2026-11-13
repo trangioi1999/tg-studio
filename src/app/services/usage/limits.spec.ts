@@ -20,6 +20,13 @@ describe('limitView', () => {
     expect(limitView(w({ utilization: 0.99, resetsAt: NOW - 1 }), NOW)).toMatchObject({ percent: 0, reset: true, level: 'ok' });
   });
 
+  it('shows Kiro credits with the plan name, like Kiro does', () => {
+    const kiro = limitView(w({ id: 'monthly', utilization: 334.17 / 2000, used: 334.17, limit: 2000, plan: 'Kiro Pro+' }), NOW);
+    expect(kiro).toMatchObject({ name: 'Tháng', percent: 17, credits: { used: 334.17, limit: 2000 } });
+    expect(kiro.label).toBe(`Kiro Pro+ ${(334.17).toLocaleString('vi-VN')} / ${(2000).toLocaleString('vi-VN')}`);
+    expect(limitView(w(), NOW).label).toBe('5 giờ 23%');
+  });
+
   it('keeps the percent when no reset time is known', () => {
     expect(limitView(w({ resetsAt: null }), NOW)).toMatchObject({ percent: 23, reset: false });
   });
@@ -33,6 +40,12 @@ describe('limitsTitle', () => {
     expect(title).toContain('đã dùng 23%');
     expect(title).toContain('reset lúc');
     expect(title).toContain('5 phút trước');
+  });
+
+  it('gives the credits in the tooltip', () => {
+    const title = limitsTitle(limits({ agent: 'kiro', windows: [w({ id: 'monthly', utilization: 0.5, used: 1000, limit: 2000, plan: 'Kiro Pro+' })] }), NOW);
+    expect(title).toContain('Kiro Pro+ · Tháng: đã dùng');
+    expect(title).toContain('credit (50%)');
   });
 
   it('says a window has passed its reset', () => {

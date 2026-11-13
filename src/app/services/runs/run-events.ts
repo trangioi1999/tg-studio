@@ -74,8 +74,12 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
       const next = proposal ? { ...run, proposal } : run;
       return line ? { ...next, lines: addLine(run.lines, line).slice(-MAX_LINES) } : next;
     }
-    case 'usage':
-      return { ...run, usage: mergeUsage(run.usage, e.usage) };
+    case 'usage': {
+      const d = dataOf(e);
+      const credits = typeof d['credits'] === 'number' && typeof d['turnCredits'] === 'number'
+        ? { total: d['credits'], turn: d['turnCredits'] } : run.credits;
+      return { ...run, usage: mergeUsage(run.usage, e.usage), credits };
+    }
     case 'limits':
       return run; // handled above: limits belong to the account, not the run
     case 'commands': {

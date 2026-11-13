@@ -156,17 +156,21 @@ impl TaskSession {
         let Some(credits) = crate::usage::kiro_credits(params) else { return };
         let turn = self.turn_seq.load(Ordering::SeqCst);
         let key = params["sessionId"].as_str().unwrap_or_default().to_string();
-        let total = {
+        let (total, this_turn) = {
             let mut kiro = self.kiro.lock().unwrap();
             if let Some((seen, earlier)) = kiro.1.get(&key).copied() { if seen != turn { kiro.0 += earlier; } }
             kiro.1.insert(key, (turn, credits));
-            kiro.0 + kiro.1.values().map(|f| f.1).sum::<f64>()
+            let this_turn: f64 = kiro.1.values().filter(|f| f.0 == turn).map(|f| f.1).sum();
+            (kiro.0 + kiro.1.values().map(|f| f.1).sum::<f64>(), this_turn)
         };
         let cost = total * crate::usage::KIRO_USD_PER_CREDIT;
         *self.last_cost.lock().unwrap() = Some(cost);
         let usage = self.with_totals(crate::usage::Usage {cost_usd:Some(cost),source:"reported",cumulative:true,..Default::default()});
         let mut event = AgentEvent::new(&self.run_id,self.agent,"usage");
-        event.usage = Some(usage); self.queue(event);
+        event.usage = Some(usage);
+        // Kiro counts credits; the UI shows them as Kiro does, next to the turn's time.
+        event.data = Some(json!({"credits": total, "turnCredits": this_turn}));
+        self.queue(event);
     }
     fn with_totals(&self, mut usage:crate::usage::Usage) -> crate::usage::Usage {
         let t=*self.totals.lock().unwrap();
@@ -455,6 +459,9 @@ mod tests {
         assert!((cost(&sink) - 1.5 * crate::usage::KIRO_USD_PER_CREDIT).abs() < 1e-9);
         let events = sink.0.lock().unwrap();
         assert!(events.iter().all(|e| e.kind == "usage" && e.usage.as_ref().unwrap().cumulative));
+        let last = events.last().unwrap().data.as_ref().unwrap();
+        assert!((last["credits"].as_f64().unwrap() - 1.5).abs() < 1e-9);
+        assert!((last["turnCredits"].as_f64().unwrap() - 0.5).abs() < 1e-9);
     }
 
     #[test]

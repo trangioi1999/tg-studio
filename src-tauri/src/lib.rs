@@ -89,6 +89,7 @@ pub fn run() {
             store::list_runs,
             store::account_limits,
             usage::claude::refresh_claude_limits,
+            usage::kiro::refresh_kiro_limits,
             usage::ledger::usage_report,
             usage::ledger::bridge_notes,
             usage::ledger::list_prices,
