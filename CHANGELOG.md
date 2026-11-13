@@ -4,6 +4,8 @@
 
 ## [Chưa phát hành]
 
+## [0.6.3] - 2026-11-13
+
 ### Sửa lỗi
 - Commit hoặc hoàn tác không còn lấy nhầm phần agent đang ghi dở: kiểm tra và thao tác chạy trong cùng một khoá thư mục; agent chỉ bắt đầu lượt mới sau khi commit đang chạy xong.
 - Bản nháp đang có agent làm vẫn commit được phần đã áp vào thư mục.
