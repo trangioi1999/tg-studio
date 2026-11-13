@@ -365,3 +365,42 @@ export interface LatestVersion {
   latest: string;
   newer: boolean;
 }
+
+/** The project's branch against its remote, for Push and Create PR in the Changes tab. */
+export interface SyncStatus {
+  /** Null on a detached HEAD. */
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  /** The remote a push goes to; null when the repo has none. */
+  remote: string | null;
+  github: boolean;
+  /** GitHub CLI installed and signed in. */
+  gh: boolean;
+  defaultBranch: string | null;
+  /** The open PR of this branch, if any. */
+  prUrl: string | null;
+}
+
+/** A user shell of a conversation, in the core's PTY. */
+export interface TerminalInfo {
+  id: string;
+  /** Program name, e.g. zsh or pwsh.exe. */
+  shell: string;
+  cwd: string;
+  /** False when the conversation's shell was already open. */
+  fresh: boolean;
+}
+
+/** Hooks of a project, kept by the app (not in the repository). */
+export interface ProjectSettings {
+  /** Run once in each new draft before its agent starts; `$TG_ROOT_PATH` is the project folder. */
+  setup: string;
+  /** Run after each agent turn that changed files, e.g. `npm test`. */
+  check: string;
+  /** Send a failed check back to the agent. */
+  autoFix: boolean;
+  /** 1–5. */
+  maxFixRounds: number;
+}

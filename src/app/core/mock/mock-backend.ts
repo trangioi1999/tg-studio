@@ -1,5 +1,5 @@
 import { AgentBackend, SettingKey, Unlisten } from '../backend';
-import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion } from '../protocol';
+import { AccountLimits, AgentEvent, AgentOptions, BridgeNote, AgentId, CheckResult, Composite, DetectedAgent, FileDiff, McpServer, OwnChange, OwnChanges, Pick, PriceRow, Project, Skill, SkillInstalled, SkillTarget, StoredRun, Usage, UsageRow, GitPlan, AgentCommand, ProcStat, ResourceReport, UsageGroup, AppVersion, LatestVersion, SyncStatus, TerminalInfo, ProjectSettings } from '../protocol';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
@@ -330,13 +330,6 @@ export class MockBackend extends AgentBackend {
     return this.task(runId).files;
   }
 
-  async acceptHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    const task = this.task(runId);
-    this.dropHunk(task, path, hunkId);
-    task.accepted += 1;
-    task.staged.add(path);
-  }
-
   async acceptAll(runId: string): Promise<number> {
     const task = this.task(runId);
     if (this.runs.get(runId)?.active) throw new Error('Agent vẫn đang chạy. Hãy chờ agent xong rồi mới dùng bản này.');
@@ -346,10 +339,6 @@ export class MockBackend extends AgentBackend {
     for (const f of task.files) task.staged.add(f.path);
     task.files = [];
     return count;
-  }
-
-  async rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    this.dropHunk(this.task(runId), path, hunkId);
   }
 
   async commitAccepted(runId: string, message: string): Promise<string> {
@@ -374,6 +363,36 @@ export class MockBackend extends AgentBackend {
     task.files = task.files.filter((f) => !paths.includes(f.path));
   }
 
+  /** Commits made in the mock since the last push. */
+  private ahead = 0;
+  private pushed = false;
+  private pr: string | null = null;
+
+  async syncStatus(root: string): Promise<SyncStatus> {
+    // A path naming "noremote" simulates a repository without a remote.
+    if (root.includes('noremote')) return { branch: 'main', upstream: null, ahead: 0, behind: 0, remote: null, github: false, gh: true, defaultBranch: null, prUrl: null };
+    return { branch: 'tg/demo', upstream: this.pushed ? 'origin/tg/demo' : null, ahead: this.ahead, behind: 0, remote: 'origin', github: true, gh: true, defaultBranch: 'main', prUrl: this.pr };
+  }
+
+  async push(root: string): Promise<SyncStatus> {
+    if (root.includes('noremote')) throw new Error('Repo chưa có remote để push.');
+    await new Promise((r) => setTimeout(r, 400));
+    this.ahead = 0;
+    this.pushed = true;
+    return this.syncStatus(root);
+  }
+
+  async createPr(root: string, title: string, _body: string): Promise<string> {
+    if (!title.trim()) throw new Error('Hãy nhập tiêu đề PR.');
+    await this.push(root);
+    this.pr = 'https://github.com/example/demo/pull/1';
+    return this.pr;
+  }
+
+  async openUrl(url: string): Promise<void> {
+    window.open(url, '_blank', 'noopener');
+  }
+
   async commitFiles(runId: string, paths: string[], message: string): Promise<string> {
     if (this.runs.get(runId)?.active) throw new Error('Agent đang sửa. Hãy dừng hoặc chờ agent xong rồi mới commit.');
     if (!paths.length) throw new Error('Chưa chọn tệp nào để commit.');
@@ -382,6 +401,7 @@ export class MockBackend extends AgentBackend {
     task.files = task.files.filter((f) => !paths.includes(f.path));
     task.own = task.own.filter((f) => !paths.includes(f.path));
     for (const p of paths) task.staged.delete(p);
+    this.ahead += 1;
     return 'abc1234def5678';
   }
 
@@ -477,12 +497,6 @@ export class MockBackend extends AgentBackend {
     const task = this.tasks.get(runId);
     if (!task) throw new Error('Không tìm thấy worktree mô phỏng.');
     return task;
-  }
-
-  private dropHunk(task: MockTask, path: string, hunkId: string): void {
-    task.files = task.files
-      .map((f) => (f.path === path ? { ...f, hunks: f.hunks.filter((h) => h.id !== hunkId) } : f))
-      .filter((f) => f.hunks.length > 0);
   }
 
   private later(runId: string, run: MockRun, partial: Partial<AgentEvent>, delay: number, effect?: () => void): void {
@@ -669,6 +683,91 @@ export class MockBackend extends AgentBackend {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     return `Downloads/${name}`;
+  }
+
+  // A pretend shell: echoes what is typed and answers each line with a prompt.
+  private shells = new Map<string, { id: string; cwd: string; line: string }>();
+  private outputHandlers: ((id: string, data: string) => void)[] = [];
+  private exitHandlers: ((id: string, code: number | null) => void)[] = [];
+
+  private projectHooks = new Map<string, ProjectSettings>();
+  /** Checks run per run, so a prompt naming "failcheck" fails once and then passes. */
+  private checkCounts = new Map<string, number>();
+
+  async projectSettings(root: string): Promise<ProjectSettings> {
+    return this.projectHooks.get(root) ?? { setup: '', check: '', autoFix: true, maxFixRounds: 2 };
+  }
+
+  async setProjectSettings(root: string, s: ProjectSettings): Promise<void> {
+    this.projectHooks.set(root, { ...s, maxFixRounds: Math.min(5, Math.max(1, Math.round(s.maxFixRounds))) });
+  }
+
+  async runProjectCheck(runId: string): Promise<CheckResult | null> {
+    const run = this.runs.get(runId);
+    const check = [...this.projectHooks.values()][0]?.check ?? '';
+    if (!check.trim()) return null;
+    const n = (this.checkCounts.get(runId) ?? 0) + 1;
+    this.checkCounts.set(runId, n);
+    await new Promise((r) => setTimeout(r, 300));
+    const fail = !!run?.prompt?.includes('failcheck') && n === 1;
+    return fail
+      ? { code: 1, output: 'FAIL src/app/app.spec.ts\n  ✕ hiện tiêu đề (12 ms)\nTests: 1 failed, 8 passed', truncated: false, durationMs: 800 }
+      : { code: 0, output: 'Tests: 9 passed', truncated: false, durationMs: 800 };
+  }
+
+  async runDir(runId: string): Promise<string> {
+    const run = this.tasks.get(runId);
+    if (!run) throw new Error('Không tìm thấy bản nháp của lượt chạy.');
+    return `/mock/.tg/worktrees/${runId}`;
+  }
+
+  async terminalOpen(key: string, cwd: string, _cols?: number, _rows?: number): Promise<TerminalInfo> {
+    const open = this.shells.get(key);
+    if (open) return { id: open.id, shell: 'zsh', cwd: open.cwd, fresh: false };
+    const id = crypto.randomUUID();
+    this.shells.set(key, { id, cwd, line: '' });
+    setTimeout(() => this.outputHandlers.forEach((h) => h(id, `Shell mô phỏng ở ${cwd}\r\n$ `)));
+    return { id, shell: 'zsh', cwd, fresh: true };
+  }
+
+  async terminalWrite(id: string, data: string): Promise<void> {
+    const shell = [...this.shells.values()].find((s) => s.id === id);
+    if (!shell) throw new Error('Terminal đã đóng.');
+    const out = (text: string) => this.outputHandlers.forEach((h) => h(id, text));
+    for (const ch of data) {
+      if (ch === '\r') {
+        const cmd = shell.line.trim();
+        shell.line = '';
+        if (cmd === 'exit') {
+          for (const [k, s] of this.shells) if (s.id === id) this.shells.delete(k);
+          out('\r\n');
+          this.exitHandlers.forEach((h) => h(id, 0));
+          return;
+        }
+        out(`\r\n${cmd ? `(mô phỏng) ${cmd}\r\n` : ''}$ `);
+      } else if (ch === '\u007f') {
+        if (shell.line) { shell.line = shell.line.slice(0, -1); out('\b \b'); }
+      } else {
+        shell.line += ch;
+        out(ch);
+      }
+    }
+  }
+
+  async terminalResize(): Promise<void> {}
+
+  async terminalClose(id: string): Promise<void> {
+    for (const [k, s] of this.shells) if (s.id === id) this.shells.delete(k);
+  }
+
+  async onTerminalOutput(handler: (id: string, data: string) => void): Promise<Unlisten> {
+    this.outputHandlers.push(handler);
+    return () => (this.outputHandlers = this.outputHandlers.filter((h) => h !== handler));
+  }
+
+  async onTerminalExit(handler: (id: string, code: number | null) => void): Promise<Unlisten> {
+    this.exitHandlers.push(handler);
+    return () => (this.exitHandlers = this.exitHandlers.filter((h) => h !== handler));
   }
 
   async onEvent(handler: (e: AgentEvent) => void): Promise<Unlisten> {

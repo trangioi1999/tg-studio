@@ -1,3 +1,4 @@
+import { CheckService } from './services/runs/check.service';
 import { Component, effect, inject, untracked } from '@angular/core';
 import { AgentsService } from './services/agents/agents.service';
 import { BudgetService } from './services/usage/budget.service';
@@ -35,6 +36,7 @@ export class App {
     inject(BudgetService);
     // Starts collecting UI errors for the diagnostics report.
     inject(DiagnosticsService);
+    inject(CheckService);
     // Show the code panel once per conversation, when its first changes appear. Closing it stays closed.
     const runs = inject(RunsService);
     const workspace = inject(WorkspaceService);

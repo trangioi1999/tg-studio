@@ -309,14 +309,6 @@ export class RunsService {
     return this.backend.writeFile(runId, path, content);
   }
 
-  acceptHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    return this.backend.acceptHunk(runId, path, hunkId);
-  }
-
-  rejectHunk(runId: string, path: string, hunkId: string): Promise<void> {
-    return this.backend.rejectHunk(runId, path, hunkId);
-  }
-
 
   ownChanges(runId: string): Promise<OwnChanges> {
     return this.backend.ownChanges(runId);
@@ -366,6 +358,16 @@ export class RunsService {
   /** The user turned down a Chỉ hỏi plan: stop offering it. */
   dismissProposal(id: string): void {
     this.runs.update((list) => list.map((r) => (r.id === id ? { ...r, proposal: null } : r)));
+  }
+
+  /** A line from the app itself (the project's check), shown as a note in the work log; `key` updates it in place. */
+  note(runId: string, text: string, key?: string): void {
+    this.runs.update((list) => list.map((r) => {
+      if (r.id !== runId) return r;
+      const line = { text, tone: 'error' as const, ...(key ? { key } : {}) };
+      const at = key ? r.lines.findIndex((l) => l.key === key) : -1;
+      return { ...r, lines: at >= 0 ? r.lines.map((l, i) => (i === at ? line : l)) : [...r.lines, line] };
+    }));
   }
 
   async stop(id: string): Promise<void> {

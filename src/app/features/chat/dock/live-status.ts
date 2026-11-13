@@ -31,7 +31,8 @@ export class LiveStatus {
   protected readonly meta = AGENT_META;
   protected readonly live = computed(() => {
     const r = this.chat.run();
-    if (!r || r.status !== 'running') return null;
+    // While an approval card is up it says what is waiting; a second line would repeat it.
+    if (!r || r.status !== 'running' || r.permissions.length) return null;
     const last = segmentsOf(r.lines, true).at(-1);
     const waiting = r.permissions.length > 0;
     let step = 'đang suy nghĩ…';

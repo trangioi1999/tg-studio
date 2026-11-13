@@ -3,6 +3,7 @@ import { AgentId } from '../../core/protocol';
 import { RunsService } from './runs.service';
 import { Run } from './run';
 import { WorkspaceService } from '../workspace.service';
+import { TerminalsService } from '../app/terminals.service';
 
 export type ThreadStatus = 'needs_you' | 'running' | 'failed' | 'waiting' | 'ended';
 
@@ -99,6 +100,7 @@ function readRecent(): string[] {
 export class ThreadsService {
   private readonly runs = inject(RunsService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly terminals = inject(TerminalsService);
   readonly recent = signal<string[]>(readRecent());
   readonly threads = computed(() => buildThreads(this.runs.runs()));
   readonly projects = computed(() => groupByProject(this.threads(), this.workspace.folder(), this.recent()));
@@ -145,6 +147,7 @@ export class ThreadsService {
     const ids = this.runs.runs().filter((r) => r.thread === threadId).map((r) => r.id);
     try {
       await this.runs.deleteRuns(ids);
+      await this.terminals.close(threadId);
     } finally {
       // Gone from history (even when a draft could not be cleaned): its tabs go too.
       for (const id of ids) if (!this.runs.runs().some((r) => r.id === id)) this.workspace.closeRun(id);

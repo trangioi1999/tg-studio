@@ -66,7 +66,7 @@ Thêm agent mới: chọn màu khác biệt cả về **độ sáng**, không ch
 | Nút | `primary` (nền chữ sáng), `ghost` (viền), `sm` |
 | Segmented control | Nền `#151518`, mục chọn `#222226` |
 | Thẻ xin duyệt | Nền `#19150F`, viền `#4A3820`, nút chính màu `--warn`, phím tắt ⌘↵ |
-| Thanh hunk | Avatar agent + mô tả + `+n −m` + Reject/Accept kèm phím tắt |
+| ~~Thanh hunk~~ | Đã bỏ (2026-11-12): giữ/bỏ theo tệp ở tab Thay đổi |
 | Khung usage | Grid: avatar · tên + nhãn nguồn + in/cache/out · thanh ctx · cost |
 | Console | Mono, tone: text / tool (`#a9c6ff`) / muted / error / ok |
 

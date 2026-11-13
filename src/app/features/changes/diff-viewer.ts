@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
-import { AgentId, FileDiff, OwnChange } from '../../core/protocol';
+import { AgentId, FileDiff, OwnChange, SyncStatus } from '../../core/protocol';
+import { AgentBackend } from '../../core/backend';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { RunsService } from '../../services/runs/runs.service';
 import { WorkspaceService } from '../../services/workspace.service';
@@ -61,6 +62,38 @@ import { errorText } from '../../shared/utils/errors';
         </section>
       }
 
+      @if (sync(); as s) {
+        <section class="sc-sync" aria-label="Đồng bộ với remote">
+          <span class="sc-branch mono ellipsis">{{ s.branch ?? 'HEAD tách rời' }}</span>
+          @if (s.remote) {
+            <span class="dim">↑{{ s.ahead }} ↓{{ s.behind }} {{ s.upstream ? 'so với ' + s.upstream : '· chưa push lên ' + s.remote }}</span>
+          } @else {
+            <span class="dim">· repo chưa có remote</span>
+          }
+          <span class="spacer"></span>
+          @if (s.prUrl) {
+            <button class="btn ghost sm" (click)="open(s.prUrl)" [title]="s.prUrl">Mở PR</button>
+          } @else if (canPr() && !prOpen()) {
+            <button class="btn ghost sm" [disabled]="busy() || running()" (click)="startPr()">Tạo PR</button>
+          }
+          @if (s.remote && s.branch) {
+            <button class="btn sm" [disabled]="busy() || running() || (s.ahead === 0 && !!s.upstream)" (click)="push()"
+              [title]="s.upstream ? 'Đẩy commit lên ' + s.upstream : 'Đẩy nhánh lên ' + s.remote + ' lần đầu'">Push</button>
+          }
+        </section>
+        @if (prOpen()) {
+          <section class="sc-pr" aria-label="Tạo PR">
+            <label class="field"><span>Tiêu đề PR</span><input [value]="prTitle()" (input)="prTitle.set($any($event.target).value)" /></label>
+            <label class="field"><span>Nội dung</span><textarea rows="3" [value]="prBody()" (input)="prBody.set($any($event.target).value)"></textarea></label>
+            <div class="chg-commit-row">
+              <span class="dim">Commit chưa push sẽ được push trước.</span>
+              <button class="btn ghost sm" [disabled]="busy()" (click)="prOpen.set(false)">Huỷ</button>
+              <button class="btn primary sm" [disabled]="busy() || running() || !prTitle().trim()" (click)="createPr()">Tạo PR</button>
+            </div>
+          </section>
+        }
+      }
+
       @if (files().length) {
         <section class="chg-group" aria-label="Thay đổi của agent">
           <h3 class="chg-group-head">{{ direct() === false ? 'Trong bản nháp' : 'Của agent' }} <span class="dim">{{ files().length }}</span></h3>
@@ -78,9 +111,14 @@ import { errorText } from '../../shared/utils/errors';
               <tg-agent-avatar [agent]="agent()" [size]="14" />
               @if (f.binary) { <span class="hunk-count dim">nhị phân</span> }
               @else { <span class="hunk-count"><span class="plus">+{{ count(f, '+') }}</span> <span class="minus">−{{ count(f, '-') }}</span></span> }
-              <button class="btn ghost sm icon" [disabled]="busy() || running()" (click)="revert([f.path])"
-                [title]="direct() === false ? 'Bỏ thay đổi của tệp này trong bản nháp' : 'Hoàn tác: trả tệp về như trước khi agent sửa'"
-                [attr.aria-label]="'Hoàn tác ' + f.path">↶</button>
+              @if (confirmingRevert() === f.path) {
+                <button class="btn danger sm" [disabled]="busy() || running()" (click)="revert([f.path])" (blur)="confirmingRevert.set(null)"
+                  [attr.aria-label]="'Xác nhận hoàn tác ' + f.path">Hoàn tác?</button>
+              } @else {
+                <button class="btn ghost sm icon" [disabled]="busy() || running()" (click)="confirmingRevert.set(f.path)"
+                  [title]="direct() === false ? 'Bỏ thay đổi của tệp này trong bản nháp' : 'Hoàn tác: trả tệp về như trước khi agent sửa'"
+                  [attr.aria-label]="'Hoàn tác ' + f.path">↶</button>
+              }
             </div>
           }
         </section>
@@ -107,6 +145,7 @@ import { errorText } from '../../shared/utils/errors';
 })
 export class DiffViewer {
   private readonly runs = inject(RunsService);
+  private readonly backend = inject(AgentBackend);
   protected readonly workspace = inject(WorkspaceService);
   readonly runId = input.required<string>();
   readonly agent = input.required<AgentId>();
@@ -130,7 +169,21 @@ export class DiffViewer {
   protected readonly edited = signal<string | null>(null);
   protected readonly confirmingDiscard = signal(false);
   protected readonly confirmingRevertAll = signal(false);
+  /** The file whose revert waits for a second click: it throws the agent's work on that file away. */
+  protected readonly confirmingRevert = signal<string | null>(null);
   protected readonly message = computed(() => this.edited() ?? this.suggestion());
+  /** Push and PR always work on the project folder, also for a draft (applied there first). */
+  private readonly root = computed(() => this.runs.runs().find((r) => r.id === this.runId())?.project || this.workspace.project()?.root || null);
+  protected readonly sync = signal<SyncStatus | null>(null);
+  protected readonly prOpen = signal(false);
+  protected readonly prTitle = signal('');
+  protected readonly prBody = signal('');
+  /** The last commit made here: what a PR is about by default. */
+  private lastCommit: string | null = null;
+  protected readonly canPr = computed(() => {
+    const s = this.sync();
+    return !!s && s.gh && s.github && !!s.branch && !!s.defaultBranch && s.branch !== s.defaultBranch && !s.prUrl;
+  });
   protected readonly color = computed(() => AGENT_META[this.agent()].color);
   protected readonly agentName = computed(() => AGENT_META[this.agent()].name);
   protected readonly statusLabel: Record<string, string> = { M: 'Đã sửa', A: 'Tệp mới', D: 'Đã xóa' };
@@ -210,12 +263,56 @@ export class DiffViewer {
       this.picked.set(next);
       this.loaded.set(true);
     });
+    await this.loadSync();
+  }
+
+  private async loadSync(): Promise<void> {
+    const root = this.root();
+    if (!root) return;
+    try {
+      const status = await this.backend.syncStatus(root);
+      if (root === this.root()) this.sync.set(status);
+    } catch {
+      this.sync.set(null); // not a repository, or git is missing: no sync row
+    }
+  }
+
+  protected async push(): Promise<void> {
+    const root = this.root();
+    if (!root) return;
+    await this.guard(async () => this.sync.set(await this.backend.push(root)));
+  }
+
+  protected startPr(): void {
+    const text = (this.lastCommit ?? this.message()).trim();
+    const nl = text.indexOf('\n');
+    this.prTitle.set(nl < 0 ? text : text.slice(0, nl).trim());
+    this.prBody.set(nl < 0 ? '' : text.slice(nl + 1).trim());
+    this.prOpen.set(true);
+  }
+
+  protected async createPr(): Promise<void> {
+    const root = this.root();
+    if (!root) return;
+    let url: string | null = null;
+    await this.guard(async () => {
+      url = await this.backend.createPr(root, this.prTitle().trim(), this.prBody().trim());
+    });
+    if (!url) return;
+    this.prOpen.set(false);
+    await this.open(url);
+    await this.loadSync();
+  }
+
+  protected async open(url: string): Promise<void> {
+    await this.guard(() => this.backend.openUrl(url));
   }
 
   protected async revert(paths: string[]): Promise<void> {
     if (!paths.length) return;
     const id = this.runId();
     this.confirmingRevertAll.set(false);
+    this.confirmingRevert.set(null);
     await this.guard(async () => {
       await this.runs.revertFiles(id, paths);
       this.committed.set(null);
@@ -245,6 +342,7 @@ export class DiffViewer {
     await this.guard(async () => {
       hash = await this.runs.commitFiles(id, paths, this.message().trim());
     });
+    if (hash) this.lastCommit = this.message().trim();
     if (!hash) return;
     this.committed.set((hash as string).slice(0, 7));
     this.setApplied(id, []);

@@ -7,8 +7,6 @@ import { AgentId } from '../core/protocol';
 import { AGENT_IDS } from '../services/agents/agent-meta';
 import { AgentBackend } from '../core/backend';
 import { BudgetService } from '../services/usage/budget.service';
-import { DiagnosticsService } from '../services/app/diagnostics.service';
-import { fmtTokens, fmtUsd } from '../shared/utils/format';
 import { RunsService } from '../services/runs/runs.service';
 import { VersionService } from '../services/app/version.service';
 
@@ -27,8 +25,13 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
       </div>
     }
     <footer class="statusbar">
-      <span><span class="dot" [class.live]="runs.running().length"></span>{{ runs.running().length }} agent đang chạy</span>
-      <span>{{ runs.sessionRuns().length }} lượt</span>
+      @if (version.label()) {
+        <button class="status-btn version" [class.newer]="version.latest()?.newer" [class.busy]="version.checking()"
+          [title]="version.title()" [attr.aria-label]="version.title()" (click)="version.check()">
+          {{ version.label() }}@if (version.latest()?.newer) { · có v{{ version.latest()!.latest }} }
+        </button>
+      }
+      @if (backend.mode === 'mock') { <span class="mock">Mock mode — mở bằng <code>npm run dev</code> để chạy agent thật</span> }
       <span class="spacer"></span>
       @for (row of limitRows(); track row.agent) {
         <button class="limit" [class.busy]="runs.refreshingLimits()" [title]="row.title + '\nBấm để cập nhật.'" [attr.aria-label]="row.title + '. Bấm để cập nhật.'" (click)="runs.refreshLimits(true)">
@@ -40,21 +43,7 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex'];
           }
         </button>
       }
-      @if (diag.saved()) { <span class="ellipsis" role="status">Đã lưu chẩn đoán: {{ diag.saved() }}</span> }
-      @if (diag.failed()) { <span class="err" role="alert">{{ diag.failed() }}</span> }
-      <button class="status-btn" (click)="diag.export()" title="Lưu một tệp chẩn đoán (không gồm khóa hay mật khẩu) vào Downloads để gửi khi báo lỗi. App không tự gửi gì.">Chẩn đoán</button>
-      @if (backend.mode === 'mock') { <span class="mock">Mock mode — mở bằng <code>npm run dev</code> để chạy agent thật</span> }
       <tg-resource-meter />
-      @if (version.label()) {
-        <button class="status-btn version" [class.newer]="version.latest()?.newer" [class.busy]="version.checking()"
-          [title]="version.title()" [attr.aria-label]="version.title()" (click)="version.check()">
-          {{ version.label() }}@if (version.latest()?.newer) { · có v{{ version.latest()!.latest }} }
-        </button>
-      }
-      <span>{{ tok(runs.totals().tokens) }} tok</span>
-      <span [attr.data-level]="budget.dailyLevel()" class="today">
-        Hôm nay {{ usd(budget.todayCost()) }}@if (budget.budgets().daily; as d) { / {{ usd(d) }} }
-      </span>
     </footer>
   `,
 })
@@ -62,7 +51,6 @@ export class StatusBar {
   protected readonly runs = inject(RunsService);
   protected readonly backend = inject(AgentBackend);
   protected readonly budget = inject(BudgetService);
-  protected readonly diag = inject(DiagnosticsService);
   protected readonly version = inject(VersionService);
   private readonly agents = inject(AgentsService);
   private readonly tick = signal(Date.now());
@@ -93,6 +81,4 @@ export class StatusBar {
     });
   }
 
-  protected tok = fmtTokens;
-  protected usd = fmtUsd;
 }

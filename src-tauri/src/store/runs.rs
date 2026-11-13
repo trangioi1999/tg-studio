@@ -53,6 +53,14 @@ impl Store {
         Ok(())
     }
 
+    /// The subfolder of a run that is not deleted: None if there is no such run.
+    pub fn live_run_scope(&self, run_id: &str) -> Result<Option<Option<String>>> {
+        let conn = self.connection()?;
+        let mut stmt = conn.prepare("SELECT scope FROM runs WHERE id = ?1 AND deleted_at IS NULL")?;
+        let mut rows = stmt.query(params![run_id])?;
+        Ok(match rows.next()? { Some(row) => Some(row.get(0)?), None => None })
+    }
+
     pub fn set_run_thread(&self, run_id: &str, thread: &str, scope: Option<&str>) -> Result<()> {
         self.connection()?.execute("UPDATE runs SET thread_id = ?2, scope = ?3 WHERE id = ?1", params![run_id, thread, scope])?;
         Ok(())

@@ -121,8 +121,69 @@ pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Res
 /// `Warm` keeps the command: an adapter that died while waiting is replaced by a fresh one.
 enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::tasks::warm::Warm>, (PathBuf, Vec<String>)) }
 
+#[cfg(test)]
 async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
+    prepare_with(store, agent, prompt, repo, adapter, group, reuse, place, None).await
+}
+
+/// The project's setup script, run in a new draft before its agent starts.
+pub(super) struct Setup<'a> {
+    pub command: &'a str,
+    pub sink: Arc<dyn EventSink>,
+    /// Where `stop_agent` finds the run while the script runs.
+    pub stops: &'a Runs,
+}
+
+/// The last lines of a script's output, for the run's log.
+fn output_tail(output: &str) -> String {
+    let lines: Vec<&str> = output.trim_end().lines().collect();
+    lines[lines.len().saturating_sub(40)..].join("\n")
+}
+
+/// Runs the setup script of a draft whose run is already saved. Err: the run has ended
+/// (failed or stopped) and its exit event is sent.
+async fn setup_draft(store: &Store, id: &str, agent: AgentKind, repo: &Path, wt: &Worktree, setup: Setup<'_>) -> Result<(), String> {
+    let note = |text: String| {
+        let mut event = AgentEvent::new(id, agent, "stderr");
+        event.line = Some(text);
+        setup.sink.emit(event);
+    };
+    note(format!("Đang chuẩn bị bản nháp: {}", setup.command.trim()));
+    let (tx, rx) = oneshot::channel();
+    setup.stops.0.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), tx);
+    let result = tokio::select! {
+        r = crate::workspace::hooks::run_setup(repo, &wt.path, setup.command) => Some(r),
+        _ = rx => None,
+    };
+    setup.stops.0.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    let end = |status: &str, message: String| {
+        note(message.clone());
+        if let Err(e) = store.finish_run(id, status, None, crate::system::clock::now_ms()) { eprintln!("Không lưu được trạng thái lượt chạy: {e}"); }
+        let mut event = AgentEvent::new(id, agent, "exit");
+        event.data = Some(json!({ "status": status }));
+        setup.sink.emit(event);
+        Err(message)
+    };
+    match result {
+        None => end("stopped", "Đã dừng khi đang chuẩn bị bản nháp.".into()),
+        Some(Ok(r)) if r.code == Some(0) => {
+            note(format!("Đã chuẩn bị bản nháp ({} s).", r.duration_ms / 1000));
+            Ok(())
+        }
+        Some(Ok(r)) => {
+            if !r.output.trim().is_empty() { note(output_tail(&r.output)); }
+            let code = r.code.map_or_else(|| "bị dừng".to_owned(), |c| format!("mã {c}"));
+            end("failed", format!("Script chuẩn bị hỏng ({code}). Sửa script ở Thiết lập dự án rồi gửi lại."))
+        }
+        Some(Err(e)) => end("failed", format!("Không chạy được script chuẩn bị: {e}")),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn prepare_with(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place, setup: Option<Setup<'_>>) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
     let id = uuid::Uuid::new_v4().to_string();
+    // Only a new draft lacks the user's ignored files (.env, local settings).
+    let setup = setup.filter(|s| reuse.is_none() && matches!(place, Place::Draft(_)) && !s.command.trim().is_empty());
     let agent_name = serde_json::to_value(agent).unwrap();
     let shared = reuse.is_some();
     let made = (|| match (reuse, place) {
@@ -145,6 +206,16 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
         }
     };
     let cleanup = |wt: &Worktree| if shared { Ok(()) } else { worktree::remove(repo, wt, true) };
+    let new_run = NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: crate::system::clock::now_ms() };
+    let saved_early = setup.is_some();
+    if let Some(setup) = setup {
+        // Saved first: the script's lines belong to the run, and a stop must find it.
+        if let Err(e) = store.insert_run_with_worktree(&new_run, &repo.to_string_lossy(), &wt, group) {
+            let cleanup = cleanup(&wt);
+            return Err(format!("Không lưu được lượt chạy: {e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
+        }
+        setup_draft(store, &id, agent, repo, &wt, setup).await?;
+    }
     let adapter = match adapter {
         Adapter::Warm(warm, command) => {
             let (mut child, claimed) = warm.into_parts();
@@ -163,6 +234,11 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
         Ok((child, claimed)) => (child, Some(claimed)),
         Err(command) => match spawn_adapter(&command, &wt.path) {
             Ok(child) => (child, None),
+            Err(e) if saved_early => {
+                // The run and its prepared draft stay, as for any failed run.
+                let _ = store.finish_run(&id, "failed", None, crate::system::clock::now_ms());
+                return Err(e);
+            }
             Err(e) => {
                 let cleanup = cleanup(&wt);
                 return Err(format!("{e}{}", cleanup.err().map(|e| format!("; {e}")).unwrap_or_default()));
@@ -171,7 +247,7 @@ async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, ada
     };
     let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
     if let Some(pid) = pid { crate::system::resources::register(pid, crate::system::resources::Owner::Run(id.clone())); }
-    let saved = store.insert_run_with_worktree(&NewRun { id: &id, agent, prompt, cwd: &wt.path.to_string_lossy(), started_at: crate::system::clock::now_ms() }, &repo.to_string_lossy(), &wt, group);
+    let saved = if saved_early { Ok(()) } else { store.insert_run_with_worktree(&new_run, &repo.to_string_lossy(), &wt, group) };
     if let Err(e) = saved {
         let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
         terminate_adapter(&mut child, pid).await;
@@ -416,7 +492,11 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
         _ => Adapter::Spawn(command),
     };
-    let (id, wt, mut child, warm) = prepare(&app.state::<Store>(), agent, &prompt, &repo, adapter, group.as_deref(), reuse, place).await?;
+    // A new draft of a real task gets the project's setup script; not a question's throwaway draft, not a delegated agent.
+    let setup_command = if !throwaway && parent.is_none() { crate::workspace::hooks::load(&app.state::<Store>(), &repo).setup } else { String::new() };
+    let setup_sink: Arc<dyn EventSink> = Arc::new(AppSink(app.clone()));
+    let setup = Some(Setup { command: &setup_command, sink: setup_sink, stops: &app.state::<Runs>() });
+    let (id, wt, mut child, warm) = prepare_with(&app.state::<Store>(), agent, &prompt, &repo, adapter, group.as_deref(), reuse, place, setup).await?;
     let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
     if let Some(thread) = &thread {
         if let Err(e) = app.state::<Store>().set_run_thread(&id, thread, scope.as_deref()) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }

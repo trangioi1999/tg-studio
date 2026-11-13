@@ -21,8 +21,9 @@ const files = [
   {
     // The lockfiles carry the version too; a stale one shows up as a diff after the next build.
     path: 'src-tauri/Cargo.lock',
-    read: (text) => /\[\[package\]\]\nname = "tg-studio"\nversion = "([^"]+)"/.exec(text)?.[1],
-    write: (text) => text.replace(/(\[\[package\]\]\nname = "tg-studio"\nversion = )"[^"]+"/, `$1"${version}"`),
+    // \r?\n: a Windows checkout has CRLF line ends.
+    read: (text) => /\[\[package\]\]\r?\nname = "tg-studio"\r?\nversion = "([^"]+)"/.exec(text)?.[1],
+    write: (text) => text.replace(/(\[\[package\]\]\r?\nname = "tg-studio"\r?\nversion = )"[^"]+"/, `$1"${version}"`),
   },
   {
     path: 'package-lock.json',

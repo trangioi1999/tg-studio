@@ -1,3 +1,4 @@
+import { ProjectSettingsForm } from './project-settings';
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { KEYS } from '../shared/utils/keys';
@@ -12,7 +13,7 @@ import { errorText } from '../shared/utils/errors';
 /** Left column: projects and their conversations, then the screens beyond the chat. */
 @Component({
   selector: 'tg-thread-list',
-  imports: [AgentAvatar, NgTemplateOutlet],
+  imports: [AgentAvatar, NgTemplateOutlet, ProjectSettingsForm],
   template: `
     <div class="tl-top">
       <button class="tl-new" (click)="startNew()">
@@ -63,11 +64,18 @@ import { errorText } from '../shared/utils/errors';
               <span class="ellipsis">{{ p.name }}</span>
               @if (hidden().has(p.root) && waitingIn(p.threads); as n) { <span class="needs" [title]="n + ' cần bạn'">{{ n }}</span> }
             </button>
+            @if (p.root === workspace.folder()) {
+              <button class="tl-add" [class.active]="settingsOpen()" [attr.aria-label]="'Thiết lập dự án ' + p.name" [attr.aria-expanded]="settingsOpen()"
+                title="Thiết lập dự án: script chuẩn bị, lệnh kiểm tra" (click)="settingsOpen.set(!settingsOpen())">⚙</button>
+            }
             <button class="tl-add" [attr.aria-label]="'Trò chuyện mới trong ' + p.name" title="Trò chuyện mới trong dự án này" (click)="startNew(p.root)">+</button>
             @if (!p.threads.length && p.root !== workspace.folder()) {
               <button class="tl-add" [attr.aria-label]="'Bỏ ' + p.name + ' khỏi danh sách'" title="Bỏ khỏi danh sách" (click)="threads.forget(p.root)">×</button>
             }
           </div>
+          @if (settingsOpen() && p.root === workspace.folder()) {
+            <tg-project-settings [root]="p.root" (closed)="settingsOpen.set(false)" />
+          }
           @if (!hidden().has(p.root)) {
             @for (t of p.threads; track t.id) {
               <ng-container *ngTemplateOutlet="row; context: { $implicit: t }" />
@@ -96,6 +104,7 @@ import { errorText } from '../shared/utils/errors';
       @for (s of screens; track s.id) {
         <button class="tl-screen" [class.active]="ui.screen() === s.id" [attr.aria-label]="s.label" [title]="s.label" (click)="toggleScreen(s.id)">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path [attr.d]="s.icon"/></svg>
+          <span class="tl-screen-label">{{ s.label }}</span>
           @if (s.id === 'mission' && waiting()) { <span class="dot-badge" aria-hidden="true">{{ waiting() }}</span> }
         </button>
       }
@@ -107,6 +116,7 @@ export class ThreadList {
   protected readonly workspace = inject(WorkspaceService);
   protected readonly ui = inject(UiService);
   private readonly runs = inject(RunsService);
+  protected readonly settingsOpen = signal(false);
   protected readonly meta = AGENT_META;
   protected readonly label = THREAD_STATUS_LABEL;
   protected readonly hidden = signal(new Set<string>());
