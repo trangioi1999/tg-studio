@@ -4,6 +4,12 @@
 
 ## [Chưa phát hành]
 
+### Thay đổi
+- README, ảnh chụp giao diện và trang review (21 màn) cập nhật theo bản 0.6.6: đính kèm, terminal, thiết lập dự án, Push/Tạo PR.
+
+### Sửa lỗi
+- Thiết lập dự án: dòng "Kiểm tra hỏng thì gửi lỗi cho agent tự sửa" nằm cạnh ô đánh dấu thay vì rớt xuống dòng riêng.
+
 ## [0.6.6] - 2026-11-13
 
 ### Thêm

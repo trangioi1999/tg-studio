@@ -3,7 +3,7 @@
 // the Playwright MCP tool browser_run_code_unsafe with filename scripts/capture-screens.js).
 async (page) => {
   const W = 1440, H = 900;
-  const out = '/Users/trangioi/Documents/vibe-code/tg-studio/docs/images';
+  const out = globalThis.TG_SHOTS_OUT ?? '/Users/trangioi/Documents/vibe-code/tg-studio/docs/images';
   const ctx = await page.context().browser().newContext({ viewport: { width: W, height: H }, colorScheme: 'dark', deviceScaleFactor: 1 });
   const p = await ctx.newPage();
   await p.addInitScript(() => {
@@ -55,11 +55,38 @@ async (page) => {
   await p.waitForSelector('.chg-row');
   await shot('chat-review');
 
+  // The conversation's own shell, under the Changes tab.
+  await p.click('button.term-tab:has-text("Terminal")');
+  await p.waitForTimeout(1200);
+  await p.keyboard.type('npm test');
+  await p.keyboard.press('Enter');
+  await shot('terminal');
+
   // Xoá một cuộc trò chuyện, xác nhận ngay tại dòng.
   await p.hover('.tl-item');
   await p.click('.tl-del');
   await p.waitForSelector('.tl-confirm');
   await shot('delete');
+
+  // Ảnh chụp lỗi và một tệp đính kèm; Tự động để không có thẻ duyệt che tin nhắn.
+  await fresh();
+  await p.click('.chip-btn[aria-haspopup="true"] >> nth=1');
+  await p.click('button.opt:has-text("Tự động")');
+  await p.setInputFiles('input[type=file]', [`${out}/approval.png`, `${out}/../../package.json`]);
+  await ask('Nút Gửi bị lệch như trong ảnh, sửa giúp');
+  await p.waitForSelector('tg-user-message .msg-thumb img');
+  await p.waitForSelector('.pill[data-status="waiting"]', { timeout: 15000 });
+  await p.waitForTimeout(3500);
+  await p.setInputFiles('input[type=file]', [`${out}/skills.png`]);
+  await p.fill('textarea#prompt', 'Màn này cũng lệch');
+  await shot('attach');
+
+  // Thiết lập dự án: script chuẩn bị bản nháp và lệnh kiểm tra.
+  await fresh();
+  await p.click('button[aria-label^="Thiết lập dự án"]');
+  await p.fill('.hk-form textarea', 'npm ci');
+  await p.fill('.hk-form input.mono', 'npm test');
+  await shot('project-settings');
 
   // Claude giao một phần việc cho Codex và một Claude phụ (mock: "chia việc" trong yêu cầu).
   await fresh();
