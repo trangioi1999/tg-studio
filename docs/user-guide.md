@@ -67,6 +67,8 @@ Dưới ô chat có hai nút:
 
 ![Danh sách skill khi gõ /](images/skills.png)
 
+Đính kèm ảnh và tệp: dán ảnh chụp màn hình vào ô chat (Ctrl+V / ⌘V), kéo thả tệp vào ô chat, hoặc bấm nút kẹp giấy để chọn. Tối đa 10 tệp, mỗi tệp 25 MB; bấm × để bỏ. Ảnh (PNG, JPG, GIF, WebP) được gửi thẳng cho agent nhận ảnh (Claude, Codex và các agent qua ACP có báo nhận ảnh); tệp chữ nhỏ được gửi kèm nội dung; tệp khác và ảnh cho agent không nhận ảnh được gửi kèm đường dẫn để agent tự mở. Tệp lưu trong thư mục dữ liệu của app, không ghi vào repo, và vẫn hiện trong tin nhắn khi mở lại cuộc trò chuyện.
+
 Gọi skill: gõ `/` ở đầu ô chat để mở danh sách skill và lệnh của agent đang chọn, chia nhóm **Skill của dự án**, **Skill trên máy**, **Plugin**, **Lệnh**. Gõ tiếp để lọc, ↑/↓ để chọn, Enter hoặc Tab để chèn, Esc để đóng. Với Codex, skill gọi bằng `$` ở bất kỳ đâu trong câu. App đọc danh sách từ chính agent (mở phiên không gửi prompt, không tốn token), nên skill trong `.claude/skills/` (Claude) hay `.agents/skills/` (Codex) của dự án đều hiện ra. Màn **Kết nối** có mục *Skill agent đang thấy* liệt kê đủ cho dự án đang mở.
 
 Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm biểu tượng thùng rác rồi **Xoá**. Lịch sử chat và bản nháp của nó bị xoá; thay đổi đã nằm trong code của bạn vẫn giữ nguyên, số liệu Chi phí không đổi. Không xoá được khi agent đang chạy.

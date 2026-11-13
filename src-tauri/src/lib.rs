@@ -61,6 +61,7 @@ pub fn run() {
         .manage(std::sync::Arc::new(integrations::bridge::BridgeHub::default()))
         .setup(|app| {
             let path = app.path().app_data_dir().ok().map(|dir| dir.join("tg-studio.db"));
+            if let Ok(dir) = app.path().app_data_dir() { system::attachments::init(dir.join("attachments")); }
             app.manage(open_store(path));
             // Windows and Linux draw the app's own title bar (window buttons included);
             // macOS keeps its traffic lights over the overlay title bar.
@@ -72,6 +73,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             system::resources::resource_usage,
+            system::attachments::save_attachment,
+            system::attachments::read_attachment,
             system::terminal::terminal_open,
             system::terminal::terminal_write,
             system::terminal::terminal_resize,

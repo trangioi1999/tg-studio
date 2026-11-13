@@ -4,6 +4,11 @@
 
 ## [Chưa phát hành]
 
+## [0.6.6] - 2026-11-13
+
+### Thêm
+- Đính kèm ảnh và tệp vào tin nhắn: dán ảnh chụp màn hình (Ctrl+V), kéo thả, hoặc bấm nút kẹp giấy. Ảnh đi thẳng tới agent nhận ảnh (Claude, Codex…), tệp chữ nhỏ gửi kèm nội dung, tệp khác gửi đường dẫn. Ảnh và tệp hiện trong tin nhắn, kể cả khi mở lại cuộc trò chuyện.
+
 ## [0.6.5] - 2026-11-13
 
 ### Sửa lỗi

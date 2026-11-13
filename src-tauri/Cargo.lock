@@ -3843,8 +3843,9 @@ dependencies = [
 
 [[package]]
 name = "tg-studio"
-version = "0.6.5"
+version = "0.6.6"
 dependencies = [
+ "base64 0.21.7",
  "chrono",
  "dunce",
  "portable-pty",

@@ -10,6 +10,7 @@ import { ThreadsService } from '../../services/runs/threads.service';
 import { errorText } from '../../shared/utils/errors';
 import { BudgetService } from '../../services/usage/budget.service';
 import { WorkspaceService } from '../../services/workspace.service';
+import { AttachmentsService, DraftAttachment } from '../../services/app/attachments.service';
 import { GROUP_LABEL, commandQuery, filterCommands, insertCommand } from './composer/commands';
 
 type Mode = 'task' | 'parallel' | 'pipeline' | 'read';
@@ -32,6 +33,10 @@ export class ChatState {
   readonly workspace = inject(WorkspaceService);
   readonly threads = inject(ThreadsService);
   private readonly backend = inject(AgentBackend);
+  private readonly files = inject(AttachmentsService);
+  /** Files for the next message: pasted, dropped or picked. */
+  readonly attachments = signal<DraftAttachment[]>([]);
+  readonly dragging = signal(false);
 
   readonly tab = signal<'thread' | 'plan' | 'runs'>('thread');
   readonly run = computed(() => this.runs.selected());
@@ -315,7 +320,40 @@ export class ChatState {
     return 'Giao việc, hỏi, hoặc @mention agent… (Enter để gửi, Shift+Enter để xuống dòng)';
   });
   readonly sending = signal(false);
-  readonly canRun = computed(() => !this.blocked() && !!this.text() && !this.sending());
+  readonly canRun = computed(() => !this.blocked() && (!!this.text() || this.attachments().length > 0) && !this.sending());
+
+  async addFiles(files: File[]): Promise<void> {
+    if (!files.length) return;
+    const { drafts, refused } = await this.files.read(files, this.attachments().length);
+    this.attachments.update((all) => [...all, ...drafts]);
+    this.error.set(refused.length ? `Không đính kèm được: ${refused.join(', ')}.` : null);
+  }
+
+  removeAttachment(id: number): void {
+    this.attachments.update((all) => all.filter((a) => a.id !== id));
+  }
+
+  /** A pasted screenshot or file becomes an attachment; pasted text stays text. */
+  onPaste(e: ClipboardEvent): void {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (!files.length) return;
+    if (!e.clipboardData?.getData('text/plain')) e.preventDefault();
+    void this.addFiles(files);
+  }
+
+  onDragOver(e: DragEvent): void {
+    if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+    e.preventDefault();
+    this.dragging.set(true);
+  }
+
+  onDrop(e: DragEvent): void {
+    this.dragging.set(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (!files.length) return;
+    e.preventDefault();
+    void this.addFiles(files);
+  }
 
   // Pipeline steps, remembered for the next task.
   readonly editSteps = signal(false);
@@ -447,17 +485,19 @@ export class ChatState {
     this.threads.draftScope.set(null);
     this.chosen.set('');
     this.prompt.set('');
+    this.attachments.set([]);
     this.error.set(null);
   }
 
   async send(): Promise<void> {
     if (!this.canRun()) return;
     const agent = this.agent();
-    const text = this.text();
+    let text = this.text();
     const cwd = this.workspace.folder();
     this.error.set(null);
     this.sending.set(true);
     let typed: string | null = null;
+    let drafts: DraftAttachment[] = [];
     try {
       const current = this.run();
       const perm = this.perm();
@@ -476,14 +516,17 @@ export class ChatState {
       }
       this.dirtyAccepted = false;
       typed = this.prompt();
+      drafts = this.attachments();
       this.prompt.set('');
+      this.attachments.set([]);
+      if (drafts.length) text = await this.files.attach(text, drafts);
       this.pending.set({ text, agent: this.team() === 'single' && agent ? agent : null, at: Date.now(), before: current?.id ?? null, sent: false });
       if (this.mode() === 'pipeline') {
         const started = await this.pipelines.start(text, cwd, this.steps(), { place, base, approval });
         // No run exists yet to show this in the thread, and the prompt must not be lost.
         if (started.status === 'failed') {
           this.error.set(started.error);
-          this.restore(typed);
+          this.restore(typed, drafts);
           return;
         }
       } else if (this.mode() === 'parallel') {
@@ -529,7 +572,7 @@ export class ChatState {
       }
     } catch (e) {
       this.error.set(errorText(e));
-      this.restore(typed);
+      this.restore(typed, drafts);
     } finally {
       this.sending.set(false);
     }
@@ -552,9 +595,10 @@ export class ChatState {
   }
 
   /** A failed send gives the words back, unless the user already typed something new. */
-  private restore(typed: string | null): void {
+  private restore(typed: string | null, drafts: DraftAttachment[] = []): void {
     this.pending.set(null);
     if (typed !== null && !this.prompt().trim()) this.prompt.set(typed);
+    if (drafts.length && !this.attachments().length) this.attachments.set(drafts);
   }
 }
 

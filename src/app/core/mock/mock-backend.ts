@@ -4,7 +4,7 @@ import { AGENT_META } from '../../services/agents/agent-meta';
 import { mockContents, mockDiff, mockLimits, parseSkill } from './mock-fixtures';
 
 /** The version the mock reports; `npm run version:sync` keeps it equal to package.json. */
-const APP_VERSION = '0.6.5';
+const APP_VERSION = '0.6.6';
 
 interface MockRun {
   /** Its session waits for more messages after a turn. */
@@ -523,6 +523,21 @@ export class MockBackend extends AgentBackend {
 
   async accountLimits(): Promise<AccountLimits[]> {
     return [];
+  }
+
+  private readonly attached = new Map<string, string>();
+
+  async saveAttachment(name: string, data: string): Promise<string> {
+    const path = `/Users/you/Library/Application Support/tg-studio/attachments/${this.attached.size + 1}/${name}`;
+    const type = /\.png$/i.test(name) ? 'image/png' : /\.jpe?g$/i.test(name) ? 'image/jpeg' : /\.gif$/i.test(name) ? 'image/gif' : /\.webp$/i.test(name) ? 'image/webp' : 'application/octet-stream';
+    this.attached.set(path, `data:${type};base64,${data}`);
+    return path;
+  }
+
+  async readAttachment(path: string): Promise<string> {
+    const url = this.attached.get(path);
+    if (!url?.startsWith('data:image/')) throw new Error('Không tìm thấy tệp đính kèm.');
+    return url;
   }
 
   async appVersion(): Promise<AppVersion> {
