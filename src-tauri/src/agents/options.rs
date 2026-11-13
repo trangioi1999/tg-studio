@@ -239,6 +239,7 @@ where F: FnOnce(Arc<AcpClient>, PathBuf) -> Fut, Fut: std::future::Future<Output
     process.args(&args).current_dir(&dir).env("PATH", env::login_path())
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     env::isolate(&mut process);
+    env::adapter_env(&mut process);
     let mut child = process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", program.display()))?;
     let pid = child.id();
     // "Internal error" alone says nothing; the adapter's own log says why. Keep its tail.
@@ -284,7 +285,10 @@ const STDERR_TAIL: usize = 12;
 fn with_log(error: String, tail: &[String]) -> String {
     let lines: Vec<&str> = tail.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
     if lines.is_empty() { return error; }
-    format!("{error}\n\nLog của adapter:\n{}", lines.join("\n"))
+    let hint = if lines.iter().any(|l| l.contains("Claude native binary not found")) {
+        "\n\nAdapter Claude không tìm thấy claude.exe. Cài Claude Code (https://claude.ai/install.ps1 hoặc npm i -g @anthropic-ai/claude-code), chạy `claude` một lần để đăng nhập, rồi mở lại TG Studio."
+    } else { "" };
+    format!("{error}{hint}\n\nLog của adapter:\n{}", lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -454,6 +458,8 @@ mod tests {
     fn errors_carry_the_adapters_last_log_lines() {
         assert_eq!(with_log("Lỗi".into(), &[]), "Lỗi");
         assert_eq!(with_log("Lỗi".into(), &["  ".into(), "spawn claude ENOENT".into()]), "Lỗi\n\nLog của adapter:\nspawn claude ENOENT");
+        let missing = with_log("Lỗi".into(), &["claude auth status failed: Claude native binary not found for win32-x64.".into()]);
+        assert!(missing.contains("không tìm thấy claude.exe"), "{missing}");
     }
 
     #[test]
