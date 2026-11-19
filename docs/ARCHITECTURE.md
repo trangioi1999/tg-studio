@@ -113,6 +113,18 @@ Subagent có sẵn của Claude Code: `AcpClient` khai báo `clientCapabilities.
 
 `tasks/headless.rs` ghi mọi event vào `tg-studio.db` trong thư mục dữ liệu của app, trước khi phát lên UI. Khi khởi động: lượt còn `running` chuyển thành `interrupted`, và nếu không mở được file thì app dùng DB trong bộ nhớ, chỉ mất lịch sử. UI nạp lại 100 lượt gần nhất qua `list_runs`; các lượt này có `restored: true` nên không tính vào usage của phiên hiện tại.
 
+## Ranh giới an toàn
+
+Agent và mọi thứ nó đọc (repo, README, trang web) là không tin cậy: có thể bị prompt injection.
+
+- **Webview:** CSP chặt trong `tauri.conf.json` (`csp`/`devCsp`, không tải gì từ mạng; `style-src` để `'unsafe-inline'` cho Monaco nên `dangerousDisableAssetCspModification: ["style-src"]`). `tg-markdown` biến ảnh thành link (bấm chỉ chép) và hiện HTML thô thành chữ, vì một ảnh có thể mang bí mật ra ngoài trong URL. Test `csp_keeps_the_webview_offline` khoá CSP.
+- **`integrations/policy.rs`:** danh sách cấm (`git push`/`merge`, `gh pr merge`, `gh api …merge`, alias `git -c alias.x=push`) là lớp chống nhầm lẫn, **không phải ranh giới**: shell có vô số cách viết khác (alias của người dùng, script). Lệnh bộ đọc không chắc (`must_ask`: quote lỗi, `$`/glob ở vị trí chương trình hoặc subcommand git/gh, `git -c`/`--config-env`) luôn hiện thẻ, kể cả ở Tự động, và không quy tắc nào cho qua. `rule_for` không bao giờ đề xuất quy tắc kiểu `git *`: chương trình có subcommand phải nêu subcommand, cờ đứng trước thì không có quy tắc, subcommand chạy được mọi thứ (`git config`, `gh api`, `npm exec`, `docker run`…) không có quy tắc; `rule_matches` bỏ qua quy tắc rộng đã lưu từ bản cũ và các tuỳ chọn chạy chương trình (`git rebase -x`, `cargo --config`, `make VAR=`…).
+- **`terminal/create`:** quyền `deny` và danh sách cấm áp cả ở đây, phòng adapter chạy lệnh mà không xin quyền trước. Phiên không có mode `default` để xin duyệt thì log một dòng cảnh báo (`client::NO_ASKING_MODE`).
+- **tg-bridge tự cho phép** chỉ khi `_meta.claudeCode.toolName` của adapter là tool `mcp__tg-bridge__…`, không dựa vào `title` (model viết được).
+- **Git của app:** mọi lệnh git app tự chạy kèm `worktree::SAFE_GIT` (`-c core.fsmonitor=false`), vì thư mục mở ra có thể mang `.git/config` lạ. Hook vẫn bật (commit từ app là của người dùng). `Sandbox::resolve` (`fs/*` và `cwd` của terminal) từ chối mọi thành phần `.git`. Còn lại: filter `clean`/`smudge` trong `.git/config` của một repo lạ vẫn chạy khi git đọc tệp; chỉ mở thư mục bạn tin.
+- **Bí mật:** cấu hình MCP của Claude headless đi qua tệp 0600 (`mcp::ConfigFile`), không qua argv. Gói chẩn đoán lọc token (`diagnostics::redact`) và rút gọn thư mục home thành `~`. Cổng loopback của tg-bridge giới hạn dòng 256 KiB, chờ tối đa 15 s, 64 kết nối.
+- **Thiết lập Claude ở cấp dự án (chưa xử lý):** `.claude/settings.json` của một repo lạ có thể có `permissions.allow` (ví dụ `Bash(touch *)`); Claude Code áp nó nên adapter có thể không xin quyền và thẻ duyệt, danh sách cấm của app đều bị vượt. Chưa có cờ rẻ để tắt riêng phần này: `--setting-sources` cũng bỏ skill và lệnh của dự án. Với repo không rõ nguồn, đọc `.claude/settings.json` trước khi giao việc.
+
 ## Đổi frontend sau này
 
 UI chỉ nói chuyện với lõi qua `AgentBackend` (`src/app/core/backend.ts`) và các kiểu trong `core/protocol.ts`.
