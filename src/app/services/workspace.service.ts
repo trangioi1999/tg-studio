@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, WritableSignal, computed, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { AgentBackend } from '../core/backend';
 import { FileDiff, Project, RepoInfo } from '../core/protocol';
 import { RunsService } from './runs/runs.service';
@@ -37,10 +37,17 @@ export class WorkspaceService {
   /** Settles when the latest listing is done. */
   filesLoaded: Promise<void> = Promise.resolve();
   private filesTicket = 0;
-  readonly tabs = signal<Tab[]>([]);
-  readonly activeKey = signal<string | null>(null);
+  /**
+   * Tabs belong to a conversation: opening another one shows its own files, and a new
+   * conversation starts without the last one's (they come back when it is opened again).
+   * Before its first message a conversation is `new:<folder>`; that message's run takes its tabs.
+   */
+  readonly tabScope = computed(() => this.runs.selected()?.thread ?? `new:${this.folder()}`);
+  private readonly stashes: Map<string, unknown>[] = [];
+  readonly tabs = this.scoped<Tab[]>([]);
+  readonly activeKey = this.scoped<string | null>(null);
   /** The one tab that the next preview replaces; shown in italics. */
-  readonly previewKey = signal<string | null>(null);
+  readonly previewKey = this.scoped<string | null>(null);
   readonly active = computed(() => this.tabs().find((t) => tabKey(t) === this.activeKey()) ?? null);
   /** While the agent runs, open the file it is working on. */
   readonly follow = signal(true);
@@ -153,6 +160,8 @@ export class WorkspaceService {
    * it again without `preview` keeps it.
    */
   open(tab: Tab, opts: { preview?: boolean } = {}): void {
+    // A tab of another run joins that run's conversation, so select it first.
+    if ((tab.kind === 'file' || tab.kind === 'changes') && this.runs.selectedId() !== tab.runId) this.runs.selectedId.set(tab.runId);
     const key = tabKey(tab);
     const list = this.tabs();
     const preview = this.previewKey();
@@ -166,7 +175,6 @@ export class WorkspaceService {
       if (opts.preview) this.previewKey.set(key);
     }
     this.activeKey.set(key);
-    if ((tab.kind === 'file' || tab.kind === 'changes') && this.runs.selectedId() !== tab.runId) this.runs.selectedId.set(tab.runId);
   }
 
   openFile(runId: string, path: string, preview = false): void {
@@ -220,9 +228,54 @@ export class WorkspaceService {
     return files.filter((f) => norm === f || norm.endsWith(`/${f}`)).sort((a, b) => b.length - a.length)[0] ?? null;
   }
 
-  /** Drops tabs of a run whose worktree is gone. */
+  /** Drops tabs of a run whose worktree is gone, in every conversation. */
   closeRun(runId: string): void {
-    for (const t of this.tabs()) if ((t.kind === 'file' || t.kind === 'changes') && t.runId === runId) this.close(tabKey(t));
+    const ofRun = (t: Tab) => (t.kind === 'file' || t.kind === 'changes') && t.runId === runId;
+    // Settle all three on the current conversation first, so the stashes are up to date.
+    this.activeKey();
+    this.previewKey();
+    for (const t of this.tabs()) if (ofRun(t)) this.close(tabKey(t));
+    const tabs = this.stashes[0] as Map<string, Tab[]>;
+    const active = this.stashes[1] as Map<string, string | null>;
+    const preview = this.stashes[2] as Map<string, string | null>;
+    for (const [scope, list] of tabs) {
+      const gone = new Set(list.filter(ofRun).map(tabKey));
+      if (!gone.size) continue;
+      const kept = list.filter((t) => !gone.has(tabKey(t)));
+      tabs.set(scope, kept);
+      if (gone.has(active.get(scope) ?? '')) active.set(scope, kept[0] ? tabKey(kept[0]) : null);
+      if (gone.has(preview.get(scope) ?? '')) preview.set(scope, null);
+    }
+  }
+
+  /**
+   * A signal whose value is kept per {@link tabScope}: switching conversation puts the current
+   * value aside and brings back that conversation's own (or `initial`).
+   */
+  private scoped<T>(initial: T): WritableSignal<T> {
+    const stash = new Map<string, T>();
+    this.stashes.push(stash as Map<string, unknown>);
+    return linkedSignal<string, T>({
+      source: this.tabScope,
+      computation: (scope, prev) => {
+        if (!prev) return stash.get(scope) ?? initial;
+        stash.set(prev.source, prev.value);
+        const own = stash.get(scope);
+        if (own !== undefined) return own;
+        // The first message of a new conversation: what was open while writing it stays open.
+        if (prev.source.startsWith('new:') && untracked(() => this.isNewThread(scope))) {
+          stash.delete(prev.source);
+          return prev.value;
+        }
+        return initial;
+      },
+    });
+  }
+
+  /** A conversation that has only just started in this session. */
+  private isNewThread(thread: string): boolean {
+    const runs = this.runs.runs().filter((r) => r.thread === thread);
+    return runs.length > 0 && runs.every((r) => !r.restored) && runs.length <= 1;
   }
 }
 

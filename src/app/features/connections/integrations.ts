@@ -12,45 +12,42 @@ import { SkillLibrary } from './skills/skill-library';
   providers: [IntegrationsState],
   template: `
     <div class="conn-page">
-      <header class="pg-head">
-        <div>
-          <h1>Kết nối</h1>
-          <p>
-            Công cụ và kỹ năng TG Studio đưa vào phiên của agent, không sửa file cấu hình của agent.
-          </p>
+      <p class="dim set-lead">Công cụ và kỹ năng TG Studio đưa vào phiên của agent, không sửa file cấu hình của agent.</p>
+      <div class="conn-bar">
+        <div class="segmented" role="tablist" aria-label="Loại kết nối">
+          <button
+            id="conn-mcp-tab"
+            role="tab"
+            aria-controls="conn-mcp"
+            [class.active]="conn.tab() === 'mcp'"
+            [attr.aria-selected]="conn.tab() === 'mcp'"
+            (click)="conn.tab.set('mcp')"
+          >
+            MCP server <span class="pg-count">{{ conn.servers().length }}</span>
+          </button>
+          <button
+            id="conn-skills-tab"
+            role="tab"
+            aria-controls="conn-skills"
+            [class.active]="conn.tab() === 'skills'"
+            [attr.aria-selected]="conn.tab() === 'skills'"
+            (click)="conn.tab.set('skills')"
+          >
+            Skill <span class="pg-count">{{ conn.skills().length }}</span>
+          </button>
         </div>
         <div class="conn-actions">
           @if (conn.tab() === 'skills') {
-            <button class="btn icon-text" (click)="conn.rescan()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg>Đọc lại</button>
+            <button class="btn sm icon-text" (click)="conn.rescan()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg>Đọc lại</button>
           }
           <button
-            class="btn primary"
+            class="btn primary sm"
             (click)="conn.tab() === 'mcp' ? conn.preset('custom') : conn.editSkill(conn.skillTemplate)"
           >
             <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>{{ conn.tab() === 'mcp' ? 'Thêm server' : 'Thêm skill' }}
           </button>
         </div>
-      </header>
-      <nav class="pg-tabs" role="tablist" aria-label="Loại kết nối">
-        <button
-          id="conn-mcp-tab"
-          role="tab"
-          aria-controls="conn-mcp"
-          [attr.aria-selected]="conn.tab() === 'mcp'"
-          (click)="conn.tab.set('mcp')"
-        >
-          MCP server <span class="pg-count">{{ conn.servers().length }}</span>
-        </button>
-        <button
-          id="conn-skills-tab"
-          role="tab"
-          aria-controls="conn-skills"
-          [attr.aria-selected]="conn.tab() === 'skills'"
-          (click)="conn.tab.set('skills')"
-        >
-          Skill <span class="pg-count">{{ conn.skills().length }}</span>
-        </button>
-      </nav>
+      </div>
       @if (conn.tab() === 'mcp') {
         <tg-mcp-servers />
       } @else {

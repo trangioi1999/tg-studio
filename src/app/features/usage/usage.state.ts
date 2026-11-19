@@ -41,7 +41,10 @@ export class UsageState {
   readonly error = signal<string | null>(null);
   readonly saved = signal<string | null>(null);
   readonly busy = signal(false);
-  readonly sheet = signal(false);
+  /** Prices and budgets live in Cài đặt. */
+  openPrices(): void {
+    this.ui.openSettings('prices');
+  }
   readonly backfill = signal(false);
   readonly draftTask = signal<string | null>(null);
   readonly draftDaily = signal<string | null>(null);

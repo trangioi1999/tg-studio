@@ -6,7 +6,6 @@ import { KEYS } from '../../shared/utils/keys';
 import { WorkspaceService, tabKey } from '../../services/workspace.service';
 import { AgentAvatar } from '../../shared/ui/agent-avatar';
 import { FileIcon } from '../../shared/ui/file-icon';
-import { RUN_STATUS_LABEL } from '../../services/runs/run';
 
 interface Row {
   key: string;
@@ -34,6 +33,9 @@ interface Row {
           <button [class.active]="view() === 'draft'" [attr.aria-pressed]="view() === 'draft'" (click)="choice.set('draft')">Bản nháp</button>
         </div>
         <tg-agent-avatar [agent]="r.agent" [size]="14" />
+        @if (r.status === 'running' && view() === 'draft') {
+          <button class="btn ghost sm" [class.on]="workspace.follow()" [attr.aria-pressed]="workspace.follow()" (click)="workspace.follow.set(!workspace.follow())" title="Tự mở tệp agent đang làm">Theo agent</button>
+        }
       }
       @if (view() === 'project' && workspace.folder()) {
         <button class="btn ghost sm icon-btn" aria-label="Thu gọn mọi thư mục" title="Thu gọn mọi thư mục" (click)="collapseAll()">⊟</button>
@@ -107,27 +109,12 @@ interface Row {
         }
       }
     </div>
-    @if (tasks().length) {
-      <div class="panel-head worktrees-head"><span class="label">Bản nháp</span><span class="dim">{{ tasks().length }}</span></div>
-      <div class="worktrees">
-        @for (t of tasks(); track t.id) {
-          <button class="tree-row" [class.active]="t.id === run()?.id" (click)="runs.selectedId.set(t.id); choice.set('draft')">
-            <tg-agent-avatar [agent]="t.agent" [size]="14" />
-            <span class="ellipsis">{{ t.prompt || meta[t.agent].name }}</span>
-            <span class="spacer"></span>
-            <span class="status" [attr.data-status]="t.status">{{ statusLabel[t.status] }}</span>
-          </button>
-        }
-      </div>
-    }
   `,
 })
 export class Explorer {
   protected readonly runs = inject(RunsService);
   protected readonly workspace = inject(WorkspaceService);
   protected readonly threads = inject(ThreadsService);
-  protected readonly meta = AGENT_META;
-  protected readonly statusLabel = RUN_STATUS_LABEL;
   protected readonly keys = KEYS;
   /** Draft view: folders the user folded. A draft is small, so it starts unfolded. */
   protected readonly collapsed = signal(new Set<string>());
@@ -140,7 +127,6 @@ export class Explorer {
     const r = this.runs.selected();
     return r?.task ? r : null;
   });
-  protected readonly tasks = computed(() => this.runs.runs().filter((r) => r.task));
   /** Which files to show when a task is selected. Without a task only the project has files. */
   protected readonly choice = signal<'project' | 'draft'>('draft');
   protected readonly view = computed(() => (this.run() ? this.choice() : 'project'));

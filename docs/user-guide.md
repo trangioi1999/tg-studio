@@ -16,16 +16,16 @@ TG Studio điều phối các agent lập trình (Claude Code, Codex, Gemini CLI
 
 ## 2. Lần đầu mở app
 
-Hướng dẫn 4 bước hiện ra: dò agent → đăng nhập (chạy lệnh đăng nhập của từng CLI trong terminal, ví dụ `claude`) → chọn thư mục dự án → chạy thử một câu hỏi chỉ đọc. Mở lại bất cứ lúc nào bằng nút **Hướng dẫn** ở cột Agents.
+Màn chào mừng có nút **Mở thư mục dự án…** và, ngay dưới, các agent app tìm thấy trên máy (chưa cài thì có nút chép lệnh cài). Chọn thư mục xong là vào thẳng ô chat. Agent nào cần đăng nhập thì chạy lệnh đăng nhập của CLI đó trong terminal (ví dụ `claude`); lệnh có ở **Cài đặt → Agent**.
 
 ## 3. Màn chính
 
 | Vùng | Nội dung |
 |---|---|
-| Thanh trên | Tên dự án và nhánh (bấm để gõ đường dẫn), nút **Mở thư mục**, nút **Tệp & thay đổi**, trạng thái từng agent đang chạy |
-| Cột trái | Các dự án và cuộc trò chuyện của chúng, mở nhiều dự án cùng lúc. Bên dưới là Giám sát, Chi phí, Agent, Kết nối |
+| Thanh trên | Nút thu gọn thanh bên, tên dự án và nhánh (bấm để gõ đường dẫn), nút **Tệp & thay đổi** |
+| Cột trái | **Trò chuyện mới**, rồi nhóm **Dự án** (nút thư mục bên cạnh để mở thêm dự án) với các cuộc trò chuyện của từng dự án. Dưới cùng là **Giám sát**, **Chi phí**, **Cài đặt**. Thu gọn thành dải biểu tượng bằng ⌘B / Ctrl+B; cửa sổ hẹp hơn 1200 px thì tự thu gọn, ⌘B mở danh sách đè lên khung chat |
 | Giữa | Cuộc trò chuyện và ô chat. Thẻ duyệt luôn ghim ngay trên ô chat |
-| Bên phải | **Tệp & thay đổi**: cây tệp của dự án hoặc bản nháp, editor, review, So sánh. Tự mở một lần khi có thay đổi đầu tiên |
+| Bên phải | **Tệp & thay đổi**: tab **Thay đổi** (và **So sánh** khi chạy nhiều agent) luôn đứng đầu, sau đó là tệp đang mở; nút thư mục bật/tắt cây tệp, nút × hoặc Esc đóng panel. Mỗi cuộc trò chuyện giữ tab riêng. Tự mở một lần khi có thay đổi đầu tiên; panel nằm cạnh khung chat, không che thẻ duyệt |
 | Thanh dưới | Số agent đang chạy, **hạn mức 5 giờ và 7 ngày** của từng agent, chi phí hôm nay |
 
 Số hạn mức do CLI báo: Codex đọc từ log phiên của nó, Claude có số sau lượt chạy đầu. Rê chuột để xem giờ reset và số cập nhật lúc nào.
@@ -69,7 +69,7 @@ Dưới ô chat có hai nút:
 
 Đính kèm ảnh và tệp: dán ảnh chụp màn hình vào ô chat (Ctrl+V / ⌘V), kéo thả tệp vào ô chat, hoặc bấm nút kẹp giấy để chọn. Tối đa 10 tệp, mỗi tệp 25 MB; bấm × để bỏ. Ảnh (PNG, JPG, GIF, WebP) được gửi thẳng cho agent nhận ảnh (Claude, Codex và các agent qua ACP có báo nhận ảnh); tệp chữ nhỏ được gửi kèm nội dung; tệp khác và ảnh cho agent không nhận ảnh được gửi kèm đường dẫn để agent tự mở. Tệp lưu trong thư mục dữ liệu của app, không ghi vào repo, và vẫn hiện trong tin nhắn khi mở lại cuộc trò chuyện.
 
-Gọi skill: gõ `/` ở đầu ô chat để mở danh sách skill và lệnh của agent đang chọn, chia nhóm **Skill của dự án**, **Skill trên máy**, **Plugin**, **Lệnh**. Gõ tiếp để lọc, ↑/↓ để chọn, Enter hoặc Tab để chèn, Esc để đóng. Với Codex, skill gọi bằng `$` ở bất kỳ đâu trong câu. App đọc danh sách từ chính agent (mở phiên không gửi prompt, không tốn token), nên skill trong `.claude/skills/` (Claude) hay `.agents/skills/` (Codex) của dự án đều hiện ra. Màn **Kết nối** có mục *Skill agent đang thấy* liệt kê đủ cho dự án đang mở.
+Gọi skill: gõ `/` ở đầu ô chat để mở danh sách skill và lệnh của agent đang chọn, chia nhóm **Skill của dự án**, **Skill trên máy**, **Plugin**, **Lệnh**. Gõ tiếp để lọc, ↑/↓ để chọn, Enter hoặc Tab để chèn, Esc để đóng. Với Codex, skill gọi bằng `$` ở bất kỳ đâu trong câu. App đọc danh sách từ chính agent (mở phiên không gửi prompt, không tốn token), nên skill trong `.claude/skills/` (Claude) hay `.agents/skills/` (Codex) của dự án đều hiện ra. Mục **Cài đặt → Kết nối** có phần *Skill agent đang thấy* liệt kê đủ cho dự án đang mở.
 
 Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm biểu tượng thùng rác rồi **Xoá**. Lịch sử chat và bản nháp của nó bị xoá; thay đổi đã nằm trong code của bạn vẫn giữ nguyên, số liệu Chi phí không đổi. Không xoá được khi agent đang chạy.
 
@@ -130,17 +130,20 @@ Bấm **⚙** cạnh tên dự án đang mở ở cột trái:
 
 ## 8. Giám sát
 
-KPI, **hàng chờ của bạn** (duyệt lệnh → review → commit), timeline các lượt chạy (đoạn sọc vàng là thời gian chờ bạn duyệt) và một cột cho mỗi agent.
+**Hàng chờ của bạn** đứng đầu (duyệt lệnh → review → commit), rồi timeline các lượt chạy (đoạn sọc vàng là thời gian chờ bạn duyệt) và một cột cho mỗi agent. Số liệu của phiên nằm gọn ở đầu trang, số bằng 0 không hiện.
 
 ## 9. Usage, chi phí, ngân sách
 
-- Màn **Usage**: chi phí và token theo ngày theo agent, bảng mọi lượt chạy, **Xuất CSV** (lưu vào Downloads).
+- Màn **Chi phí**: chi phí và token theo ngày theo agent, bảng mọi lượt chạy, **Xuất CSV** (lưu vào Downloads). Bảng giá và ngân sách sửa ở **Cài đặt → Ngân sách và giá** (nút **Giá & ngân sách** ở màn Chi phí mở thẳng tới đó).
 - **reported**: chi phí do CLI tự báo (Claude Code). **estimated**: token × bảng giá bạn nhập. **chưa có giá**: chỉ có token.
 - **Bảng giá** (USD / 1 triệu token): giá mới áp dụng từ lúc bấm, lượt cũ giữ giá cũ. Đánh dấu *Áp dụng cho cả các lượt trước* để định giá dữ liệu cũ chưa có giá.
 - **Ngân sách**: mỗi task và mỗi ngày. Vượt mức task thì run đó dừng; chạm mức ngày thì mọi run dừng và không giao việc mới được. Nhiều agent chỉ báo chi phí khi xong, nên việc dừng chỉ xảy ra khi đã có số.
 - **Hạn mức gói** (5 giờ, 7 ngày) ở thanh dưới cùng: Claude đọc bằng lệnh `/usage` của Claude Code (không tốn token) lúc mở app và mỗi 5 phút; Codex đọc từ nhật ký phiên của Codex, cả khi bạn chạy Codex ngoài app. Bấm vào số để cập nhật ngay. Với gói Pro/Max, "chi phí" chỉ là giá API quy đổi; phần bị trừ thật là hạn mức gói.
 
 ## 10. Kết nối: MCP và Skills
+
+Ở **Cài đặt → Kết nối**.
+
 
 - **MCP servers**: thêm server (stdio: lệnh + tham số + biến môi trường; http: URL + header), tick agent nào được dùng. App đưa server vào từng phiên của agent, không sửa tệp cấu hình của agent. Server http chỉ gửi cho agent báo hỗ trợ. Biến môi trường và header lưu trong máy, không mã hóa.
 - **Skills**: thư viện `SKILL.md`. Cài vào Claude Code ở mức repo (`.claude/skills`) hoặc mức máy (`~/.claude/skills`); bản khác sẵn có được sao lưu trước khi ghi.
@@ -164,7 +167,7 @@ Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cun
 - Tối đa 3 agent con chạy cùng lúc; agent con không giao tiếp được cho agent khác. Agent chưa cài thì agent cha tự làm phần đó.
 - Subagent có sẵn của Claude Code (khi Claude tự chia việc bằng tool Task/Agent) cũng hiện thành dòng lồng như vậy, thay vì trộn vào nhật ký của Claude.
 
-tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở màn **Kết nối** nếu không cần.
+tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt ở **Cài đặt → Kết nối** nếu không cần.
 
 ## 12. Dữ liệu và quyền riêng tư
 
@@ -174,7 +177,7 @@ tg-bridge chỉ nghe trên máy bạn (127.0.0.1), mỗi task một token. Tắt
 
 ## 13. Báo lỗi
 
-Bấm **Chẩn đoán** ở thanh trạng thái: app lưu một tệp JSON vào Downloads (phiên bản, hệ điều hành, agent đã dò, các lượt chạy gần đây, lỗi gần đây; không có khóa hay mật khẩu). Xem lại nội dung rồi gửi kèm khi báo lỗi.
+Vào **Cài đặt → Chẩn đoán**, bấm **Lưu gói chẩn đoán**: app lưu một tệp JSON vào Downloads (phiên bản, hệ điều hành, agent đã dò, các lượt chạy gần đây, lỗi gần đây; không có khóa hay mật khẩu). Xem lại nội dung rồi gửi kèm khi báo lỗi.
 
 ## 14. Sự cố thường gặp
 
@@ -184,4 +187,4 @@ Bấm **Chẩn đoán** ở thanh trạng thái: app lưu một tệp JSON vào 
 | Agent "chưa cài" dù đã cài | Mở lại app sau khi cài; bấm **Dò lại**. App lấy PATH từ login shell, nên CLI cài qua nvm/Homebrew vẫn thấy được |
 | Sửa code báo không tìm thấy adapter | Cần `npx` (Node.js) để tải `claude-agent-acp` / `codex-acp` lần đầu |
 | Kiro không chạy | Đăng nhập Kiro trong terminal trước (`kiro-cli login`; kiểm tra bằng `kiro-cli whoami`). Kiro chỉ dùng được với quyền **Sửa code**; chọn Kiro khi đang ở Chỉ hỏi thì app tự chuyển sang Sửa code |
-| Chi phí hiện "—" | Agent không tự báo chi phí: nhập bảng giá ở màn Chi phí |
+| Chi phí hiện "—" | Agent không tự báo chi phí: nhập bảng giá ở **Cài đặt → Ngân sách và giá** |
