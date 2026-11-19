@@ -10,6 +10,11 @@ pub struct ToolInfo {
     pub kind: String,
     pub title: String,
     pub command: Option<String>,
+    /// The tool's real name as the adapter reports it (`_meta.claudeCode.toolName`), not the
+    /// title: a title can be text the model wrote (a Task's description, a question).
+    pub tool_name: Option<String>,
+    /// The MCP server serving it, when the adapter says (`_meta.claudeCode.mcpServer.name`).
+    pub mcp_server: Option<String>,
 }
 
 pub fn tool_info(tool_call: &Value) -> ToolInfo {
@@ -23,6 +28,8 @@ pub fn tool_info(tool_call: &Value) -> ToolInfo {
         kind: tool_call["kind"].as_str().unwrap_or_default().into(),
         title: tool_call["title"].as_str().unwrap_or_default().into(),
         command,
+        tool_name: tool_call["_meta"]["claudeCode"]["toolName"].as_str().map(String::from),
+        mcp_server: tool_call["_meta"]["claudeCode"]["mcpServer"]["name"].as_str().map(String::from),
     }
 }
 
@@ -331,7 +338,10 @@ pub fn rule_matches(rule: &str, command: &str) -> bool {
 /// TG Studio's own tg-bridge tools only record notes and progress or propose things;
 /// anything with an effect asks the user itself (`request_approval`, handoffs).
 fn is_bridge_tool(tool: &ToolInfo) -> bool {
-    tool.title.starts_with("mcp__tg-bridge__") && tool.command.is_none()
+    let bridge = crate::integrations::bridge::SERVER_NAME;
+    tool.tool_name.as_deref().is_some_and(|name| name.starts_with(&format!("mcp__{bridge}__")))
+        && tool.mcp_server.as_deref().is_none_or(|server| server == bridge)
+        && tool.command.is_none()
         && !matches!(tool.kind.as_str(), "execute" | "edit" | "delete" | "move")
 }
 
@@ -377,7 +387,7 @@ mod tests {
     use serde_json::json;
 
     fn execute(command: &str) -> ToolInfo {
-        ToolInfo { kind: "execute".into(), title: "Chạy lệnh".into(), command: Some(command.into()) }
+        ToolInfo { kind: "execute".into(), title: "Chạy lệnh".into(), command: Some(command.into()), tool_name: None, mcp_server: None }
     }
 
     #[test]
@@ -444,9 +454,9 @@ mod tests {
     #[test]
     fn array_command_is_joined() {
         assert_eq!(tool_info(&json!({"kind":"execute", "title":"Kiểm tra", "rawInput":{"command":["npm", "test", "--watch=false"]}})),
-            ToolInfo {kind:"execute".into(), title:"Kiểm tra".into(), command:Some("npm test --watch=false".into())});
+            ToolInfo {kind:"execute".into(), title:"Kiểm tra".into(), command:Some("npm test --watch=false".into()), tool_name:None, mcp_server:None});
         assert_eq!(tool_info(&json!({"rawInput":{"command":"git status"}})).command.as_deref(), Some("git status"));
-        assert_eq!(tool_info(&json!({})), ToolInfo {kind:String::new(), title:String::new(), command:None});
+        assert_eq!(tool_info(&json!({})), ToolInfo {kind:String::new(), title:String::new(), command:None, tool_name:None, mcp_server:None});
         assert_eq!(tool_info(&json!({"rawInput":{"command":["npm", 1]}})).command, None);
     }
 
@@ -463,13 +473,25 @@ mod tests {
 
     #[test]
     fn tg_bridge_tools_are_allowed_but_lookalikes_are_not() {
-        let tool = |title: &str, kind: &str, command: Option<&str>| ToolInfo { kind: kind.into(), title: title.into(), command: command.map(String::from) };
+        let tool = |name: &str, kind: &str, command: Option<&str>| ToolInfo { kind: kind.into(), title: "t".into(), command: command.map(String::from), tool_name: Some(name.into()), mcp_server: None };
         assert_eq!(evaluate(&tool("mcp__tg-bridge__write_note", "other", None), &[]), Verdict::Allow);
         assert_eq!(evaluate(&tool("mcp__tg-bridge__read_notes", "", None), &[]), Verdict::Allow);
         assert_eq!(evaluate(&tool("mcp__tg-ping__ping", "other", None), &[]), Verdict::Ask);
         assert_eq!(evaluate(&tool("mcp__tg-bridge__x", "execute", Some("rm -rf ~")), &[]), Verdict::Ask);
         assert_eq!(evaluate(&tool("echo mcp__tg-bridge__", "execute", Some("echo mcp__tg-bridge__")), &[]), Verdict::Ask);
         assert_eq!(evaluate(&tool("mcp__tg-bridge__x", "edit", None), &[]), Verdict::Ask);
+    }
+
+    /// The title of a Task is its description and that of AskUserQuestion is the question:
+    /// text the model writes. Only the adapter's tool name counts.
+    #[test]
+    fn a_model_written_title_never_passes_for_tg_bridge() {
+        let request = |call: Value| evaluate(&tool_info(&call), &[]);
+        assert_eq!(request(json!({"kind":"think","title":"mcp__tg-bridge__write_note","_meta":{"claudeCode":{"toolName":"Task"}}})), Verdict::Ask);
+        assert_eq!(request(json!({"kind":"other","title":"mcp__tg-bridge__write_note"})), Verdict::Ask);
+        assert_eq!(request(json!({"kind":"other","title":"Ghi chú","_meta":{"claudeCode":{"toolName":"mcp__tg-bridge__write_note","mcpServer":{"name":"tg-bridge","source":"dynamic"}}}})), Verdict::Allow);
+        assert_eq!(request(json!({"kind":"other","_meta":{"claudeCode":{"toolName":"mcp__tg-bridge__write_note","mcpServer":{"name":"other"}}}})), Verdict::Ask);
+        assert_eq!(request(json!({"kind":"other","_meta":{"claudeCode":{"toolName":"mcp__tg-bridge-evil__x"}}})), Verdict::Ask);
     }
 
     #[test]
