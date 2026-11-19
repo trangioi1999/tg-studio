@@ -66,7 +66,7 @@ impl AgentKind {
             // `exec resume` has no --sandbox flag; its config override does the same.
             AgentKind::Codex => {
                 let prompt = args.last().cloned().unwrap_or_default();
-                ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", session].into_iter()
+                ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", session, "--"].into_iter()
                     .map(String::from).chain([prompt]).collect()
             }
             AgentKind::Gemini | AgentKind::Kiro => args,
@@ -107,7 +107,8 @@ impl AgentKind {
                 "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--include-partial-messages", "--permission-mode", "plan",
             ].into_iter().map(String::from).collect()),
-            AgentKind::Codex => Some(vec!["exec".into(), "--json".into(), "--sandbox".into(), "read-only".into(), "--skip-git-repo-check".into(), p]),
+            // `--`: a prompt that starts with `-` is never read as a flag.
+            AgentKind::Codex => Some(vec!["exec".into(), "--json".into(), "--sandbox".into(), "read-only".into(), "--skip-git-repo-check".into(), "--".into(), p]),
             AgentKind::Gemini | AgentKind::Kiro => None,
         }
     }
@@ -139,7 +140,20 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["--resume", "s1"]));
         assert!(args.windows(2).any(|w| w == ["--permission-mode", "plan"]));
         let (args, _) = AgentKind::Codex.headless_invocation("câu hai", Path::new("/bin/codex")).unwrap();
-        assert_eq!(AgentKind::Codex.resume_args(args, "s1"), ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", "s1", "câu hai"]);
+        assert_eq!(AgentKind::Codex.resume_args(args, "s1"), ["exec", "resume", "--json", "--skip-git-repo-check", "-c", "sandbox_mode=\"read-only\"", "s1", "--", "câu hai"]);
+    }
+
+    /// A prompt that starts with `-` (a handoff or a recap the agent wrote) must stay a
+    /// prompt: clap would read `--sandbox danger-full-access` as a flag. Checked with
+    /// codex-cli 0.166.0: without `--` such a prompt is an unknown argument, with it a prompt.
+    #[test]
+    fn codex_prompt_that_looks_like_a_flag_stays_a_prompt() {
+        let prompt = "--sandbox danger-full-access";
+        let args = AgentKind::Codex.headless_args(prompt).unwrap();
+        assert_eq!(&args[args.len() - 2..], ["--", prompt]);
+        assert_eq!(args.iter().filter(|a| *a == "--sandbox").count(), 1);
+        let resumed = AgentKind::Codex.resume_args(args, "s1");
+        assert_eq!(&resumed[resumed.len() - 3..], ["s1", "--", prompt]);
     }
 
     /// One Claude process takes every question of a conversation as JSON lines on stdin.
@@ -161,7 +175,7 @@ mod tests {
 
     #[test]
     fn codex_line_breaks_reach_a_batch_shim_through_stdin() {
-        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap(), (vec!["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "-"].into_iter().map(String::from).collect(), Some("một\r\nhai".to_string())));
+        assert_eq!(AgentKind::Codex.headless_invocation("một\r\nhai", Path::new("codex.CMD")).unwrap(), (vec!["exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--", "-"].into_iter().map(String::from).collect(), Some("một\r\nhai".to_string())));
         let (args, stdin) = AgentKind::Codex.headless_invocation("một\nhai", Path::new("/usr/bin/codex")).unwrap();
         assert_eq!(args.last().map(String::as_str), Some("một\nhai"));
         assert_eq!(stdin, None);
