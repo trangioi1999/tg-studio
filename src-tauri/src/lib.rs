@@ -183,6 +183,26 @@ mod tests {
         }
     }
 
+    /// Agent messages are untrusted: the webview must not load anything from the
+    /// network (an image URL could carry a secret out), nor run any foreign script.
+    #[test]
+    fn csp_keeps_the_webview_offline() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        for key in ["csp", "devCsp"] {
+            let csp = &config["app"]["security"][key];
+            assert!(csp.is_object(), "{key} phải được đặt");
+            for directive in ["default-src", "script-src", "img-src", "connect-src", "font-src", "worker-src"] {
+                let value = csp[directive].as_str().unwrap_or_else(|| panic!("{key} thiếu {directive}"));
+                assert!(!value.contains("https:") && !value.contains('*') && !value.contains("http: "), "{key} {directive}: {value}");
+                assert!(!value.contains("unsafe-eval"), "{key} {directive}: {value}");
+                if directive != "style-src" { assert!(!value.contains("unsafe-inline"), "{key} {directive}: {value}"); }
+            }
+            for source in csp["img-src"].as_str().unwrap().split_whitespace() {
+                assert!(["'self'", "data:", "blob:"].contains(&source), "{key} img-src: {source}");
+            }
+        }
+    }
+
     #[test]
     fn missing_data_dir_falls_back_to_a_working_store() {
         assert!(open_store(None).list_runs(1).unwrap().is_empty());
