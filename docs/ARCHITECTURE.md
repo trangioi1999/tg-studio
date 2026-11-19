@@ -91,7 +91,7 @@ Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh kh�
 
 ## MCP và Skills
 
-`integrations/mcp.rs`: server lưu trong bảng `mcp_servers` (JSON). Khi một task ACP bắt đầu, `drive` lấy các server bật cho agent đó và gửi trong `session/new`; server http chỉ gửi khi `initialize` của agent báo `mcpCapabilities.http`, nếu không thì ghi một dòng vào log. Claude headless nhận `--mcp-config` (không dùng `--strict-mcp-config`, nên cấu hình riêng của người dùng vẫn chạy). `integrations/skills.rs`: thư viện ở `<app data>/skills/<tên>/SKILL.md`; cài vào `<repo>/.claude/skills` hoặc `~/.claude/skills`, bản khác sẵn có được chép thành `SKILL.md.bak-<ms>` trước.
+`integrations/mcp.rs`: server lưu trong bảng `mcp_servers` (JSON). Khi một task ACP bắt đầu, `drive` lấy các server bật cho agent đó và gửi trong `session/new`; server http chỉ gửi khi `initialize` của agent báo `mcpCapabilities.http`, nếu không thì ghi một dòng vào log. Claude headless nhận `--mcp-config <tệp>`: `mcp::ConfigFile` ghi JSON (có token, header) vào tệp quyền 0600 trong app data, xoá khi tiến trình kết thúc, vì ai trên máy cũng đọc được argv qua `ps` (không dùng `--strict-mcp-config`, nên cấu hình riêng của người dùng vẫn chạy). `integrations/skills.rs`: thư viện ở `<app data>/skills/<tên>/SKILL.md`; cài vào `<repo>/.claude/skills` hoặc `~/.claude/skills`, bản khác sẵn có được chép thành `SKILL.md.bak-<ms>` trước.
 
 ## tg-bridge
 

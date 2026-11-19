@@ -208,9 +208,14 @@ pub async fn start_agent(
     let flags = crate::agents::options::headless_flags(agent, &prefs.unwrap_or_default());
     if !flags.is_empty() { args.splice(1..1, flags); }
     // MCP servers enabled for Claude reach headless runs too; the user's own config still applies.
+    // The config holds tokens: a private file, not an argument anyone could read with `ps`.
+    let mut mcp_file = None;
     if agent == AgentKind::Claude {
-        if let Some(config) = crate::integrations::mcp::claude_config(&crate::integrations::mcp::load(&app.state::<Store>())) {
-            args.extend(["--mcp-config".to_string(), config]);
+        use tauri::Manager;
+        let dir = app.path().app_data_dir().ok().filter(|d| std::fs::create_dir_all(d).is_ok()).unwrap_or_else(std::env::temp_dir);
+        if let Some(file) = crate::integrations::mcp::ConfigFile::write(&crate::integrations::mcp::load(&app.state::<Store>()), &dir)? {
+            args.extend(["--mcp-config".to_string(), file.arg()]);
+            mcp_file = Some(file);
         }
     }
     let mut command = env::command(&bin);
@@ -331,6 +336,8 @@ pub async fn start_agent(
         let id = run_id.clone();
         tauri::async_runtime::spawn(async move {
             let registration = registration;
+            // Removed once the CLI has exited.
+            let _mcp_file = mcp_file;
             let finished = tokio::select! {
                 status = child.wait() => Some(status),
                 _ = stop_rx => None,
