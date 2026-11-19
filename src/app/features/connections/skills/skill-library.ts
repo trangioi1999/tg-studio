@@ -48,14 +48,14 @@ import { IntegrationsState } from '../integrations.state';
         @for (a of conn.skillAgents; track a) {
           <div class="conn-chips conn-skill-status" [attr.aria-label]="conn.meta[a].name">
             @if (row.visible.includes(a)) {
-              <span class="tag ok">● đang thấy</span>
+              <span class="tag ok"><span class="pill-dot" aria-hidden="true"></span>đang thấy</span>
             }
             @if (row.library; as k) {
               @if (a === 'claude') {
                 @for (t of conn.targets()[k.name] ?? []; track t.scope) {
                   @if (t.state === 'same') {
                     <span class="tag ok" [title]="t.path"
-                      >✓ {{ t.scope === 'project' ? 'repo' : 'máy' }}</span
+                      ><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>{{ t.scope === 'project' ? 'repo' : 'máy' }}</span
                     >
                   } @else {
                     <button
@@ -65,7 +65,7 @@ import { IntegrationsState } from '../integrations.state';
                       [disabled]="conn.busy()"
                       (click)="conn.install(k, t)"
                     >
-                      {{ t.state === 'different' ? '↑ cập nhật ' : 'Cài vào '
+                      {{ t.state === 'different' ? 'Cập nhật ' : 'Cài vào '
                       }}{{ t.scope === 'project' ? 'repo' : 'máy' }}
                     </button>
                   }
@@ -122,9 +122,9 @@ import { IntegrationsState } from '../integrations.state';
       </p>
     }
     <footer class="conn-legend dim">
-      <span>✓ đã cài, trùng thư viện</span
-      ><span class="conn-update">↑ bản cài khác thư viện</span
-      ><span>● agent tự tìm thấy</span
+      <span class="conn-row"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>đã cài, trùng thư viện</span
+      ><span class="conn-row conn-update"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>bản cài khác thư viện</span
+      ><span class="conn-row"><span class="pill-dot" aria-hidden="true"></span>agent tự tìm thấy</span
       ><span
         title="Claude đọc .claude/skills trong repo và ~/.claude/skills; bản cũ được sao lưu trước khi cập nhật. Codex đọc .agents/skills và skill của máy."
         >Gõ / ở ô chat (Codex: $) để gọi</span

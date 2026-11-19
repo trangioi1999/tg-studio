@@ -20,7 +20,7 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex', 'kiro'];
     @if (budget.notices().length) {
       <div class="notices" role="status">
         @for (n of budget.notices(); track $index; let i = $index) {
-          <div class="notice"><span>{{ n }}</span><button class="btn ghost sm" (click)="budget.dismiss(i)" aria-label="Đóng thông báo">×</button></div>
+          <div class="notice"><span>{{ n }}</span><button class="btn ghost sm" (click)="budget.dismiss(i)" aria-label="Đóng thông báo"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></div>
         }
       </div>
     }
@@ -31,7 +31,7 @@ const LIMIT_SOURCES: AgentId[] = ['claude', 'codex', 'kiro'];
           {{ version.label() }}@if (version.latest()?.newer) { · có v{{ version.latest()!.latest }} }
         </button>
       }
-      @if (backend.mode === 'mock') { <span class="mock">Mock mode — mở bằng <code>npm run dev</code> để chạy agent thật</span> }
+      @if (backend.mode === 'mock') { <span class="mock">Chế độ giả lập: mở bằng <code>npm run dev</code> để chạy agent thật</span> }
       <span class="spacer"></span>
       @for (row of limitRows(); track row.agent) {
         <button class="limit" [class.busy]="runs.refreshingLimits()" [title]="row.title + '\nBấm để cập nhật.'" [attr.aria-label]="row.title + '. Bấm để cập nhật.'" (click)="runs.refreshLimits(true)">

@@ -29,16 +29,16 @@ const TIMELINE_RUNS = 12;
   template: `
     <div class="mission">
       <section class="kpis" aria-label="Tổng quan">
-        <div class="kpi"><span class="label">ĐANG CHẠY</span><strong>{{ runs.running().length }}</strong></div>
-        <div class="kpi" [class.attention]="waiting() > 0"><span class="label">CHỜ DUYỆT</span><strong>{{ waiting() }}</strong></div>
-        <div class="kpi"><span class="label">CHỜ REVIEW</span><strong>{{ reviewCount() }}</strong></div>
-        <div class="kpi"><span class="label">LƯỢT CHẠY</span><strong>{{ runs.sessionRuns().length }}</strong></div>
-        <div class="kpi"><span class="label">TOKEN</span><strong>{{ tok(runs.totals().tokens) }}</strong></div>
-        <div class="kpi"><span class="label">CHI PHÍ</span><strong>{{ usd(runs.totals().costUsd) }}</strong></div>
+        <div class="kpi"><span class="label">Đang chạy</span><strong>{{ runs.running().length }}</strong></div>
+        <div class="kpi" [class.attention]="waiting() > 0"><span class="label">Chờ duyệt</span><strong>{{ waiting() }}</strong></div>
+        <div class="kpi"><span class="label">Chờ xem lại</span><strong>{{ reviewCount() }}</strong></div>
+        <div class="kpi"><span class="label">Lượt chạy</span><strong>{{ runs.sessionRuns().length }}</strong></div>
+        <div class="kpi"><span class="label">Token</span><strong>{{ tok(runs.totals().tokens) }}</strong></div>
+        <div class="kpi"><span class="label">Chi phí</span><strong>{{ usd(runs.totals().costUsd) }}</strong></div>
       </section>
 
       <section class="mission-block" aria-label="Hàng chờ">
-        <div class="block-head"><span class="label">HÀNG CHỜ CỦA BẠN</span><span class="dim">{{ queue().length + runs.handoffs().length }}</span></div>
+        <div class="block-head"><span class="label">Hàng chờ của bạn</span><span class="dim">{{ queue().length + runs.handoffs().length }}</span></div>
         @for (h of runs.handoffs(); track h.id) {
           <div class="queue-row handoff-row" [style.--agent]="meta[h.agent].color">
             <span class="queue-kind" data-kind="handoff">Chuyển việc</span>
@@ -63,9 +63,9 @@ const TIMELINE_RUNS = 12;
         }
       </section>
 
-      <section class="mission-block" aria-label="Timeline">
+      <section class="mission-block" aria-label="Dòng thời gian">
         <div class="block-head">
-          <span class="label">TIMELINE</span>
+          <span class="label">Dòng thời gian</span>
           <span class="spacer"></span>
           <span class="legend"><i class="lg-run"></i>chạy</span>
           <span class="legend"><i class="lg-wait"></i>chờ duyệt</span>
@@ -127,7 +127,7 @@ export class MissionControl implements OnDestroy {
   protected readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
   protected readonly statusLabel = RUN_STATUS_LABEL;
-  protected readonly kindLabel = { approve: 'Duyệt lệnh', review: 'Review', commit: 'Commit' };
+  protected readonly kindLabel = { approve: 'Duyệt lệnh', review: 'Cần xem', commit: 'Commit' };
   protected readonly tok = fmtTokens;
   private readonly workspace = inject(WorkspaceService);
   protected readonly busy = signal(false);

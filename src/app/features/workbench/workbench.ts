@@ -27,7 +27,7 @@ const REFRESH_BATCH_MS = 1500;
             <span class="ellipsis">{{ title(t) }}</span>
             @if (pendingIn(t)) { <span class="agent-dot" aria-label="Agent có sửa tệp này, chưa commit"></span> }
           </button>
-          <button class="tab-close" [attr.aria-label]="'Đóng ' + title(t)" (click)="workspace.close(key(t))">×</button>
+          <button class="tab-close" [attr.aria-label]="'Đóng ' + title(t)" (click)="workspace.close(key(t))"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
         </div>
       }
       <span class="spacer"></span>

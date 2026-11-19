@@ -15,7 +15,7 @@ import { UsageState } from './usage.state';
         <tg-agent-avatar [agent]="a.agent" [size]="22" />
         <span class="cost-split-main">
           <span class="cost-split-name"><span class="ellipsis">{{ use.meta[a.agent].name }}</span><span class="dim">{{ use.round(a.share) }}%</span></span>
-          <span class="cost-track"><i [style.width.%]="a.share" [style.background]="use.meta[a.agent].chart"></i></span>
+          @if (a.share > 0) { <span class="cost-track"><i [style.width.%]="a.share" [style.background]="use.meta[a.agent].chart"></i></span> }
         </span>
         <span class="cost-split-amt mono">{{ use.usd(a.cost) }}<small>{{ use.tok(a.tokens) }} tok · {{ a.runs }} lượt</small></span>
       </button>

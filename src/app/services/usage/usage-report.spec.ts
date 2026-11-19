@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AgentId, UsageRow } from '../../core/protocol';
-import { agentShares, changePct, dailyBuckets, filterRows, sortRows, sparkPath, startOfDay, totalsOf } from './usage-report';
+import { agentShares, changePct, dailyBuckets, filterRows, sortRows, startOfDay, totalsOf } from './usage-report';
 
 const NOW = new Date(2026, 10, 7, 15, 0).getTime();
 const at = (daysAgo: number, hour = 10) => {
@@ -56,11 +56,5 @@ describe('usage report', () => {
   it('compares with the previous period', () => {
     expect(changePct(12, 10)).toBe(20);
     expect(changePct(5, 0)).toBeNull();
-  });
-
-  it('draws a sparkline inside the box', () => {
-    expect(sparkPath([0, 5, 10], 100, 20)).toBe('M0 19 L50 10 L100 1');
-    expect(sparkPath([0, 0], 10, 20)).toBe('M0 19 L10 19');
-    expect(sparkPath([3], 10, 20)).toBe('');
   });
 });

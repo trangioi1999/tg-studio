@@ -23,7 +23,7 @@ import { ChatState } from '../chat.state';
   <p class="dim">Agent chưa gửi kế hoạch cho cuộc trò chuyện này.</p>
 }
 <div class="ap-notes" aria-label="Ghi chú chung">
-  <div class="label">GHI CHÚ CHUNG · TG-BRIDGE</div>
+  <div class="label">Ghi chú chung · tg-bridge</div>
   @for (n of notes(); track $index) {
     <article class="ap-note">
       <div class="ap-note-head"><tg-agent-avatar [agent]="n.agent" [size]="16" /><strong>{{ n.topic }}</strong><span class="spacer"></span><span class="dim">{{ time(n.at) }}</span></div>

@@ -10,7 +10,7 @@ import { UsageState } from './usage.state';
 @if (use.sheet()) {
   <div class="sheet-backdrop" (click)="use.sheet.set(false)">
     <aside class="sheet cost-sheet" role="dialog" aria-modal="true" aria-label="Giá và ngân sách" (click)="$event.stopPropagation()">
-      <div class="sheet-head"><h3>Giá &amp; ngân sách</h3><span class="spacer"></span><button class="icon-btn" aria-label="Đóng" (click)="use.sheet.set(false)">✕</button></div>
+      <div class="sheet-head"><h3>Giá &amp; ngân sách</h3><span class="spacer"></span><button class="icon-btn" aria-label="Đóng" (click)="use.sheet.set(false)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></div>
       @if (use.error()) { <p class="error-text" role="alert">{{ use.error() }}</p> }
 
       <h4 class="cost-sheet-h">Ngân sách</h4>

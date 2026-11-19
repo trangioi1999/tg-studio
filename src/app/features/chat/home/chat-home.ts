@@ -1,5 +1,4 @@
-import { Component, inject } from '@angular/core';
-import { computed } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { copyText } from '../../../shared/utils/clipboard';
@@ -15,29 +14,28 @@ import { ChatState } from '../chat.state';
 <div class="chat-scroll home">
   <div class="home-col">
     @if (!chat.workspace.folder()) {
-      <div class="hero">
-        <span class="brand-mark big" aria-hidden="true">TG</span>
-        <h1>Chào mừng đến TG Studio</h1>
-        <p class="dim">Điều khiển các agent code đã cài trên máy bạn, trong một cửa sổ.</p>
+      <header class="home-head">
+        <h1>Mở một repo để bắt đầu</h1>
+        <p class="dim">Giao việc cho các agent code đã cài trên máy, duyệt và gộp thay đổi trong một cửa sổ.</p>
         <button class="btn primary lg" (click)="chat.workspace.pickFolder()">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
           Mở thư mục dự án…
         </button>
-      </div>
+      </header>
     } @else if (chat.pending()) {
       <div class="pending-col"><tg-pending-message /></div>
       <tg-composer />
     } @else {
-      <div class="hero">
-        <h1>Hôm nay làm gì với {{ projectName() }}?</h1>
-        <p class="dim">
+      <header class="home-head">
+        <h1>{{ projectName() }}</h1>
+        <p class="home-repo dim">
           @switch (chat.workspace.project()?.git) {
-            @case ('ready') { <span class="ok-text">●</span> Repo Git · nhánh {{ chat.workspace.project()!.branch ?? 'HEAD tách rời' }} }
-            @case ('no_commits') { <span class="warn-text">●</span> Repo Git chưa có commit: Sửa code cần ít nhất một commit }
-            @default { <span class="warn-text">●</span> Không phải repo Git: chỉ dùng được Chỉ hỏi }
+            @case ('ready') { <span class="status-dot" data-status="ok" aria-hidden="true"></span>Repo Git · nhánh {{ chat.workspace.project()!.branch ?? 'HEAD tách rời' }} }
+            @case ('no_commits') { <span class="status-dot" data-status="warn" aria-hidden="true"></span>Repo Git chưa có commit: Sửa code cần ít nhất một commit }
+            @default { <span class="status-dot" data-status="warn" aria-hidden="true"></span>Không phải repo Git: chỉ dùng được Chỉ hỏi }
           }
         </p>
-      </div>
+      </header>
       <tg-composer />
       <div class="suggest">
         @for (s of suggestions; track s.label) {
@@ -45,24 +43,27 @@ import { ChatState } from '../chat.state';
         }
       </div>
     }
-    <section class="agent-list" aria-label="Agent trên máy" [hidden]="!!chat.pending()">
-      <div class="label">AGENT TRÊN MÁY</div>
-      @for (a of chat.agents.agents(); track a.id) {
-        <div class="agent-line">
-          <tg-agent-avatar [agent]="a.id" [size]="26" />
-          <strong>{{ a.name }}</strong>
+    <section class="home-agents" aria-label="Agent trên máy" [hidden]="!!chat.pending()">
+      @if (ready().length) {
+        <p class="home-agents-line dim">
+          <span class="status-dot" data-status="ok" aria-hidden="true"></span>{{ ready().length }} agent sẵn sàng · {{ readyNames() }}
+        </p>
+      } @else if (!problems().length) {
+        <p class="home-agents-line dim">{{ chat.agents.checking() ? 'Đang dò agent…' : 'Chưa thấy agent nào' }}</p>
+      }
+      @for (a of problems(); track a.id) {
+        <div class="home-agent">
+          <tg-agent-avatar [agent]="a.id" [size]="20" />
+          <span>{{ a.name }}</span>
           @if (a.version) { <span class="dim mono ellipsis">{{ a.version }}</span> }
           <span class="spacer"></span>
           @if (!a.path) {
+            <span class="dim">chưa cài</span>
             <button class="btn ghost sm" [title]="meta[a.id].install" (click)="copy(meta[a.id].install)">Chép lệnh cài</button>
-          } @else if (a.auth === 'none') {
-            <span class="pill" data-status="needs_you">Cần đăng nhập</span>
           } @else {
-            <span class="pill" data-status="waiting">✓ Sẵn sàng</span>
+            <span class="pill" data-status="needs_you">Cần đăng nhập</span>
           }
         </div>
-      } @empty {
-        <p class="dim">{{ chat.agents.checking() ? 'Đang dò agent…' : 'Chưa thấy agent nào.' }}</p>
       }
     </section>
   </div>
@@ -77,6 +78,11 @@ export class ChatHome {
     { label: 'Tìm lỗi tiềm ẩn', prompt: 'Đọc code và liệt kê 5 lỗi tiềm ẩn đáng sửa nhất, kèm vị trí tệp.' },
     { label: 'Viết test còn thiếu', prompt: 'Tìm phần code quan trọng chưa có test và viết test cho nó.' },
   ];
+  /** Installed and signed in (or sign-in unknown): summed up in one line. */
+  protected readonly ready = computed(() => this.chat.agents.agents().filter((a) => a.path && a.auth !== 'none'));
+  protected readonly readyNames = computed(() => this.ready().map((a) => a.name).join(', '));
+  /** Missing or signed out: these get a row each, since they need the user. */
+  protected readonly problems = computed(() => this.chat.agents.agents().filter((a) => !a.path || a.auth === 'none'));
   protected readonly projectName = computed(() => this.chat.workspace.project()?.name ?? this.chat.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? '');
 
   protected async copy(text: string): Promise<void> {

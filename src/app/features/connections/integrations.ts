@@ -21,13 +21,13 @@ import { SkillLibrary } from './skills/skill-library';
         </div>
         <div class="conn-actions">
           @if (conn.tab() === 'skills') {
-            <button class="btn" (click)="conn.rescan()">↻ Đọc lại</button>
+            <button class="btn icon-text" (click)="conn.rescan()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg>Đọc lại</button>
           }
           <button
             class="btn primary"
             (click)="conn.tab() === 'mcp' ? conn.preset('custom') : conn.editSkill(conn.skillTemplate)"
           >
-            {{ conn.tab() === 'mcp' ? '＋ Thêm server' : '＋ Thêm skill' }}
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>{{ conn.tab() === 'mcp' ? 'Thêm server' : 'Thêm skill' }}
           </button>
         </div>
       </header>
@@ -64,14 +64,14 @@ import { SkillLibrary } from './skills/skill-library';
         <div class="conn-toast conn-toast-error" role="alert">
           <span>{{ conn.error() }}</span
           ><button class="icon-btn" aria-label="Đóng thông báo lỗi" (click)="conn.error.set(null)">
-            ×
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>
           </button>
         </div>
       }
       @if (conn.info()) {
         <div class="conn-toast" role="status">
           <span>{{ conn.info() }}</span
-          ><button class="icon-btn" aria-label="Đóng thông báo" (click)="conn.info.set(null)">×</button>
+          ><button class="icon-btn" aria-label="Đóng thông báo" (click)="conn.info.set(null)"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
         </div>
       }
     </div>

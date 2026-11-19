@@ -12,10 +12,10 @@ import { UsageState } from './usage.state';
     <h2>Các lượt chạy</h2>
     <span class="dim">{{ use.filtered().length === use.rows().length ? use.rows().length : use.filtered().length + ' / ' + use.rows().length }}</span>
     @if (use.agent(); as a) {
-      <button class="fchip on" (click)="use.agent.set(null)" [attr.aria-label]="'Bỏ lọc ' + use.meta[a].name"><tg-agent-avatar [agent]="a" [size]="14" />{{ use.meta[a].name }} <span class="x">×</span></button>
+      <button class="fchip on" (click)="use.agent.set(null)" [attr.aria-label]="'Bỏ lọc ' + use.meta[a].name"><tg-agent-avatar [agent]="a" [size]="14" />{{ use.meta[a].name }} <svg class="ic xs x" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
     }
     @if (use.day() !== null) {
-      <button class="fchip on" (click)="use.day.set(null)" aria-label="Bỏ lọc theo ngày">{{ use.dayText(use.day()!) }} <span class="x">×</span></button>
+      <button class="fchip on" (click)="use.day.set(null)" aria-label="Bỏ lọc theo ngày">{{ use.dayText(use.day()!) }} <svg class="ic xs x" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
     }
     <span class="spacer"></span>
     <input class="cost-search" type="search" placeholder="Tìm theo yêu cầu…" aria-label="Tìm theo yêu cầu" [value]="use.query()" (input)="use.query.set($any($event.target).value)" />

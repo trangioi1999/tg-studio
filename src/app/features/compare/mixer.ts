@@ -24,7 +24,7 @@ interface Entry {
   template: `
     <section class="mixer" aria-label="Ghép thay đổi từ nhiều bản">
       <div class="block-head">
-        <span class="label">GHÉP THỦ CÔNG</span>
+        <span class="label">Ghép thủ công</span>
         <span class="dim ellipsis">Lấy từng thay đổi từ các bản khác nhau, kiểm tra rồi mới áp</span>
         <span class="spacer"></span>
         <button class="btn ghost sm" [attr.aria-expanded]="open()" (click)="open.set(!open())">{{ open() ? 'Thu gọn' : 'Mở' }}</button>
