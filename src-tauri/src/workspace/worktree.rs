@@ -21,6 +21,12 @@ impl Worktree {
     pub fn is_direct(&self) -> bool { self.branch.is_empty() }
 }
 
+/// Options for every git the app itself runs (not the agent's). The folder may come from
+/// anywhere, and its `.git/config` can name a program: `core.fsmonitor` runs on `status`
+/// and `diff`, which the app calls as soon as a project opens. Hooks stay on, since commits
+/// from the app are the user's own; the agent's file tools cannot reach `.git/`.
+pub const SAFE_GIT: [&str; 4] = ["-c", "core.fsmonitor=false", "-c", "core.quotepath=false"];
+
 pub fn git(cwd: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
     git_env(cwd, args, stdin, None)
 }
@@ -58,7 +64,7 @@ pub fn git_output(cwd: &Path, args: &[&str], stdin: Option<&[u8]>, index: Option
     let mut child = command
         .current_dir(cwd)
         .env("PATH", crate::system::env::login_path())
-        .args(["-c", "core.quotepath=false"])
+        .args(SAFE_GIT)
         .args(args)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -269,6 +275,27 @@ pub(crate) mod tests {
         pub fn wt(&self) -> Worktree { create(&self.0, "codex", "My task", "12345678-abcd").unwrap() }
     }
     impl Drop for Repo { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+    /// A folder from an unknown zip can carry its own `.git/config`; opening it must not run
+    /// the program it names (`git status` starts `core.fsmonitor`).
+    #[cfg(unix)]
+    #[test] fn git_never_starts_the_repos_fsmonitor() {
+        let repo = Repo::new();
+        let marker = repo.0.join("ran");
+        let script = repo.0.join("monitor.sh");
+        fs::write(&script, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        git(&repo.0, &["config", "core.fsmonitor", script.to_str().unwrap()], None).unwrap();
+        repo.write("file.txt", "changed\n");
+        git(&repo.0, &["status", "--porcelain"], None).unwrap();
+        git(&repo.0, &["diff"], None).unwrap();
+        assert!(!marker.exists(), "core.fsmonitor của repo đã chạy");
+        // The same repo with plain git does run it: the test sees what it claims to.
+        let mut plain = crate::system::env::std_command("git");
+        plain.current_dir(&repo.0).args(["status", "--porcelain"]).output().unwrap();
+        assert!(marker.exists());
+    }
+
     #[test] fn slugify_handles_unicode_and_empty() {
         assert_eq!(slugify("  Hello___WORLD  "), "hello-world");
         assert_eq!(slugify("你好"), "task");

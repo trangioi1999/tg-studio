@@ -88,12 +88,24 @@ export class Markdown {
   }
 }
 
-/** Markdown with coloured code blocks (`hljs-*` spans survive Angular's sanitizer). */
+/**
+ * Markdown with coloured code blocks (`hljs-*` spans survive Angular's sanitizer).
+ * Agent output is untrusted (prompt injection): an image would load as soon as the
+ * message shows and could carry data out in its URL, so images become links (a click
+ * only copies them) and raw HTML is shown as text. The CSP in `tauri.conf.json` is the
+ * second wall.
+ */
 const markdown = new Marked({
   async: false,
   gfm: true,
   breaks: true,
   renderer: {
+    image({ href, text }) {
+      return `<a href="${escapeHtml(href)}">${escapeHtml(text || href)}</a>`;
+    },
+    html({ text }) {
+      return escapeHtml(text);
+    },
     code({ text, lang }) {
       const { html, language } = highlightCode(text, lang);
       const name = lang?.trim().split(/\s+/)[0] || language?.toLowerCase();
@@ -103,11 +115,15 @@ const markdown = new Marked({
   },
 });
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
 export function renderMarkdown(text: string): string {
   try {
     return markdown.parse(text) as string;
   } catch {
-    return text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
+    return escapeHtml(text);
   }
 }
 

@@ -15,6 +15,9 @@ use super::transport::{Incoming, RpcError, Transport};
 
 pub const PROTOCOL_VERSION: u64 = 1;
 const ASKING_MODE: &str = "default";
+/// Sent to the handler (as a notification) when a session offers no asking mode: the
+/// agent may then act on its own CLI settings, without the app's approval cards.
+pub const NO_ASKING_MODE: &str = "_tg/no_asking_mode";
 
 pub type HandlerFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
 
@@ -33,6 +36,7 @@ pub struct AcpClient {
     config: Arc<Mutex<Value>>,
     /// What `session/prompt` may carry besides text (`image`, `embeddedContext`), from `initialize`.
     prompt_caps: Arc<Mutex<Value>>,
+    handler: Arc<dyn ClientHandler>,
 }
 
 impl AcpClient {
@@ -54,6 +58,7 @@ impl AcpClient {
     {
         let (transport, mut incoming) = Transport::spawn(reader, writer);
         let replies = transport.clone();
+        let own = handler.clone();
         tokio::spawn(async move {
             while let Some(message) = incoming.recv().await {
                 match message {
@@ -72,7 +77,7 @@ impl AcpClient {
             }
             handler.on_closed();
         });
-        AcpClient { transport, setup_timeout, config: Arc::new(Mutex::new(Value::Null)), prompt_caps: Arc::new(Mutex::new(Value::Null)) }
+        AcpClient { transport, setup_timeout, config: Arc::new(Mutex::new(Value::Null)), prompt_caps: Arc::new(Mutex::new(Value::Null)), handler: own }
     }
 
     pub async fn initialize(&self) -> Result<Value, String> {
@@ -113,7 +118,12 @@ impl AcpClient {
     /// may be off. The app promises to ask, so its sessions use the agent's asking mode.
     async fn require_approvals(&self, session_id: &str, modes: &Value) -> Result<(), String> {
         let offered = modes["availableModes"].as_array().is_some_and(|all| all.iter().any(|m| m["id"] == ASKING_MODE));
-        if !offered || modes["currentModeId"] == ASKING_MODE { return Ok(()); }
+        if !offered {
+            // Not silent: the user chose to be asked, and this agent cannot promise it.
+            self.handler.on_notification(NO_ASKING_MODE, json!({ "sessionId": session_id, "modes": modes }));
+            return Ok(());
+        }
+        if modes["currentModeId"] == ASKING_MODE { return Ok(()); }
         self.transport
             .request("session/set_mode", json!({ "sessionId": session_id, "modeId": ASKING_MODE }), Some(self.setup_timeout))
             .await
@@ -320,6 +330,21 @@ mod tests {
             client.initialize().await.unwrap();
             client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
             assert!(!log.lock().unwrap().iter().any(|v| v["method"] == "session/set_mode"));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_without_an_asking_mode_is_reported() {
+        for (modes, warned) in [(json!({"currentModeId":"full","availableModes":[{"id":"full"}]}), true), (json!(null), true),
+            (json!({"currentModeId":"auto","availableModes":[{"id":"default"},{"id":"auto"}]}), false)] {
+            let recorder = Arc::new(Recorder::default());
+            let (reader, writer, _) = fake::spawn_with_modes(modes.clone(), vec![]);
+            let client = AcpClient::start(reader, writer, Arc::new(Handler(recorder.clone())));
+            client.initialize().await.unwrap();
+            client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+            let seen = recorder.methods.lock().unwrap().iter().any(|m| m.starts_with(NO_ASKING_MODE));
+            assert_eq!(seen, warned, "{modes}");
+            client.close();
         }
     }
 

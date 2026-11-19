@@ -44,6 +44,7 @@ pub fn app_version() -> AppVersion {
 #[tauri::command]
 pub async fn latest_version() -> Result<LatestVersion, String> {
     let run = env::command("git")
+        .args(crate::workspace::worktree::SAFE_GIT)
         .args(["ls-remote", "--tags", "--refs", REPO])
         .env("PATH", env::login_path())
         // A repo that turned private must fail, not wait for a password.

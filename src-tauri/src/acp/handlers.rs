@@ -48,7 +48,12 @@ impl Sandbox {
                 Err(e) => return Err(failed(format!("Không xác minh được đường dẫn: {e}"))),
             }
         }
-        if !resolved.starts_with(&self.root) { return Err(failed("Đường dẫn nằm ngoài worktree")); }
+        let Ok(inside) = resolved.strip_prefix(&self.root) else { return Err(failed("Đường dẫn nằm ngoài worktree")); };
+        // Git's own folder: its config and hooks run programs (`core.fsmonitor`, hooks)
+        // the next time the app or the user runs git.
+        if inside.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git")) {
+            return Err(failed("Agent không được đọc hay sửa thư mục .git"));
+        }
         Ok(resolved)
     }
     pub fn read_text_file(&self, params: &Value) -> Result<Value, RpcError> {
@@ -294,6 +299,22 @@ mod tests {
         let p = json!({"path": f.path("file"), "content": "a\0b"});
         f.sandbox().write_text_file(&p).unwrap();
         assert_eq!(f.sandbox().read_text_file(&p).unwrap()["content"], "a\0b");
+    }
+    /// `.git/config` and `.git/hooks` can name programs that git runs later, so a file
+    /// edit there would become a command that never asked for approval.
+    #[test]
+    fn rejects_git_folder_on_read_and_write() {
+        let f = Fixture::new();
+        fs::create_dir_all(f.0.join(".git")).unwrap();
+        fs::write(f.0.join(".git/config"), "[core]\n").unwrap();
+        for path in [f.path(".git/config"), f.path(".git/hooks/pre-commit"), f.path("sub/.git/config"), f.path(".GIT/config"), f.path(".git")] {
+            let p = json!({"path": path, "content": "[core]\n\tfsmonitor = sh x\n"});
+            assert_eq!(f.sandbox().write_text_file(&p).unwrap_err().code, -32000, "{path}");
+            assert!(f.sandbox().read_text_file(&p).is_err(), "{path}");
+        }
+        assert_eq!(fs::read_to_string(f.0.join(".git/config")).unwrap(), "[core]\n");
+        assert!(f.sandbox().resolve(&f.path(".gitignore")).is_ok());
+        assert!(f.sandbox().resolve(&f.path("a.git/x")).is_ok());
     }
     #[test]
     fn rejects_relative_path() {

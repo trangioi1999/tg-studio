@@ -97,7 +97,8 @@ fn run_command(root: &Path, program: &Path, args: &[&str], timeout: Duration, ti
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let program = env::which("git").ok_or("Không tìm thấy Git trên máy.")?;
-    run_command(root, &program, args, QUERY_TIMEOUT, "Đọc trạng thái Git quá lâu, đã dừng.")
+    let args = [&crate::workspace::worktree::SAFE_GIT[..], args].concat();
+    run_command(root, &program, &args, QUERY_TIMEOUT, "Đọc trạng thái Git quá lâu, đã dừng.")
 }
 
 pub fn is_github_url(url: &str) -> bool {
@@ -161,7 +162,8 @@ fn push_git(root: &Path, s: &SyncStatus) -> Result<(), String> {
         None => return Err(if git(root, &["remote"])?.lines().count() > 1 { MANY_REMOTES } else { "Repo chưa có remote để push." }.into()),
     };
     let program = env::which("git").ok_or("Không tìm thấy Git trên máy.")?;
-    let args = if s.upstream.is_some() { vec!["push"] } else { vec!["push", "-u", "--", remote, branch] };
+    let mut args = crate::workspace::worktree::SAFE_GIT.to_vec();
+    args.extend(if s.upstream.is_some() { vec!["push"] } else { vec!["push", "-u", "--", remote, branch] });
     run_command(root, &program, &args, PUSH_TIMEOUT, "Push quá 2 phút, đã dừng.")?;
     Ok(())
 }

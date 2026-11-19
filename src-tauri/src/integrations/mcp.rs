@@ -89,6 +89,29 @@ pub fn claude_config(servers: &[McpServer]) -> Option<String> {
     (!entries.is_empty()).then(|| json!({"mcpServers": entries}).to_string())
 }
 
+/// The `--mcp-config` of a headless Claude run, as a file readable only by this user and
+/// removed when dropped: the JSON holds tokens and headers, and every user on the machine
+/// can read a process's arguments. Keep it alive until the process exits.
+pub struct ConfigFile(std::path::PathBuf);
+impl ConfigFile {
+    pub fn write(servers: &[McpServer], dir: &std::path::Path) -> Result<Option<Self>, String> {
+        let Some(config) = claude_config(servers) else { return Ok(None) };
+        let path = dir.join(format!("tg-mcp-{}.json", uuid::Uuid::new_v4()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let file = Self(path);
+        let mut handle = options.open(&file.0).map_err(|e| format!("Không ghi được cấu hình MCP: {e}"))?;
+        std::io::Write::write_all(&mut handle, config.as_bytes()).map_err(|e| format!("Không ghi được cấu hình MCP: {e}"))?;
+        Ok(Some(file))
+    }
+    pub fn arg(&self) -> String { self.0.to_string_lossy().into_owned() }
+}
+impl Drop for ConfigFile {
+    fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+}
+
 pub fn load(store: &Store) -> Vec<McpServer> {
     store.mcp_servers().unwrap_or_default().into_iter().filter_map(|raw| serde_json::from_str(&raw).ok()).collect()
 }
@@ -148,6 +171,28 @@ mod tests {
         assert_eq!(value[1], json!({"type":"http","name":"web","url":"https://mcp.example/x","headers":[{"name":"Authorization","value":"Bearer t"}]}));
         assert!(skipped.is_empty());
         assert_eq!(for_acp(&servers, AgentKind::Gemini, &json!({})).0, json!([]));
+    }
+
+    /// Any user on the machine can read a process's arguments (`ps auxww`), so the
+    /// secrets go in a file only this user can read, gone when the run ends.
+    #[test]
+    fn claude_config_goes_in_a_private_file_removed_after_the_run() {
+        let dir = std::env::temp_dir().join(format!("tg-mcp-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(ConfigFile::write(&[stdio("docs", vec![AgentKind::Codex])], &dir).unwrap().is_none());
+        let servers = [stdio("docs", vec![AgentKind::Claude])];
+        let file = ConfigFile::write(&servers, &dir).unwrap().unwrap();
+        let path = std::path::PathBuf::from(file.arg());
+        assert!(path.starts_with(&dir) && !file.arg().contains("s3cr3t"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), claude_config(&servers).unwrap());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        drop(file);
+        assert!(!path.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

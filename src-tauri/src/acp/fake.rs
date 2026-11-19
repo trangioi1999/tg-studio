@@ -36,13 +36,16 @@ pub enum Step {
 type Reader = ReadHalf<DuplexStream>;
 type Writer = WriteHalf<DuplexStream>;
 
+/// Modes of an agent that asks before acting, as the app wants every session.
+fn asking() -> Value { json!({ "currentModeId": "default", "availableModes": [{ "id": "default" }] }) }
+
 pub fn spawn(steps: Vec<Step>) -> (Reader, Writer, Log) {
     spawn_with_version(1, steps)
 }
 
 /// An agent that reports it can reopen earlier sessions.
 pub fn spawn_loadable(steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(1, json!({ "loadSession": true }), Value::Null, Value::Null, steps)
+    spawn_with(1, json!({ "loadSession": true }), asking(), Value::Null, steps)
 }
 
 /// An agent whose new sessions report these permission modes.
@@ -52,16 +55,16 @@ pub fn spawn_with_modes(modes: Value, steps: Vec<Step>) -> (Reader, Writer, Log)
 
 /// An agent whose sessions offer these `configOptions`; `session/set_config_option` updates them.
 pub fn spawn_with_config(config: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(1, json!({}), Value::Null, config, steps)
+    spawn_with(1, json!({}), asking(), config, steps)
 }
 
 /// An agent with these `agentCapabilities` (for example `promptCapabilities`).
 pub fn spawn_with_capabilities(capabilities: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(1, capabilities, Value::Null, Value::Null, steps)
+    spawn_with(1, capabilities, asking(), Value::Null, steps)
 }
 
 pub fn spawn_with_version(version: u64, steps: Vec<Step>) -> (Reader, Writer, Log) {
-    spawn_with(version, json!({}), Value::Null, Value::Null, steps)
+    spawn_with(version, json!({}), asking(), Value::Null, steps)
 }
 
 fn spawn_with(version: u64, capabilities: Value, modes: Value, mut config: Value, steps: Vec<Step>) -> (Reader, Writer, Log) {
@@ -111,7 +114,7 @@ fn spawn_with(version: u64, capabilities: Value, modes: Value, mut config: Value
                     send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
                 }
                 Some("session/load") => {
-                    send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": {} })).await;
+                    send(&mut agent_writer, json!({ "jsonrpc": "2.0", "id": id, "result": { "modes": modes } })).await;
                 }
                 Some("session/prompt") => {
                     for step in steps.clone() {
