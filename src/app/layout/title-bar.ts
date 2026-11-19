@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { withoutAttachments } from '../shared/utils/attachments';
 import { AgentBackend } from '../core/backend';
 import { fmtTokens, fmtUsd } from '../shared/utils/format';
-import { IS_MAC } from '../shared/utils/keys';
+import { IS_MAC, KEYS } from '../shared/utils/keys';
 import { costOf } from '../services/usage/pricing';
 import { RunsService } from '../services/runs/runs.service';
 import { UiService } from '../services/app/ui.service';
@@ -17,6 +17,10 @@ import { WorkspaceService } from '../services/workspace.service';
   template: `
     <header class="titlebar" data-tauri-drag-region [class.mac]="isMac">
       <span class="brand-mark" aria-hidden="true" data-tauri-drag-region>TG</span>
+      <button class="icon-btn" [class.on]="!ui.sidebarCollapsed()" [attr.aria-pressed]="!ui.sidebarCollapsed()" aria-label="Thanh bên"
+        [title]="(ui.sidebarCollapsed() ? 'Hiện thanh bên' : 'Thu gọn thanh bên') + ' (' + keys.sidebar + ')'" (click)="ui.toggleSidebar()">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+      </button>
       @if (editing()) {
         <form class="repo-edit" (submit)="$event.preventDefault(); apply()">
           <input class="mono" aria-label="Thư mục làm việc" [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown.escape)="cancelEdit()" spellcheck="false" />
@@ -66,13 +70,16 @@ export class TitleBar {
   protected readonly workspace = inject(WorkspaceService);
   protected readonly ui = inject(UiService);
   protected readonly isMac = IS_MAC;
+  protected readonly keys = KEYS;
   protected readonly editing = signal(false);
   protected readonly draft = signal('');
   protected readonly folderName = computed(() => this.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? this.workspace.folder());
   protected readonly title = computed(() => {
     if (this.ui.screen() !== 'chat') return null;
     const r = this.runs.selected();
-    return r ? withoutAttachments(r.prompt).split('\n')[0] : 'Trò chuyện mới';
+    if (r) return withoutAttachments(r.prompt).split('\n')[0];
+    // The welcome screen is not a conversation yet.
+    return this.workspace.folder() ? 'Trò chuyện mới' : null;
   });
   /** Cost and tokens of the open conversation. */
   protected readonly cost = computed(() => {

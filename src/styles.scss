@@ -85,18 +85,25 @@ code, .mono { font-family: var(--mono); font-size: var(--fs-sm); font-feature-se
 .titlebar .crumb { color: var(--muted); font-size: var(--fs-sm); }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 4px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--raised); color: var(--text-2); font-size: var(--fs-xs); }
 
-.activity { flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border-right: 1px solid var(--line); background: var(--panel); }
-.act { width: 36px; height: 36px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.act svg { width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.act.active { background: var(--hover); }
-.act.active svg { stroke: var(--text); }
-.act:disabled { opacity: 0.5; cursor: default; }
-.act { position: relative; }
-
-.sidebar { flex: 0 0 var(--w-sidebar, 272px); display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+/* Three columns: sidebar (260px, or a 48px rail), chat, code panel. --sb is the sidebar's width
+   as laid out, so the code panel can take 45% of what is left (spec §6). */
+.body { --sb: var(--w-sidebar, 260px); position: relative; }
+.shell.sb-collapsed .body { --sb: 48px; }
+.sidebar { flex: 0 0 var(--w-sidebar, 260px); display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); overflow: hidden; }
+.sidebar.rail { flex-basis: 48px; }
+/* Narrow window: the sidebar opens over the chat, beside the rail's place, and closes on a choice. */
+.shell.sb-peek .body { --sb: 48px; padding-left: 48px; }
+.shell.sb-peek .sidebar { position: absolute; top: 0; bottom: 0; left: 0; z-index: 7; width: var(--w-sidebar, 260px); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4); }
+.sb-scrim { position: absolute; inset: 0; z-index: 6; background: rgba(0, 0, 0, 0.35); }
+.rail-nav { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 8px; }
+.rail-btn { position: relative; width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: var(--r-md); background: transparent; color: var(--muted); cursor: pointer; }
+.rail-btn .ic { width: 18px; height: 18px; }
+.rail-btn:hover:not(:disabled), .rail-btn.active { background: var(--hover); color: var(--text); }
+.rail-btn:disabled { opacity: 0.45; cursor: default; }
+.rail-btn .dot-badge { top: 1px; right: 1px; }
 .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
-/* The chat keeps a readable column however wide the code panel is dragged. */
-.center.chat { min-width: 400px; }
+/* Screens beyond the chat scroll inside their column, in the frame of tg-page. */
+.center.screen { overflow: auto; }
 
 .panel-head { height: 40px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); }
 
@@ -246,14 +253,13 @@ tg-diff-viewer, tg-code-editor, tg-source-viewer, tg-compare { flex: 1; min-heig
 .check-result pre { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--text-2); }
 
 /* Mission control */
-.mission { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 16px; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
 .agent-col-usage { font-size: var(--fs-xs); }
-.kpi { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
-.kpi strong { font: 600 18px var(--mono); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kpi { min-width: 0; }
-.kpi.attention { border-color: var(--wait-line); background: var(--wait-tint); }
-.kpi.attention strong { color: var(--warn); }
+/* The session's numbers sit in the page head, one line; zeros are left out. */
+.mission-stats { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 0 auto; }
+.mission-stats > div { display: flex; flex-direction: column; }
+.mission-stats dt { color: var(--muted); font-size: var(--fs-xs); }
+.mission-stats dd { margin: 0; font-weight: 600; }
+.mission-stats .attention dd { color: var(--warn); }
 .mission-block { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); overflow: hidden; }
 .block-head { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line-soft); }
 .legend { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-xs); }
@@ -362,8 +368,6 @@ tg-explorer { display: flex; flex-direction: column; }
 .tree-row.active { background: var(--hover); color: var(--text); }
 .tree-row .spacer { min-width: 4px; }
 .twisty { width: 10px; color: var(--muted); font-size: var(--fs-xs); }
-.worktrees-head { border-top: 1px solid var(--line); }
-.worktrees { flex: none; max-height: 34%; overflow: auto; padding: 4px 0; }
 tg-agent-panel { display: flex; flex-direction: column; }
 .ap-progress { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); }
 .ap-progress .meter { flex: 0 0 80px; }
@@ -437,8 +441,21 @@ tg-agent-panel { display: flex; flex-direction: column; }
 /* Usage screen */
 tg-usage-screen { display: flex; flex-direction: column; overflow: auto; }
 /* Cost screen */
-.cost-page { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 1240px; margin: 0 auto; padding: 18px 20px 24px; }
-.cost-page > .pg-head { margin-bottom: 6px; }
+/* tg-page: the one frame of Giám sát, Chi phí and Cài đặt. Same title, same width. */
+.page { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 1240px; margin: 0 auto; padding: 18px 20px 24px; }
+.page > .pg-head { margin-bottom: 6px; }
+.pg-title { min-width: 0; }
+.pg-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.pg-actions:empty { display: none; }
+/* Cài đặt */
+.set-section { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
+.set-bar { display: flex; align-items: center; gap: 12px; }
+.set-lead { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-sm); }
+.set-card-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; }
+.set-card-body > p { margin: 0; }
+.set-card .price-row { padding: 10px 0; border-top: 1px solid var(--line-soft); }
+.agent-list.pg-card { padding: 6px; }
+.agent-list.pg-card .agent-row { align-items: center; }
 .cost-saved { margin: 0; font-size: var(--fs-sm); }
 .faint { color: var(--faint); }
 .cost-kpis { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.25fr; gap: 12px; }
@@ -519,11 +536,8 @@ tg-usage-panel.cost-limits { display: flex; flex-direction: column; overflow: hi
 .cost-mini { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--raised); font-size: var(--fs-sm); }
 .cost-mini .faint { font-size: var(--fs-xs); }
 .cost-warn { color: var(--wait); }
-.cost-sheet { width: min(460px, 100%); }
-.cost-sheet-h { margin: 6px 0 0; color: var(--muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .cost-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .row-end { display: flex; justify-content: flex-end; }
-.cost-sheet .price-row { padding: 10px 0; border-top: 1px solid var(--line-soft); }
 @media (max-width: 1100px) {
   .cost-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cost-grid { grid-template-columns: minmax(0, 1fr); }
@@ -566,27 +580,8 @@ tg-usage-panel.cost-limits { display: flex; flex-direction: column; overflow: hi
 .notice { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--wait-line); border-radius: var(--r-md); background: var(--wait-tint); color: var(--warn); font-size: var(--fs-sm); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
 
 /* Integrations */
-tg-integrations { display: flex; flex-direction: column; overflow: auto; }
+tg-integrations { display: block; }
 
-/* Onboarding */
-.onb-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.6); }
-.onb { width: min(620px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--panel); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
-.onb-head { display: flex; align-items: center; }
-.onb-head h1 { margin: 0; font-size: var(--fs-2xl); font-weight: 600; letter-spacing: -0.01em; }
-.onb-steps { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.onb-steps li { flex: 1; }
-.onb-steps button { width: 100%; padding: 6px 0 0; border: 0; border-top: 3px solid var(--line-strong); background: transparent; color: var(--muted); font-size: var(--fs-sm); text-align: left; cursor: pointer; }
-.onb-steps li.done button { border-top-color: var(--ok); }
-.onb-steps li.active button { border-top-color: var(--text); color: var(--text); font-weight: 600; }
-.onb-body { display: flex; flex-direction: column; gap: 10px; font-size: var(--fs-md); }
-.onb-body p { margin: 0; }
-.onb-agents { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.onb-agents li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); }
-.onb-agents code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
-.onb-actions { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
-.onb-folder { display: flex; gap: 6px; }
-.onb-folder input { flex: 1; height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--bg); color: var(--text); }
-.onb-sample { margin: 0; padding: 10px 12px; border-left: 3px solid var(--line); background: var(--bg); color: var(--text-2); }
 
 /* Usage */
 /* Plan limits */
@@ -690,7 +685,7 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .tl-project-name { flex: 1; min-width: 0; height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--faint); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; text-align: left; cursor: pointer; }
 .tl-project-name .folder { width: 14px; height: 14px; }
 .tl-project-head.current .tl-project-name { color: var(--text-2); }
-.tl-project-name:hover, .tl-add:hover, .tl-thread:hover, .tl-screen:hover, .tl-open:hover { background: var(--hover); }
+.tl-project-name:hover, .tl-add:hover, .tl-thread:hover, .tl-screen:hover { background: var(--hover); }
 .tl-add { flex: none; width: 24px; height: 24px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--faint); cursor: pointer; }
 .tl-thread { width: 100%; height: 36px; display: flex; align-items: center; gap: 9px; padding: 0 8px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--text-2); text-align: left; cursor: pointer; }
 .tl-thread.active { background: var(--hover); color: var(--text); }
@@ -712,7 +707,12 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .tl-thread.active .tl-agents .avatar + .avatar { box-shadow: 0 0 0 2px #1c1c22; }
 .tl-empty { margin: 4px 0; padding: 4px 8px; font-size: var(--fs-sm); }
 .tl-scope { padding: 6px 8px 2px; color: var(--faint); font-size: var(--fs-xs); }
-.tl-open { flex: none; margin: 0 10px 8px; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); background: transparent; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
+/* "Dự án" with its open-folder button: adding a project sits beside the projects. */
+.tl-group-head { display: flex; align-items: center; gap: 2px; padding: 4px 0 0 8px; }
+.tl-group-name { flex: 1; color: var(--faint); font-size: var(--fs-xs); }
+.tl-group-head .tl-add { display: inline-flex; align-items: center; justify-content: center; }
+.tl-new:disabled { opacity: 0.5; cursor: default; }
+.home-agents-line { margin: 0; text-align: center; font-size: var(--fs-sm); }
 .tl-screens { flex: none; display: flex; gap: 2px; padding: 6px 8px 8px; border-top: 1px solid var(--line); }
 .tl-screen { position: relative; flex: 1; min-width: 0; height: 44px; display: inline-flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; border: 0; border-radius: var(--r-md); background: transparent; color: var(--muted); cursor: pointer; }
 .tl-screen .ic { width: 17px; height: 17px; }
@@ -722,6 +722,7 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .needs { margin-left: auto; min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--r-full); background: var(--wait); color: var(--wait-ink); font-size: var(--fs-xs); font-weight: 700; line-height: 16px; text-align: center; }
 
 /* Chat column */
+/* The chat keeps a readable column: the code panel gives way first. */
 .center.chat { min-width: 420px; background: var(--bg); position: relative; }
 .chat-tabs { flex: none; display: flex; justify-content: center; gap: 2px; padding: 8px 16px 0; }
 .chat-tab { height: 26px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
@@ -932,19 +933,21 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 .agent-line { display: flex; align-items: center; gap: 10px; padding: 9px 14px; min-width: 0; }
 .agent-line strong { font-weight: 500; }
 
-/* Side panel */
-.side { flex: 0 1 var(--w-side, 48%); min-width: 380px; position: relative; display: flex; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
+/* Side panel: 45% of the room after the sidebar (or the width dragged to). It sits beside the chat,
+   never over it, and shrinks first, so the chat and its approval card stay whole at 1024px. */
+.side { flex: 0 1 var(--w-side, calc((100% - var(--sb)) * 0.45)); min-width: 320px; position: relative; display: flex; border-left: 1px solid var(--line); background: var(--panel); min-height: 0; }
 .side.closed { display: none; }
 .side-files { flex: 0 0 var(--w-files, 220px); display: flex; flex-direction: column; min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
+.side-files.hidden, .side > .splitter.hidden { display: none; }
 .side-work { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .side-files .segmented button { white-space: nowrap; }
-/* Narrow window: the code panel becomes a drawer over the chat; the conversation list stays in reach. */
-@media (max-width: 1200px) {
-  .side { position: absolute; top: 40px; right: 0; bottom: 24px; z-index: 5; width: min(var(--w-side, 900px), calc(100vw - var(--w-sidebar, 272px))); min-width: 0; flex: none; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4); animation: tg-sheet var(--t-med) var(--ease); }
-  .center.chat { min-width: 0; }
+.tabs > .tabs-tool { align-self: center; margin: 0 4px; }
+.tab-fixed .tab-open { padding-right: 12px; font-weight: 500; }
+@media (max-width: 1099px) {
+  .center.chat { min-width: 360px; }
 }
 @media (max-width: 760px) {
-  .side { width: 100vw; }
+  .side { position: absolute; inset: 0; z-index: 5; min-width: 0; }
 }
 .tree-dir { display: flex; align-items: center; }
 .tree-dir .tree-row { flex: 1; min-width: 0; }
@@ -993,7 +996,8 @@ tg-integrations { display: flex; flex-direction: column; overflow: auto; }
 }
 
 /* Integrations v2 */
-.conn-page { padding: 24px; display: flex; flex-direction: column; gap: 18px; max-width: 1280px; width: 100%; margin: 0 auto; container-type: inline-size; }
+.conn-page { padding-top: 4px; display: flex; flex-direction: column; gap: 14px; width: 100%; container-type: inline-size; }
+.conn-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .conn-actions { display: flex; gap: 8px; margin-left: auto; }
 .conn-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .conn-grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -1108,7 +1112,8 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 tg-chat-turn, tg-changes-card, tg-handoff-cards, tg-pending-message, tg-pipeline-stepper, tg-plan-tab,
 tg-approvals, tg-proposal-card, tg-live-status, tg-composer, tg-chat-home, tg-command-menu, tg-pipeline-steps, tg-git-setup,
 tg-mcp-servers, tg-skill-library, tg-mcp-editor, tg-skill-editor,
-tg-usage-kpis, tg-usage-chart, tg-usage-by-agent, tg-usage-runs, tg-usage-prices, tg-usage-price-sheet { display: contents; }
+tg-usage-kpis, tg-usage-chart, tg-usage-by-agent, tg-usage-runs, tg-usage-prices { display: contents; }
+tg-page, tg-agents-panel, tg-price-settings { display: block; }
 
 /* Motion: state changes ease instead of snapping; things that appear fade in from where they come. */
 .btn, .chip-btn, .pill-btn, .act-btn, .icon-btn, .status-btn, .send, .opt, .cmd-opt, .tree-row, .chat-tab, .thread, .fchip, .limit,

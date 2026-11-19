@@ -50,7 +50,7 @@ import { UsageState } from './usage.state';
       </div>
     } @else {
       <strong class="cost-v">{{ use.usd(use.budget.todayCost()) }}</strong>
-      <button class="link cost-delta" (click)="use.sheet.set(true)">Đặt ngân sách ngày</button>
+      <button class="link cost-delta" (click)="use.openPrices()">Đặt ngân sách ngày</button>
     }
   </div>
 </section>

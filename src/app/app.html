@@ -1,13 +1,13 @@
-<div class="shell" [style]="layout.style()">
+<div class="shell" [style]="layout.style()" [class.sb-collapsed]="ui.sidebarCollapsed()" [class.sb-peek]="peek()">
   <tg-title-bar />
   <div class="body">
-    <tg-thread-list class="sidebar" />
-    <tg-splitter pane="sidebar" />
+    <tg-thread-list class="sidebar" [class.rail]="ui.sidebarCollapsed()" />
+    @if (peek()) { <div class="sb-scrim" aria-hidden="true" (click)="ui.closePeek()"></div> }
+    @if (!ui.sidebarCollapsed() && !ui.narrow()) { <tg-splitter pane="sidebar" /> }
     @switch (ui.screen()) {
-      @case ('mission') { <tg-mission-control class="center" /> }
-      @case ('usage') { <tg-usage-screen class="center" /> }
-      @case ('integrations') { <tg-integrations class="center" /> }
-      @case ('agents') { <tg-agents-panel class="center screen-pad" /> }
+      @case ('mission') { <tg-mission-control class="center screen" /> }
+      @case ('usage') { <tg-usage-screen class="center screen" /> }
+      @case ('settings') { <tg-settings class="center screen" /> }
       @default {
         <tg-agent-panel class="center chat" />
       }
@@ -17,5 +17,4 @@
   </div>
   <tg-status-bar />
   <tg-quick-open />
-  @if (ui.onboarding()) { <tg-onboarding (done)="ui.onboarding.set(false)" /> }
 </div>

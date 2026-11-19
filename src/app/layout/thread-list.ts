@@ -15,8 +15,27 @@ import { errorText } from '../shared/utils/errors';
   selector: 'tg-thread-list',
   imports: [AgentAvatar, NgTemplateOutlet, ProjectSettingsForm],
   template: `
+    @if (ui.sidebarCollapsed()) {
+      <div class="rail-nav" role="navigation" aria-label="Thanh bên thu gọn">
+        <button class="rail-btn" [disabled]="!workspace.folder()" aria-label="Trò chuyện mới"
+          [title]="workspace.folder() ? 'Trò chuyện mới (' + keys.newChat + ')' : 'Mở một thư mục trước'" (click)="startNew()">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="rail-btn" aria-label="Hiện danh sách cuộc trò chuyện" [title]="'Dự án và cuộc trò chuyện (' + keys.sidebar + ')'" (click)="ui.toggleSidebar()">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+          @if (needsAll(); as n) { <span class="dot-badge" [attr.aria-label]="n + ' cần bạn'">{{ n }}</span> }
+        </button>
+        <span class="spacer"></span>
+        @for (s of screens; track s.id) {
+          <button class="rail-btn" [class.active]="ui.screen() === s.id" [attr.aria-label]="s.label" [title]="s.label" (click)="toggleScreen(s.id)">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path [attr.d]="s.icon"/></svg>
+            @if (s.id === 'mission' && waiting()) { <span class="dot-badge" aria-hidden="true">{{ waiting() }}</span> }
+          </button>
+        }
+      </div>
+    } @else {
     <div class="tl-top">
-      <button class="tl-new" (click)="startNew()">
+      <button class="tl-new" [disabled]="!workspace.folder()" [title]="workspace.folder() ? '' : 'Mở một thư mục trước'" (click)="startNew()">
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         Trò chuyện mới<span class="spacer"></span><span class="kbd">{{ keys.newChat }}</span>
       </button>
@@ -56,6 +75,15 @@ import { errorText } from '../shared/utils/errors';
       @if (failed()?.id === t.id) { <p class="error-text tl-err">{{ failed()!.message }}</p> }
     </ng-template>
     <nav class="tl-tree" aria-label="Dự án và cuộc trò chuyện">
+      <!-- On the welcome screen its big button opens a folder; a second one here would only repeat it. -->
+      @if (workspace.folder() || threads.projects().length || ui.screen() !== 'chat') {
+        <div class="tl-group-head">
+          <span class="tl-group-name">Dự án</span>
+          <button class="tl-add" aria-label="Mở thư mục" title="Mở thư mục…" (click)="workspace.pickFolder()">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9 13h6"/></svg>
+          </button>
+        </div>
+      }
       @for (p of threads.projects(); track p.root) {
         <section class="tl-project">
           <div class="tl-project-head" [class.current]="p.root === workspace.folder()">
@@ -96,10 +124,6 @@ import { errorText } from '../shared/utils/errors';
         </div>
       }
     </nav>
-    <button class="tl-open" (click)="workspace.pickFolder()">
-      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-      Mở thư mục…
-    </button>
     <nav class="tl-screens" aria-label="Màn hình">
       @for (s of screens; track s.id) {
         <button class="tl-screen" [class.active]="ui.screen() === s.id" [attr.aria-label]="s.label" [title]="s.label" (click)="toggleScreen(s.id)">
@@ -109,6 +133,7 @@ import { errorText } from '../shared/utils/errors';
         </button>
       }
     </nav>
+    }
   `,
 })
 export class ThreadList {
@@ -124,20 +149,26 @@ export class ThreadList {
   protected readonly screens: { id: Screen; label: string; icon: string }[] = [
     { id: 'mission', label: 'Giám sát', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z' },
     { id: 'usage', label: 'Chi phí', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
-    { id: 'agents', label: 'Agent', icon: 'M8 8h8a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3zM12 8V4M9.5 13.5h.01M14.5 13.5h.01' },
-    { id: 'integrations', label: 'Kết nối', icon: 'M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0zM12 16v5' },
+    { id: 'settings', label: 'Cài đặt', icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6' },
   ];
 
-  /** Ctrl/⌘+N starts a new conversation from anywhere. */
+  /** Ctrl/⌘+N starts a new conversation from anywhere; Ctrl/⌘+B folds the sidebar. */
   @HostListener('window:keydown', ['$event'])
   protected onKey(e: KeyboardEvent): void {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key === 'n') {
       e.preventDefault();
-      void this.startNew();
+      if (this.workspace.folder()) void this.startNew();
+    } else if (key === 'b') {
+      e.preventDefault();
+      this.ui.toggleSidebar();
     }
   }
   /** Approval cards open in any conversation. */
   protected readonly waiting = computed(() => this.runs.runs().reduce((n, r) => n + r.permissions.length, 0));
+  /** Conversations waiting on the user, across projects: the rail keeps them in sight. */
+  protected readonly needsAll = computed(() => this.threads.projects().reduce((n, p) => n + this.waitingIn([...p.threads, ...p.scopes.flatMap((g) => g.threads)]), 0));
 
   protected waitingIn(list: Thread[]): number {
     return list.filter((t) => t.status === 'needs_you').length;
@@ -151,10 +182,12 @@ export class ThreadList {
 
   protected toggleScreen(id: Screen): void {
     this.ui.screen.set(this.ui.screen() === id ? 'chat' : id);
+    this.ui.closePeek();
   }
 
   protected async open(t: Thread): Promise<void> {
     this.ui.screen.set('chat');
+    this.ui.closePeek();
     await this.threads.select(t);
   }
 
@@ -193,6 +226,9 @@ export class ThreadList {
 
   protected async startNew(root?: string): Promise<void> {
     this.ui.screen.set('chat');
+    this.ui.closePeek();
+    // A new conversation has no changes yet: the previous one's code would only be in the way.
+    this.ui.sideOpen.set(false);
     await this.threads.newChat(root);
   }
 }

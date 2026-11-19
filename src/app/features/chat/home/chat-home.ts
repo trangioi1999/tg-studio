@@ -6,6 +6,7 @@ import { copyText } from '../../../shared/utils/clipboard';
 import { Composer } from '../composer/composer';
 import { PendingMessage } from '../conversation/pending-message';
 import { ChatState } from '../chat.state';
+import { UiService } from '../../../services/app/ui.service';
 
 /** The start screen: open a folder, then ask; the agents found on this machine. */
 @Component({
@@ -45,9 +46,14 @@ import { ChatState } from '../chat.state';
         }
       </div>
     }
-    <section class="agent-list" aria-label="Agent trên máy" [hidden]="!!chat.pending()">
+    <!-- In a project the composer's agent picker already says which agents work: list only those that need something. -->
+    @if (chat.workspace.folder() && !chat.pending() && !attention().length && ready().length) {
+      <p class="dim home-agents-line">{{ ready().length }} agent sẵn sàng · <button class="link" (click)="ui.openSettings('agents')">Xem trong Cài đặt</button></p>
+    }
+    @if (showList()) {
+    <section class="agent-list" aria-label="Agent trên máy">
       <div class="label">AGENT TRÊN MÁY</div>
-      @for (a of chat.agents.agents(); track a.id) {
+      @for (a of shown(); track a.id) {
         <div class="agent-line">
           <tg-agent-avatar [agent]="a.id" [size]="26" />
           <strong>{{ a.name }}</strong>
@@ -65,6 +71,7 @@ import { ChatState } from '../chat.state';
         <p class="dim">{{ chat.agents.checking() ? 'Đang dò agent…' : 'Chưa thấy agent nào.' }}</p>
       }
     </section>
+    }
   </div>
 </div>
   `,
@@ -77,6 +84,16 @@ export class ChatHome {
     { label: 'Tìm lỗi tiềm ẩn', prompt: 'Đọc code và liệt kê 5 lỗi tiềm ẩn đáng sửa nhất, kèm vị trí tệp.' },
     { label: 'Viết test còn thiếu', prompt: 'Tìm phần code quan trọng chưa có test và viết test cho nó.' },
   ];
+  protected readonly ui = inject(UiService);
+  protected readonly ready = computed(() => this.chat.agents.agents().filter((a) => a.path && a.auth !== 'none'));
+  /** Installed but not logged in; with nothing installed, every agent and how to install it. */
+  protected readonly attention = computed(() => {
+    const all = this.chat.agents.agents();
+    return all.some((a) => a.path) ? all.filter((a) => a.path && a.auth === 'none') : all;
+  });
+  /** The welcome screen shows them all, under the button; a project only those that need something. */
+  protected readonly shown = computed(() => (this.chat.workspace.folder() ? this.attention() : this.chat.agents.agents()));
+  protected readonly showList = computed(() => !this.chat.pending() && !(this.chat.workspace.folder() && !this.attention().length && this.ready().length));
   protected readonly projectName = computed(() => this.chat.workspace.project()?.name ?? this.chat.workspace.folder().split(/[\\/]/).filter(Boolean).at(-1) ?? '');
 
   protected async copy(text: string): Promise<void> {

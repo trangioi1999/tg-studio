@@ -1,12 +1,12 @@
 import { Component, inject } from '@angular/core';
 import { UsageState } from './usage.state';
 
-/** The summary card of prices and budgets; it opens the sheet. */
+/** The summary card of prices and budgets; it opens Cài đặt > Ngân sách và giá. */
 @Component({
   selector: 'tg-usage-prices',
   imports: [],
   template: `
-<button class="pg-card cost-settings" (click)="use.sheet.set(true)" aria-label="Mở giá và ngân sách">
+<button class="pg-card cost-settings" (click)="use.openPrices()" aria-label="Mở giá và ngân sách">
   <span class="pg-card-head"><h2>Giá &amp; ngân sách</h2><span class="dim">bấm để chỉnh</span></span>
   <span class="cost-minis">
     <span class="cost-mini"><span class="faint">Ngân sách</span>{{ use.budgetSummary() }}</span>

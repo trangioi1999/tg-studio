@@ -7,6 +7,7 @@ import { Run, RUN_STATUS_LABEL } from '../../services/runs/run';
 import { ConsoleView, UiService } from '../../services/app/ui.service';
 import { WorkspaceService } from '../../services/workspace.service';
 import { AgentAvatar } from '../../shared/ui/agent-avatar';
+import { Page } from '../../shared/ui/page';
 import { errorText } from '../../shared/utils/errors';
 
 interface QueueItem {
@@ -25,17 +26,17 @@ const TIMELINE_RUNS = 12;
  */
 @Component({
   selector: 'tg-mission-control',
-  imports: [AgentAvatar],
+  imports: [AgentAvatar, Page],
   template: `
-    <div class="mission">
-      <section class="kpis" aria-label="Tổng quan">
-        <div class="kpi"><span class="label">ĐANG CHẠY</span><strong>{{ runs.running().length }}</strong></div>
-        <div class="kpi" [class.attention]="waiting() > 0"><span class="label">CHỜ DUYỆT</span><strong>{{ waiting() }}</strong></div>
-        <div class="kpi"><span class="label">CHỜ REVIEW</span><strong>{{ reviewCount() }}</strong></div>
-        <div class="kpi"><span class="label">LƯỢT CHẠY</span><strong>{{ runs.sessionRuns().length }}</strong></div>
-        <div class="kpi"><span class="label">TOKEN</span><strong>{{ tok(runs.totals().tokens) }}</strong></div>
-        <div class="kpi"><span class="label">CHI PHÍ</span><strong>{{ usd(runs.totals().costUsd) }}</strong></div>
-      </section>
+    <tg-page title="Giám sát" lead="Việc đang chờ bạn và mọi lượt chạy trong phiên này.">
+      <!-- Numbers that are zero say nothing; the queue below is what to act on. -->
+      @if (stats().length) {
+        <dl class="mission-stats" pageMeta aria-label="Tổng quan">
+          @for (s of stats(); track s.label) {
+            <div [class.attention]="s.attention"><dt>{{ s.label }}</dt><dd class="mono">{{ s.value }}</dd></div>
+          }
+        </dl>
+      }
 
       <section class="mission-block" aria-label="Hàng chờ">
         <div class="block-head"><span class="label">HÀNG CHỜ CỦA BẠN</span><span class="dim">{{ queue().length + runs.handoffs().length }}</span></div>
@@ -119,7 +120,7 @@ const TIMELINE_RUNS = 12;
           <p class="dim pad">Giao việc ở ô chat để thấy các agent ở đây.</p>
         }
       </section>
-    </div>
+    </tg-page>
   `,
 })
 export class MissionControl implements OnDestroy {
@@ -158,6 +159,19 @@ export class MissionControl implements OnDestroy {
   protected readonly waiting = computed(() => this.runs.sessionRuns().reduce((n, r) => n + r.permissions.length, 0));
   /** Same unit as the queue: a parallel group counts once. */
   protected readonly reviewCount = computed(() => this.queue().filter((q) => q.kind === 'review').length);
+  /** The session in one line of numbers; the ones at zero are left out. */
+  protected readonly stats = computed(() => {
+    const t = this.runs.totals();
+    const all = [
+      { label: 'Đang chạy', n: this.runs.running().length, value: String(this.runs.running().length), attention: false },
+      { label: 'Chờ duyệt', n: this.waiting(), value: String(this.waiting()), attention: true },
+      { label: 'Chờ review', n: this.reviewCount(), value: String(this.reviewCount()), attention: false },
+      { label: 'Lượt chạy', n: this.runs.sessionRuns().length, value: String(this.runs.sessionRuns().length), attention: false },
+      { label: 'Token', n: t.tokens, value: this.tok(t.tokens), attention: false },
+      { label: 'Chi phí', n: t.costUsd ?? 0, value: this.usd(t.costUsd), attention: false },
+    ];
+    return all.filter((s) => s.n > 0);
+  });
 
   protected readonly queue = computed<QueueItem[]>(() => {
     const items: QueueItem[] = [];

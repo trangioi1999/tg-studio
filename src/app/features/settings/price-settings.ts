@@ -1,27 +1,32 @@
 import { Component, inject } from '@angular/core';
 import { AgentAvatar } from '../../shared/ui/agent-avatar';
-import { UsageState } from './usage.state';
+import { UsageState } from '../usage/usage.state';
 
-/** The sheet that edits prices (from a date on) and the budgets. */
+/** Cài đặt > Ngân sách và giá: budgets, and prices from a date on. */
 @Component({
-  selector: 'tg-usage-price-sheet',
+  selector: 'tg-price-settings',
   imports: [AgentAvatar],
+  providers: [UsageState],
   template: `
-@if (use.sheet()) {
-  <div class="sheet-backdrop" (click)="use.sheet.set(false)">
-    <aside class="sheet cost-sheet" role="dialog" aria-modal="true" aria-label="Giá và ngân sách" (click)="$event.stopPropagation()">
-      <div class="sheet-head"><h3>Giá &amp; ngân sách</h3><span class="spacer"></span><button class="icon-btn" aria-label="Đóng" (click)="use.sheet.set(false)">✕</button></div>
-      @if (use.error()) { <p class="error-text" role="alert">{{ use.error() }}</p> }
+<div class="set-section">
+  @if (use.error()) { <p class="error-text" role="alert">{{ use.error() }}</p> }
+  @if (use.saved()) { <p class="dim ellipsis" role="status">Đã lưu {{ use.saved() }}</p> }
 
-      <h4 class="cost-sheet-h">Ngân sách</h4>
+  <section class="pg-card set-card" aria-labelledby="set-budget-h">
+    <div class="pg-card-head"><h2 id="set-budget-h">Ngân sách</h2></div>
+    <div class="set-card-body">
       <div class="cost-two">
         <label class="field"><span>Mỗi task (USD)</span><input type="number" min="0" step="0.5" [value]="use.budget.budgets().perTask ?? ''" (input)="use.draftTask.set($any($event.target).value)" placeholder="không giới hạn" /></label>
         <label class="field"><span>Mỗi ngày (USD)</span><input type="number" min="0" step="1" [value]="use.budget.budgets().daily ?? ''" (input)="use.draftDaily.set($any($event.target).value)" placeholder="không giới hạn" /></label>
       </div>
       <div class="row-end"><button class="btn primary sm" [disabled]="use.busy()" (click)="use.saveBudgets()">Lưu ngân sách</button></div>
       <p class="dim form-note">Vượt mức mỗi task thì run đó bị dừng; chạm mức ngày thì mọi run dừng và không giao việc mới được. Agent thường báo chi phí khi xong, nên việc dừng chỉ xảy ra khi đã có số.</p>
+    </div>
+  </section>
 
-      <h4 class="cost-sheet-h">Bảng giá · USD / 1M token</h4>
+  <section class="pg-card set-card" aria-labelledby="set-price-h">
+    <div class="pg-card-head"><h2 id="set-price-h">Bảng giá · USD / 1M token</h2></div>
+    <div class="set-card-body">
       @for (a of use.agentIds; track a) {
         <div class="price-row">
           <div class="price-title"><tg-agent-avatar [agent]="a" [size]="14" />{{ use.meta[a].name }}
@@ -39,11 +44,11 @@ import { UsageState } from './usage.state';
       }
       <label class="check-line"><input type="checkbox" [checked]="use.backfill()" (change)="use.backfill.set($any($event.target).checked)" /> Áp dụng cho cả các lượt trước (chỉ những lượt chưa có giá nào)</label>
       <p class="dim form-note">Mặc định giá mới áp dụng từ lúc bấm; các lượt cũ giữ giá lúc chúng chạy. Để trống cả ba ô rồi Áp dụng để bỏ giá.</p>
-    </aside>
-  </div>
-}
+    </div>
+  </section>
+</div>
   `,
 })
-export class UsagePriceSheet {
+export class PriceSettings {
   protected readonly use = inject(UsageState);
 }
