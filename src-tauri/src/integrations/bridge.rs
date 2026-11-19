@@ -19,6 +19,10 @@ pub const SERVER_NAME: &str = "tg-bridge";
 const PROTOCOL: &str = "2025-06-18";
 const MAX_TOPIC: usize = 100;
 const MAX_TEXT: usize = 20_000;
+/// One request on the loopback socket: room for `MAX_TEXT` characters JSON-escaped.
+const MAX_LINE: usize = 256 * 1024;
+/// The bridge process writes its request as soon as it connects.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(if cfg!(test) { 1 } else { 15 });
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
@@ -162,10 +166,13 @@ impl BridgeHub {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| format!("Không mở được cổng tg-bridge: {e}"))?;
         let bound = listener.local_addr().map_err(|e| e.to_string())?.to_string();
         let hub = self.clone();
+        // Tool calls of all runs at once stay far below this; beyond it a connection is dropped.
+        let slots = Arc::new(tokio::sync::Semaphore::new(64));
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
+                let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
                 let hub = hub.clone();
-                tokio::spawn(async move { let _ = hub.serve(stream).await; });
+                tokio::spawn(async move { let _ = hub.serve(stream).await; drop(slot); });
             }
         });
         *addr = Some(bound.clone());
@@ -202,9 +209,15 @@ impl BridgeHub {
 
     async fn serve(&self, stream: TcpStream) -> std::io::Result<()> {
         let (read, mut write) = stream.into_split();
-        let mut lines = BufReader::new(read).lines();
-        let Some(line) = lines.next_line().await? else { return Ok(()) };
-        let reply = match serde_json::from_str::<Value>(&line) {
+        // Anyone on the machine can connect before showing a token: bound the line and the wait.
+        let mut line = Vec::new();
+        let mut reader = BufReader::new(tokio::io::AsyncReadExt::take(read, MAX_LINE as u64 + 1));
+        match tokio::time::timeout(READ_TIMEOUT, reader.read_until(b'\n', &mut line)).await {
+            Err(_) | Ok(Err(_)) | Ok(Ok(0)) => return Ok(()),
+            Ok(Ok(_)) => {}
+        }
+        let line = if line.len() > MAX_LINE { String::new() } else { String::from_utf8_lossy(&line).into_owned() };
+        let reply = match serde_json::from_str::<Value>(line.trim_end()) {
             Err(_) => json!({ "ok": false, "error": "Yêu cầu không hợp lệ." }),
             Ok(req) => {
                 let env = req["token"].as_str().and_then(|t| self.envs.lock().unwrap().get(t).cloned().flatten());
@@ -395,6 +408,32 @@ mod tests {
         hub.unregister(&token);
         assert!(hub.bind(&token, env).is_err());
         assert_eq!(forward(&addr, &token, "write_note", &args).await.unwrap_err(), "Phiên tg-bridge không còn hiệu lực.");
+    }
+
+    /// Any local process can connect before showing a token: an endless line or a silent
+    /// connection must not hold memory or a task forever.
+    #[tokio::test]
+    async fn loopback_drops_long_lines_and_silent_connections() {
+        use tokio::io::AsyncReadExt;
+        let hub = Arc::new(BridgeHub::default());
+        let addr = hub.address().await.unwrap();
+        let mut long = TcpStream::connect(&addr).await.unwrap();
+        let chunk = vec![b'x'; 64 * 1024];
+        let mut sent = 0;
+        // The hub stops reading at its limit and closes: writing then fails or the reply comes.
+        while sent < MAX_LINE * 4 {
+            if long.write_all(&chunk).await.is_err() { break; }
+            sent += chunk.len();
+        }
+        let mut reply = String::new();
+        let read = tokio::time::timeout(std::time::Duration::from_secs(5), long.read_to_string(&mut reply)).await;
+        assert!(read.is_ok(), "kết nối gửi dòng quá dài phải bị đóng");
+        assert!(reply.is_empty() || reply.contains("\"ok\":false"), "{reply}");
+
+        let mut silent = TcpStream::connect(&addr).await.unwrap();
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(READ_TIMEOUT * 3, silent.read_to_end(&mut rest)).await;
+        assert!(closed.is_ok(), "kết nối im lặng phải bị đóng sau thời hạn");
     }
 
     #[test]
