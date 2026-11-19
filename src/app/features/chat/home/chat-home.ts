@@ -59,8 +59,10 @@ import { UiService } from '../../../services/app/ui.service';
           @if (!a.path) {
             <span class="dim">chưa cài</span>
             <button class="btn ghost sm" [title]="meta[a.id].install" (click)="copy(meta[a.id].install)">Chép lệnh cài</button>
-          } @else {
+          } @else if (a.auth === 'none') {
             <span class="pill" data-status="needs_you">Cần đăng nhập</span>
+          } @else {
+            <span class="dim">sẵn sàng</span>
           }
         </div>
       }
