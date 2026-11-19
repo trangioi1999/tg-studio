@@ -31,10 +31,7 @@ import { ChatState } from '../chat.state';
     <span class="pill" [attr.data-status]="turnStatus(tr)">
       @switch (turnStatus(tr)) {
         @case ('running') { <span class="spin" aria-hidden="true"></span> }
-        @case ('needs_you') { <span aria-hidden="true">●</span> }
-        @case ('failed') { <span aria-hidden="true">✕</span> }
-        @case ('stopped') { <span aria-hidden="true">■</span> }
-        @default { <span aria-hidden="true">✓</span> }
+        @default { <span class="pill-dot" aria-hidden="true"></span> }
       }
       {{ turnLabel[turnStatus(tr)] }}
     </span>
@@ -57,7 +54,7 @@ import { ChatState } from '../chat.state';
           <summary>
             <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
             @if (seg.live && tr.permissions.length) {
-              <span class="wait-dot" aria-hidden="true">●</span><span class="ellipsis">Chờ bạn duyệt · {{ seg.steps.at(-1)?.text }}</span>
+              <span class="pill-dot wait-dot" aria-hidden="true"></span><span class="ellipsis">Chờ bạn duyệt · {{ seg.steps.at(-1)?.text }}</span>
             } @else if (seg.live) {
               <span class="spin" aria-hidden="true"></span><span class="ellipsis">{{ seg.steps.at(-1)?.text }}</span>
             } @else {
@@ -68,7 +65,7 @@ import { ChatState } from '../chat.state';
           <ol>
             @for (st of seg.steps; track $index) {
               <li [attr.data-state]="st.state">
-                <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { ✓ } @case ('failed') { ✕ } @case ('note') { ! } @default { <span class="spin"></span> } }</span>
+                <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> } @case ('failed') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg> } @case ('note') { <span class="pill-dot" aria-hidden="true"></span> } @default { <span class="spin"></span> } }</span>
                 <span class="mono ellipsis" [title]="st.text">{{ st.text }}</span>
               </li>
             }

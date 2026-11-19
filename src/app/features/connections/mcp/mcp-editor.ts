@@ -27,7 +27,7 @@ import { IntegrationsState } from '../integrations.state';
           aria-label="Đóng ngăn kéo"
           (click)="conn.closeDrawer()"
         >
-          ×
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>
         </button>
       </div>
       <div class="conn-segment" role="group" aria-label="Kiểu kết nối">
@@ -105,12 +105,12 @@ import { IntegrationsState } from '../integrations.state';
               [attr.aria-label]="'Xoá dòng ' + (i + 1)"
               (click)="conn.removePair(i)"
             >
-              ×
+              <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>
             </button>
           </div>
         }
         <button type="button" class="btn sm conn-pair-add" (click)="conn.addPair()">
-          {{ d.transport === 'stdio' ? '＋ Thêm biến' : '＋ Thêm header' }}
+          <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>{{ d.transport === 'stdio' ? 'Thêm biến' : 'Thêm header' }}
         </button>
       </div>
       <div class="field">

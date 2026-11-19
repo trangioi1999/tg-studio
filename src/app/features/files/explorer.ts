@@ -26,7 +26,7 @@ interface Row {
   imports: [AgentAvatar, FileIcon],
   template: `
     <div class="panel-head">
-      <span class="label">TỆP</span>
+      <span class="label">Tệp</span>
       <span class="spacer"></span>
       @if (run(); as r) {
         <div class="segmented" role="group" aria-label="Xem tệp của">
@@ -37,7 +37,7 @@ interface Row {
       }
       @if (view() === 'project' && workspace.folder()) {
         <button class="btn ghost sm icon-btn" aria-label="Thu gọn mọi thư mục" title="Thu gọn mọi thư mục" (click)="collapseAll()">⊟</button>
-        <button class="btn ghost sm icon-btn" aria-label="Tải lại danh sách tệp" title="Tải lại danh sách tệp" (click)="workspace.reloadProjectFiles()">↻</button>
+        <button class="btn ghost sm icon-btn" aria-label="Tải lại danh sách tệp" title="Tải lại danh sách tệp" (click)="workspace.reloadProjectFiles()"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg></button>
       }
     </div>
     @if (view() === 'draft' || workspace.folder()) {
@@ -108,7 +108,7 @@ interface Row {
       }
     </div>
     @if (tasks().length) {
-      <div class="panel-head worktrees-head"><span class="label">BẢN NHÁP</span><span class="dim">{{ tasks().length }}</span></div>
+      <div class="panel-head worktrees-head"><span class="label">Bản nháp</span><span class="dim">{{ tasks().length }}</span></div>
       <div class="worktrees">
         @for (t of tasks(); track t.id) {
           <button class="tree-row" [class.active]="t.id === run()?.id" (click)="runs.selectedId.set(t.id); choice.set('draft')">

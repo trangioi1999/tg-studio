@@ -26,7 +26,7 @@ import { IntegrationsState } from '../integrations.state';
           aria-label="Đóng ngăn kéo"
           (click)="conn.closeDrawer()"
         >
-          ×
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg>
         </button>
       </div>
       <label class="field conn-skill-editor"

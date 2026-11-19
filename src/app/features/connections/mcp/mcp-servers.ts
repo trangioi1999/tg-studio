@@ -113,7 +113,7 @@ import { IntegrationsState } from '../integrations.state';
     }
     <article class="pg-card conn-server conn-add">
       <button class="conn-add-button" (click)="conn.preset('custom')">
-        <span aria-hidden="true">＋</span>Thêm server
+        <span aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>Thêm server
       </button>
       <div class="conn-chips">
         @for (p of conn.presets; track p.id) {

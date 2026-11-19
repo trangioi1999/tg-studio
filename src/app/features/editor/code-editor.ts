@@ -37,7 +37,7 @@ const REMOVED = '#f29b8b';
             @if (!last) { <span class="dim">›</span> }
           }
         </nav>
-        @if (dirty()) { <span class="dirty" title="Chưa lưu">● chưa lưu</span> }
+        @if (dirty()) { <span class="dirty" title="Chưa lưu"><span class="pill-dot" aria-hidden="true"></span>chưa lưu</span> }
         <span class="spacer"></span>
         @if (agentHere()) {
           <span class="live-dot" aria-hidden="true"></span><span class="dim">{{ meta[agent()].name }} {{ hereLabel() }}</span>

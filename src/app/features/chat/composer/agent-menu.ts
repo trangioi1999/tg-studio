@@ -79,7 +79,7 @@ import { ChatState } from '../chat.state';
                         <button class="opt" [class.on]="chat.currentModel(a) === o.value" (click)="chat.agents.setPref(a, { model: o.value, effort: null })">
                           <span class="grow">{{ o.name }}</span>
                           @if (o.description) { <span class="dim ellipsis">{{ o.description }}</span> }
-                          @if (chat.currentModel(a) === o.value) { <span aria-hidden="true">✓</span> }
+                          @if (chat.currentModel(a) === o.value) { <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> }
                         </button>
                       }
                       @if (chat.effortOptions(a).length) {

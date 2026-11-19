@@ -38,9 +38,7 @@ import { errorText } from '../shared/utils/errors';
                 <span class="pill" [attr.data-status]="t.status">
                   @switch (t.status) {
                     @case ('running') { <span class="spin" aria-hidden="true"></span> }
-                    @case ('needs_you') { <span aria-hidden="true">●</span> }
-                    @case ('failed') { <span aria-hidden="true">✕</span> }
-                    @default { <span aria-hidden="true">✓</span> }
+                    @default { <span class="pill-dot" aria-hidden="true"></span> }
                   }
                   {{ labelOf(t) }}
                 </span>
@@ -66,11 +64,11 @@ import { errorText } from '../shared/utils/errors';
             </button>
             @if (p.root === workspace.folder()) {
               <button class="tl-add" [class.active]="settingsOpen()" [attr.aria-label]="'Thiết lập dự án ' + p.name" [attr.aria-expanded]="settingsOpen()"
-                title="Thiết lập dự án: script chuẩn bị, lệnh kiểm tra" (click)="settingsOpen.set(!settingsOpen())">⚙</button>
+                title="Thiết lập dự án: script chuẩn bị, lệnh kiểm tra" (click)="settingsOpen.set(!settingsOpen())"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
             }
-            <button class="tl-add" [attr.aria-label]="'Trò chuyện mới trong ' + p.name" title="Trò chuyện mới trong dự án này" (click)="startNew(p.root)">+</button>
+            <button class="tl-add" [attr.aria-label]="'Trò chuyện mới trong ' + p.name" title="Trò chuyện mới trong dự án này" (click)="startNew(p.root)"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
             @if (!p.threads.length && p.root !== workspace.folder()) {
-              <button class="tl-add" [attr.aria-label]="'Bỏ ' + p.name + ' khỏi danh sách'" title="Bỏ khỏi danh sách" (click)="threads.forget(p.root)">×</button>
+              <button class="tl-add" [attr.aria-label]="'Bỏ ' + p.name + ' khỏi danh sách'" title="Bỏ khỏi danh sách" (click)="threads.forget(p.root)"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
             }
           </div>
           @if (settingsOpen() && p.root === workspace.folder()) {
@@ -92,7 +90,7 @@ import { errorText } from '../shared/utils/errors';
         </section>
       } @empty {
         <div class="tl-empty">
-          <p class="dim">Chưa mở dự án nào.</p>
+          <p class="dim">Chưa mở dự án nào</p>
         </div>
       }
     </nav>
