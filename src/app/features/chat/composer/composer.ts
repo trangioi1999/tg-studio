@@ -27,7 +27,7 @@ import { ChatState } from '../chat.state';
         <li class="attach-item" [class.image]="a.image" [title]="a.name">
           @if (a.url) { <img [src]="a.url" [alt]="a.name" /> }
           @else { <span class="attach-name"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>{{ a.name }}</span> }
-          <button class="attach-x" [attr.aria-label]="'Bỏ ' + a.name" title="Bỏ" (click)="chat.removeAttachment(a.id)">×</button>
+          <button class="attach-x" [attr.aria-label]="'Bỏ ' + a.name" title="Bỏ" (click)="chat.removeAttachment(a.id)"><svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
         </li>
       }
     </ul>
@@ -66,6 +66,7 @@ import { ChatState } from '../chat.state';
       <button class="chip-btn" [attr.aria-expanded]="chat.editSteps()" (click)="chat.editSteps.set(!chat.editSteps())">{{ chat.editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
     }
     <span class="spacer"></span>
+    @if (!chat.prompt()) { <span class="cmp-keys" aria-hidden="true"><span class="kbd">↵</span> gửi · <span class="kbd">⇧↵</span> xuống dòng</span> }
     @if (chat.run()?.status === 'running') {
       <button class="send" aria-label="Dừng agent" title="Dừng" (click)="chat.runs.stop(chat.run()!.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>
     } @else {

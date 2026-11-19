@@ -9,7 +9,7 @@ import { AgentAvatar } from '../../shared/ui/agent-avatar';
   imports: [AgentAvatar],
   template: `
     <div class="panel-head">
-      <span class="label">AGENTS</span>
+      <span class="label">Agent</span>
       <span class="spacer"></span>
       <button class="btn ghost sm" (click)="ui.onboarding.set(true)">Hướng dẫn</button>
       <button class="btn ghost sm" (click)="agents.refresh()" [disabled]="agents.checking()">
