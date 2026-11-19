@@ -1,4 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
+import type { AgentId } from '../../core/protocol';
 import { UsageState } from './usage.state';
 
 /** Cost or tokens per day; a day picked filters the runs below. */
@@ -35,7 +36,7 @@ import { UsageState } from './usage.state';
                (click)="use.toggleDay(d.start)" (keydown.enter)="use.toggleDay(d.start)" (keydown.space)="$event.preventDefault(); use.toggleDay(d.start)">
             <div class="stack" [style.height.%]="(d.total / use.chart().max) * 100">
               @for (s of d.segments; track s.agent) {
-                <span class="seg" [style.flex-grow]="s.pct" [style.background]="use.meta[s.agent].chart"></span>
+                <span class="seg" [style.flex-grow]="s.pct" [style.background]="segColor(d.start, s.agent)"></span>
               }
             </div>
             @if (use.hover() === i) {
@@ -65,4 +66,15 @@ import { UsageState } from './usage.state';
 })
 export class UsageChart {
   protected readonly use = inject(UsageState);
+  /** More than one agent spent in the range: only then do bars need the agents' colours. */
+  private readonly multi = computed(() => {
+    const seen = new Set(this.use.chart().days.flatMap((d) => d.segments.filter((s) => s.value > 0).map((s) => s.agent)));
+    return seen.size > 1;
+  });
+
+  /** Neutral bars; today and the picked day carry the agent's colour so they stand out. */
+  protected segColor(day: number, agent: AgentId): string {
+    const lit = this.multi() || day === this.use.today() || day === this.use.day();
+    return lit ? this.use.meta[agent].chart : 'var(--line-hover)';
+  }
 }

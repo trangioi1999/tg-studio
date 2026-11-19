@@ -145,20 +145,6 @@ export function sortRows(rows: UsageRow[], key: SortKey): UsageRow[] {
   return [...rows].sort((a, b) => by(b) - by(a) || b.startedAt - a.startedAt);
 }
 
-/** SVG path for a sparkline in a `w`×`h` box; flat at the bottom when all zero. */
-export function sparkPath(values: number[], w: number, h: number): string {
-  if (values.length < 2) return '';
-  const max = Math.max(...values);
-  const step = w / (values.length - 1);
-  return values
-    .map((v, i) => `${i ? 'L' : 'M'}${round(i * step)} ${round(max ? h - (v / max) * (h - 2) - 1 : h - 1)}`)
-    .join(' ');
-}
-
-function round(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
 /** Rounds the axis top up to 1, 2 or 5 × 10ⁿ so the gridlines read cleanly. */
 export function niceMax(v: number): number {
   if (v <= 0) return 0;

@@ -8,7 +8,7 @@ import { AGENT_IDS, AGENT_META } from '../../services/agents/agent-meta';
 import { RunsService } from '../../services/runs/runs.service';
 import { UiService } from '../../services/app/ui.service';
 import {
-  DayBucket, Measure, SortKey, agentShares, changePct, dailyBuckets, filterRows, niceMax, sortRows, sparkPath, startOfDay, tokensOf, totalsOf, toCsv,
+  DayBucket, Measure, SortKey, agentShares, changePct, dailyBuckets, filterRows, niceMax, sortRows, startOfDay, tokensOf, totalsOf, toCsv,
 } from '../../services/usage/usage-report';
 import { errorText } from '../../shared/utils/errors';
 
@@ -72,9 +72,6 @@ export class UsageState {
     const t = this.totals();
     return t.tokens ? Math.round((t.cached / t.tokens) * 100) : 0;
   });
-  private readonly costDays = computed(() => (PRICE_HISTORY(), this.today(), dailyBuckets(this.rows(), this.days(), 'cost')));
-  readonly costSpark = computed(() => sparkPath(this.costDays().map((d) => d.total), 200, 26));
-  readonly runSpark = computed(() => sparkPath(this.costDays().map((d) => d.runs), 200, 26));
 
   readonly shares = computed(() => (PRICE_HISTORY(), agentShares(this.rows())));
   readonly unpricedBy = computed(() => {
