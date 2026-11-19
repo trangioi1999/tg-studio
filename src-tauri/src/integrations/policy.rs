@@ -212,6 +212,14 @@ pub fn must_ask(command: &str) -> bool {
     false
 }
 
+/// The command line of an ACP `terminal/create` (`command` + `args`), quoted so that
+/// `sh -c 'git push'` reads as one script.
+pub fn terminal_command(params: &Value) -> String {
+    let mut words = vec![params["command"].as_str().unwrap_or_default().to_string()];
+    words.extend(params["args"].as_array().into_iter().flatten().map(|a| quote_token(a.as_str().unwrap_or_default())));
+    words.join(" ")
+}
+
 fn quote_token(token: &str) -> String {
     if token.chars().all(|c| c.is_alphanumeric() || "_./-=:".contains(c)) && !token.is_empty() {
         token.into()

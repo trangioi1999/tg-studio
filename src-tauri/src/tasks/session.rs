@@ -336,6 +336,10 @@ impl TaskSession {
 }
 impl ClientHandler for TaskSession {
     fn on_notification(&self, method:&str, params:Value) {
+        if method == crate::acp::client::NO_ASKING_MODE {
+            self.note(format!("{} không có chế độ xin duyệt: nếu thiết lập riêng của CLI đang tự duyệt, agent có thể chạy công cụ của nó mà không hiện thẻ duyệt. TG Studio vẫn chặn lệnh bị cấm và chế độ Chỉ hỏi ở terminal và tệp do app cấp.", self.agent.display_name()));
+            return;
+        }
         if self.muted.load(Ordering::SeqCst) { return; }
         self.note_kiro_extension(method, &params);
         if method.trim_start_matches('_') == "kiro.dev/metadata" { self.kiro_metering(&params); self.flush_events(); return; }
@@ -392,6 +396,20 @@ impl ClientHandler for TaskSession {
         let operation_gate = self.operation_gate.clone();
         if self.approval() == Approval::Deny && method == "fs/write_text_file" {
             return Box::pin(async {Err(crate::acp::transport::RpcError {code:-32000,message:"Chế độ Chỉ hỏi: không được ghi tệp.".into(),data:None})});
+        }
+        // An adapter may run a command without asking first (its own CLI set to approve):
+        // Chỉ hỏi and the forbidden list hold here too, not only on permission requests.
+        if method == "terminal/create" {
+            let command = policy::terminal_command(&params);
+            let refusal = if self.approval() == Approval::Deny {
+                Some((format!("Chỉ hỏi: đã từ chối {command}"), "Chế độ Chỉ hỏi: không được chạy lệnh."))
+            } else if policy::is_forbidden(&command) {
+                Some((format!("Đã tự động từ chối lệnh bị cấm: {command}"), "Lệnh này bị TG Studio cấm."))
+            } else { None };
+            if let Some((line, message)) = refusal {
+                self.note(line);
+                return Box::pin(async move {Err(crate::acp::transport::RpcError {code:-32000,message:message.into(),data:None})});
+            }
         }
         Box::pin(async move {
             match method.as_str() {
@@ -610,6 +628,43 @@ mod tests {
         assert!(session.on_request("fs/write_text_file".into(), json!({"path": path, "content": "x"})).await.is_err());
         assert!(!path.exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// An adapter may call `terminal/create` without asking first (its CLI set to approve
+    /// by itself): Chỉ hỏi and the forbidden list still hold there.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_create_obeys_deny_and_the_forbidden_list() {
+        let root = std::env::temp_dir().join(format!("tg-terminal-policy-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Gemini, &root, sink.clone(), Arc::new(Memory::default())).unwrap();
+        let marker = root.join("ran");
+        let touch = json!({"command":"/usr/bin/touch","args":[marker.to_str().unwrap()]});
+        session.set_approval(Approval::Deny);
+        assert!(session.on_request("terminal/create".into(), touch.clone()).await.is_err());
+        session.set_approval(Approval::Auto);
+        for forbidden in [json!({"command":"git","args":["push","origin","main"]}), json!({"command":"/bin/sh","args":["-c","git push"]})] {
+            assert!(session.on_request("terminal/create".into(), forbidden).await.is_err());
+        }
+        assert!(sink.0.lock().unwrap().iter().any(|e| e.kind == "stderr" && e.line.as_deref().unwrap_or("").contains("git push")));
+        assert!(!marker.exists());
+        let terminal = session.on_request("terminal/create".into(), touch).await.unwrap();
+        session.on_request("terminal/wait_for_exit".into(), terminal).await.unwrap();
+        assert!(marker.exists(), "lệnh thường vẫn chạy");
+        session.finish().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_session_without_an_asking_mode_warns_the_user() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Kiro, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification(crate::acp::client::NO_ASKING_MODE, json!({}));
+        let events = sink.0.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "stderr");
+        assert!(events[0].line.as_deref().unwrap().contains("duyệt"));
     }
 
     #[tokio::test]
