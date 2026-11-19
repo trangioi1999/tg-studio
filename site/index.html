@@ -79,7 +79,7 @@ section h2 { margin: 0 0 14px; font: 650 clamp(28px, 3.4vw, 40px)/1.15 var(--bod
 section h3 { margin: 0 0 6px; font: 600 19px/1.35 var(--body); }
 .sub { margin: 0 0 32px; color: var(--fg-2); max-width: 62ch; }
 
-.feature { display: grid; gap: 28px; align-items: center; }
+.feature { display: grid; gap: 28px; align-items: start; }
 .feature + .feature { margin-top: 88px; }
 .feature .text p { margin: 0 0 14px; color: var(--fg-2); max-width: 52ch; }
 .feature .text ul { margin: 18px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; max-width: 52ch; }
@@ -110,11 +110,12 @@ code { font: 13.5px var(--mono); background: var(--raised); border: 1px solid va
 .cmd button { flex: none; min-height: 44px; min-width: 64px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--fg-2); font: 500 14px var(--body); cursor: pointer; transition: color .15s ease, background-color .15s ease, transform .12s ease; }
 .cmd button:hover { color: var(--fg); background: var(--raised); }
 .cmd button:active { transform: translateY(1px); }
+@media (max-width: 560px) {
+  .cmd { flex-wrap: wrap; }
+  .cmd pre { flex-basis: 100%; white-space: pre-wrap; word-break: break-all; }
+}
 
-.final { text-align: center; }
-.final h2 { margin-inline: auto; }
-.final .sub { margin-inline: auto; }
-.final .cta { justify-content: center; margin-top: 0; }
+.final .cta { margin-top: 0; }
 
 footer { padding-block: 28px calc(env(safe-area-inset-bottom, 0px) + 28px); border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
