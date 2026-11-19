@@ -288,9 +288,12 @@ impl TaskSession {
         if permissions.closed { return Box::pin(async {Ok(cancelled())}); }
         let tool = params["toolCall"].clone();
         let options = params["options"].as_array().cloned().unwrap_or_default();
-        let verdict = policy::evaluate(&policy::tool_info(&tool), &self.rules.rules().unwrap_or_default());
+        let info = policy::tool_info(&tool);
+        let verdict = policy::evaluate(&info, &self.rules.rules().unwrap_or_default());
+        // Auto still asks when the policy cannot read the command (`git $'push'`, `git -c …`).
+        let unclear = info.command.as_deref().is_some_and(policy::must_ask);
         let verdict = match (verdict, self.approval()) {
-            (Verdict::Ask, Approval::Auto) => Verdict::Allow,
+            (Verdict::Ask, Approval::Auto) if !unclear => Verdict::Allow,
             (_, Approval::Deny) => Verdict::Deny,
             (v, _) => v,
         };
@@ -607,6 +610,17 @@ mod tests {
         assert!(session.on_request("fs/write_text_file".into(), json!({"path": path, "content": "x"})).await.is_err());
         assert!(!path.exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auto_still_asks_for_commands_the_policy_cannot_read() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.set_approval(Approval::Auto);
+        let answer = session.on_request("session/request_permission".into(), permission("git $'push' origin main"));
+        let id = wait_permission(&sink).await;
+        session.respond_permission(&id, "no", false).unwrap();
+        assert_eq!(answer.await.unwrap(), selected("no"));
     }
 
     fn permission(command:&str)->Value {
