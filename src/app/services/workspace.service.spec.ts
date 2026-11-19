@@ -3,6 +3,8 @@ import { AgentBackend } from '../core/backend';
 import { MockBackend } from '../core/mock/mock-backend';
 import { Project } from '../core/protocol';
 import { WorkspaceService } from './workspace.service';
+import { RunsService } from './runs/runs.service';
+import { Run } from './runs/run';
 
 const KEY = 'tg.repo';
 const ready = (root: string): Project => ({ root, name: root.split('/').pop()!, branch: 'main', git: 'ready', adjusted: null, uncommitted: 0, gitUser: true });
@@ -225,5 +227,51 @@ describe('WorkspaceService refresh', () => {
     backend.getDiff = async () => [];
     await service.refresh('r');
     expect(service.refreshErrors()['r']).toBeUndefined();
+  });
+});
+
+describe('WorkspaceService tabs per conversation', () => {
+  afterEach(() => localStorage.removeItem(KEY));
+  const run = (over: Partial<Run>): Run => ({
+    id: 'r', agent: 'claude', prompt: 'p', cwd: '/repo', startedAt: 1, endedAt: 2, status: 'done', lines: [], usage: null, exitCode: 0, restored: false,
+    task: true, permissions: [], lastMessage: '', group: null, thread: 't', project: '/repo', scope: null, waits: [], plan: [], progress: null, ...over,
+  });
+
+  it('shows each conversation its own tabs and starts a new one empty', async () => {
+    const { service } = await setup('/repo');
+    const runs = TestBed.inject(RunsService);
+    runs.runs.set([run({ id: 'a', thread: 't1', restored: true }), run({ id: 'b', thread: 't2', restored: true })]);
+    runs.selectedId.set('a');
+    service.openFile('a', 'app.ts');
+    runs.selectedId.set('b');
+    expect(service.tabs()).toEqual([]);
+    service.openFile('b', 'b.ts');
+    runs.selectedId.set(null);
+    expect(service.tabs()).toEqual([]);
+    expect(service.activeKey()).toBeNull();
+    runs.selectedId.set('a');
+    expect(service.tabs()).toEqual([{ kind: 'file', runId: 'a', path: 'app.ts' }]);
+    expect(service.activeKey()).toBe('file:a:app.ts');
+  });
+
+  it('keeps what was open while writing the first message of a new conversation', async () => {
+    const { service } = await setup('/repo');
+    const runs = TestBed.inject(RunsService);
+    service.openSource('src/a.ts');
+    runs.runs.set([run({ id: 'n', thread: 'new-thread' })]);
+    runs.selectedId.set('n');
+    expect(service.tabs()).toEqual([{ kind: 'source', root: '/repo', path: 'src/a.ts' }]);
+  });
+
+  it('drops the tabs of a gone run from conversations that are not open', async () => {
+    const { service } = await setup('/repo');
+    const runs = TestBed.inject(RunsService);
+    runs.runs.set([run({ id: 'a', thread: 't1', restored: true }), run({ id: 'b', thread: 't2', restored: true })]);
+    service.openFile('a', 'app.ts');
+    runs.selectedId.set('b');
+    service.closeRun('a');
+    runs.selectedId.set('a');
+    expect(service.tabs()).toEqual([]);
+    expect(service.activeKey()).toBeNull();
   });
 });
