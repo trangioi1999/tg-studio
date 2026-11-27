@@ -9,6 +9,7 @@ import { Screen, UiService } from '../services/app/ui.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { AgentAvatar } from '../shared/ui/agent-avatar';
 import { errorText } from '../shared/utils/errors';
+import { runningRows } from './running-group';
 
 /** Left column: projects and their conversations, then the screens beyond the chat. */
 @Component({
@@ -73,6 +74,22 @@ import { errorText } from '../shared/utils/errors';
       @if (failed()?.id === t.id) { <p class="error-text tl-err">{{ failed()!.message }}</p> }
     </ng-template>
     <nav class="tl-tree" aria-label="Dự án và cuộc trò chuyện">
+      @if (running().rows.length) {
+        <section class="rn-group" aria-label="Đang chạy">
+          <h2 class="rn-heading">Đang chạy · {{ running().rows.length + running().more }}</h2>
+          @for (r of running().rows; track r.id) {
+            <button class="rn-row" [class.rn-child]="r.child"
+              [title]="r.title + ' · ' + r.project + ' · ' + (r.status === 'needs_you' ? 'Cần bạn' : 'Đang chạy')"
+              (click)="ui.openRun(r.id)">
+              <tg-agent-avatar [agent]="r.agent" [size]="20" />
+              <span class="rn-title">{{ r.title }}</span>
+              <span class="rn-dot" [attr.data-status]="r.status" role="img"
+                [attr.aria-label]="r.status === 'needs_you' ? 'Cần bạn' : 'Đang chạy'"></span>
+            </button>
+          }
+          @if (running().more) { <p class="rn-more">+{{ running().more }} nữa</p> }
+        </section>
+      }
       <!-- On the welcome screen its big button opens a folder; a second one here would only repeat it. -->
       @if (workspace.folder() || threads.projects().length || ui.screen() !== 'chat') {
         <div class="tl-group-head">
@@ -139,6 +156,7 @@ export class ThreadList {
   protected readonly workspace = inject(WorkspaceService);
   protected readonly ui = inject(UiService);
   private readonly runs = inject(RunsService);
+  protected readonly running = computed(() => runningRows(this.runs.runs()));
   protected readonly settingsOpen = signal(false);
   protected readonly meta = AGENT_META;
   protected readonly label = THREAD_STATUS_LABEL;
