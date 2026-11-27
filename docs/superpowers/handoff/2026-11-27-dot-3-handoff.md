@@ -20,7 +20,7 @@ Ghi chú để làm tiếp ở phiên hoặc tài khoản khác. Đọc hết t�
 | Đợt | Trạng thái |
 |---|---|
 | A · Một phiên cho mọi chế độ | **Xong**, lượt soát toàn nhánh sạch (commit `8d1d14b..44b1078`) |
-| B · Token và context | Task 1 xong (`4e0a034`). Task 2 xong (`31f9e44`), đã sửa theo lượt soát (`31f9e44`) nhưng **chưa soát lại phần sửa** (xem dưới). Task 3, 4 chưa làm |
+| B · Token và context | Task 1 xong (`4e0a034`). Task 2 xong (`31f9e44`), đã sửa theo lượt soát (`6330492`) nhưng **chưa soát lại phần sửa** (xem dưới). Task 3, 4 chưa làm |
 | C · Ô chat A, dòng kiểu CLI, nhóm Đang chạy | Chưa làm (plan sẵn) |
 | D · Agent con trong chat, cửa sổ lớn | Chưa làm (plan sẵn) |
 | E · Bảng agent | Chưa làm (plan sẵn) |
@@ -29,11 +29,11 @@ Mèo TG (`tg-mascot`, `tg-dock-mascot`, `public/mascot/`) đã có trên `main` 
 
 ### Việc dở ngay lúc bàn giao: soát lại lượt sửa task 2 của đợt B
 
-Lượt soát task 2 tìm ra hai điểm. Agent đã sửa ở commit `31f9e44`:
+Lượt soát task 2 tìm ra hai điểm. Agent đã sửa ở commit `6330492`:
 - `refresh_context` đổi thành `#[tauri::command(async)]`, và `ask_context` spawn bằng `tauri::async_runtime::spawn`. Có test mới `context_refresh_works_outside_a_runtime`.
 - `set_approval` đã đổi lại thành `#[tauri::command(async)]`.
 
-Lúc đó cargo test 440 qua, 0 cảnh báo. **Chưa có agent soát lại** phần sửa này. Việc đầu tiên: soát diff `31f9e44..31f9e44` theo hai điểm trên, rồi sang task 3 của đợt B.
+Lúc đó cargo test 440 qua, 0 cảnh báo. **Chưa có agent soát lại** phần sửa này. Việc đầu tiên: soát diff `31f9e44..6330492` theo hai điểm trên, rồi sang task 3 của đợt B.
 
 ## Môi trường (container cloud)
 
