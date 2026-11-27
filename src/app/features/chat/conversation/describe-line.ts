@@ -1,3 +1,4 @@
+import { MiniDiff, ToolHead } from './tool-step';
 import { AgentId } from '../../../core/protocol';
 
 /** `delegate` marks where a run handed work to another agent (`label`: the delegation id, live only). */
@@ -8,6 +9,9 @@ export interface ConsoleLine {
   /** Identifies a line that later events update in place. */
   key?: string;
   label?: string;
+  head?: ToolHead;
+  result?: string;
+  diff?: MiniDiff;
 }
 
 export const MESSAGE_KEY = 'message';

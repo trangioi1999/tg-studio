@@ -1,3 +1,4 @@
+import { MiniDiff, ToolHead } from './tool-step';
 import { ConsoleLine } from './describe-line';
 
 export type StepState = 'done' | 'running' | 'failed' | 'note';
@@ -6,6 +7,9 @@ export interface WorkStep {
   /** Verb-first action as the agent named it, e.g. "Read src/app.ts". */
   text: string;
   state: StepState;
+  head?: ToolHead;
+  result?: string;
+  diff?: MiniDiff;
 }
 
 /** What a run said, in the order the chat shows it. Raw events never get here. */
@@ -49,18 +53,18 @@ export function segmentsOf(lines: ConsoleLine[], running: boolean): Segment[] {
         if (text) out.push({ kind: 'text', text });
         break;
       }
-      case 'tool': {
+      case 'tool':
+      case 'error': {
+        if (line.tone === 'error' && !line.head) {
+          work().steps.push({ text: line.text.trim(), state: 'note' });
+          break;
+        }
         const failed = /\s✕$/.test(line.text);
         const text = line.text.replace(/^›\s*/, '').replace(/\s[✓✕]$/, '').trim();
         if (!text) break;
         const group = work();
-        group.steps.push({ text, state: failed ? 'failed' : 'done' });
+        group.steps.push({ text, state: failed ? 'failed' : 'done', ...(line.head ? { head: line.head } : {}), ...(line.result ? { result: line.result } : {}), ...(line.diff ? { diff: line.diff } : {}) });
         if (failed) group.failed++;
-        break;
-      }
-      case 'error': {
-        const group = work();
-        group.steps.push({ text: line.text.trim(), state: 'note' });
         break;
       }
       default:

@@ -1,3 +1,4 @@
+import { toolHead, miniDiff, resultLine } from '../../features/chat/conversation/tool-step';
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from '../../features/chat/conversation/describe-line';
 import { planProposal, toolProposal } from '../../features/chat/dock/proposal';
 import { AgentCommand, AgentEvent, AgentId, ContextUsage, Delegation, PermissionRequest, PlanEntry, RunStatus, StoredRun, Usage } from '../../core/protocol';
@@ -178,7 +179,19 @@ function applyTool(lines: ConsoleLine[], update: Json): ConsoleLine[] {
   const status = update['status'];
   const failed = status === 'failed';
   const suffix = status === 'completed' ? ' ✓' : failed ? ' ✕' : '';
-  const line: ConsoleLine = { key, label, text: `› ${label}${suffix}`, tone: failed ? 'error' : 'tool' };
+  const previous = lines[index];
+  const head = toolHead(update);
+  const hasName = update['_meta'] != null || update['kind'] != null;
+  const result = resultLine(update) ?? previous?.result;
+  const diff = miniDiff(update) ?? previous?.diff;
+  // Older title-only events retain the original ConsoleLine shape.
+  const rich = previous?.head || hasName || head.arg !== null || result || diff;
+  const line: ConsoleLine = {
+    key, label, text: `› ${label}${suffix}`, tone: failed ? 'error' : 'tool',
+    ...(rich ? { head: { name: hasName ? head.name : previous?.head?.name ?? head.name, arg: head.arg ?? previous?.head?.arg ?? null } } : {}),
+    ...(result ? { result } : {}),
+    ...(diff ? { diff } : {}),
+  };
   if (index < 0) return [...lines, line];
   return lines.map((l, i) => (i === index ? line : l));
 }
