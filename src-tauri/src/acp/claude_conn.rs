@@ -294,7 +294,8 @@ impl ClaudeConn {
     fn ask_context(self: &Arc<Self>) {
         *self.context_asked.lock().unwrap() = Some(std::time::Instant::now());
         let conn = self.clone();
-        tokio::spawn(async move {
+        // Not `tokio::spawn`: a Tauri command may call this from a thread with no runtime.
+        tauri::async_runtime::spawn(async move {
             if let Ok(table) = conn.control(json!({ "subtype": "get_context_usage", "detail": "summary" })).await {
                 conn.handler.on_notification("_tg/context", table);
             }
@@ -1171,6 +1172,21 @@ mod tests {
         let asked = controls(&log, "get_context_usage");
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0]["request"]["detail"], "summary");
+        conn.close();
+    }
+
+    /// A Tauri command can reach `refresh_context` from a thread with no tokio runtime.
+    #[test]
+    fn context_refresh_works_outside_a_runtime() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (conn, _id, log) = runtime.block_on(open_logged(vec![]));
+        let caller = conn.clone();
+        std::thread::spawn(move || caller.refresh_context()).join().expect("no panic outside a runtime");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while controls(&log, "get_context_usage").is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(controls(&log, "get_context_usage").len(), 1);
         conn.close();
     }
 

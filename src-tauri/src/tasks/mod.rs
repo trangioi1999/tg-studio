@@ -840,7 +840,7 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
 }
 
 /// Asks an open session for a fresh context table (Claude: `get_context_usage`, 0 token).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn refresh_context(tasks: State<'_, TaskRuns>, run_id: String) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     session.ok_or("Phiên này đã đóng.")?.refresh_context();
@@ -848,7 +848,7 @@ pub fn refresh_context(tasks: State<'_, TaskRuns>, run_id: String) -> Result<(),
 }
 
 /// Changes how an open session answers permission requests (Hỏi trước, Tự động, Chỉ hỏi); the session's mode hook (Claude) follows.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_approval(tasks: State<'_, TaskRuns>, run_id: String, approval: Approval) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     session.ok_or("Phiên này đã đóng.")?.switch_approval(approval)
