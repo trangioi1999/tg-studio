@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { ElementRef, effect, viewChild } from '@angular/core';
 import { AgentMenu } from './agent-menu';
 import { CommandMenu } from './command-menu';
+import { ContextChip } from './context-chip';
 import { GitSetup } from './git-setup';
 import { PermMenu } from './perm-menu';
 import { PipelineSteps } from './pipeline-steps';
@@ -11,7 +12,7 @@ import { ChatState } from '../chat.state';
 /** The box that hands out work, with who works, what it may do and where. */
 @Component({
   selector: 'tg-composer',
-  imports: [AgentMenu, CommandMenu, GitSetup, PermMenu, PipelineSteps, PlaceMenu],
+  imports: [AgentMenu, CommandMenu, ContextChip, GitSetup, PermMenu, PipelineSteps, PlaceMenu],
   template: `
 <section class="cmp" [class.big]="!chat.run()" [class.dropping]="chat.dragging()" aria-label="Giao việc"
   (dragover)="chat.onDragOver($event)" (dragleave)="chat.dragging.set(false)" (drop)="chat.onDrop($event)">
@@ -66,6 +67,7 @@ import { ChatState } from '../chat.state';
       <button class="chip-btn" [attr.aria-expanded]="chat.editSteps()" (click)="chat.editSteps.set(!chat.editSteps())">{{ chat.editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
     }
     <span class="spacer"></span>
+    <tg-context-chip />
     @if (!chat.prompt()) { <span class="cmp-keys" aria-hidden="true"><span class="kbd">↵</span> gửi · <span class="kbd">⇧↵</span> xuống dòng</span> }
     @if (chat.run()?.status === 'running') {
       <button class="send" aria-label="Dừng agent" title="Dừng" (click)="chat.runs.stop(chat.run()!.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>

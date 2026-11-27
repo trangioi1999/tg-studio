@@ -88,8 +88,12 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
       if (run.status !== 'running' || typeof d['outputTokens'] !== 'number') return run;
       return { ...run, live: { inputTokens: typeof d['inputTokens'] === 'number' ? d['inputTokens'] : null, outputTokens: d['outputTokens'], estimated: d['estimated'] === true } };
     }
-    case 'context':
-      return { ...run, context: dataOf(e) as unknown as ContextUsage };
+    case 'context': {
+      const d = dataOf(e);
+      if (typeof d['source'] !== 'string') return run;
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      return { ...run, context: { ...d, used: num(d['used']), size: num(d['size']), percent: num(d['percent']) } as unknown as ContextUsage };
+    }
     case 'limits':
       return run; // handled above: limits belong to the account, not the run
     case 'commands': {

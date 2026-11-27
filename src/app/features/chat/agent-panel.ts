@@ -9,6 +9,7 @@ import { ChatState } from './chat.state';
 import { ChatTurn } from './conversation/chat-turn';
 import { Composer } from './composer/composer';
 import { HandoffCards } from './conversation/handoff-cards';
+import { ContextAlert } from './dock/context-alert';
 import { DockMascot } from './dock/dock-mascot';
 import { LiveStatus } from './dock/live-status';
 import { PendingMessage } from './conversation/pending-message';
@@ -23,7 +24,7 @@ import { ProposalCard } from './dock/proposal-card';
  */
 @Component({
   selector: 'tg-agent-panel',
-  imports: [AgentAvatar, Approvals, ChangesCard, ChatHome, ChatTurn, Composer, DockMascot, HandoffCards, LiveStatus, PendingMessage, PipelineStepper, PlanTab, ProposalCard],
+  imports: [AgentAvatar, Approvals, ChangesCard, ChatHome, ChatTurn, Composer, ContextAlert, DockMascot, HandoffCards, LiveStatus, PendingMessage, PipelineStepper, PlanTab, ProposalCard],
   providers: [ChatState],
   template: `
     @if (chat.menu()) { <div class="pop-backdrop" (click)="chat.menu.set(null)"></div> }
@@ -71,6 +72,7 @@ import { ProposalCard } from './dock/proposal-card';
         <tg-approvals />
         <tg-proposal-card />
         <tg-live-status />
+        <tg-context-alert />
         <tg-composer />
       </div></div>
     } @else {

@@ -93,4 +93,13 @@ describe('applyEvent', () => {
     const { effects } = applyEvent(run(), ev({ kind: 'bridge', line: '◆', data: { tool: 'handoff_to', id: 'h', agent: 'codex', task: 'Viết test', files: ['a.ts', 3] } }), { stopping: false });
     expect(effects).toEqual([{ kind: 'handoff', handoff: { id: 'h', runId: 'r', from: 'claude', agent: 'codex', task: 'Viết test', files: ['a.ts'], at: 9 } }]);
   });
+
+  it('context_event_is_validated', () => {
+    const at = (data: AgentEvent['data'], base?: Run) => applyEvent(base ?? run(), ev({ kind: 'context', data }), { stopping: false }).run;
+    const good = at({ source: 'kiro', used: 'x', size: null, percent: 7 });
+    expect(good.context).toMatchObject({ source: 'kiro', used: null, size: null, percent: 7 });
+    expect(at({ source: 'acp', used: null, size: null, percent: Number.NaN }).context?.percent).toBeNull();
+    // Without a source the event is ignored and the old reading stays.
+    expect(at({ used: 1, size: 2, percent: 50 }, run({ context: good.context })).context).toBe(good.context);
+  });
 });

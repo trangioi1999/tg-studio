@@ -207,10 +207,10 @@ export class ChatState {
   });
 
   // Composer menus: who works (agent, model, team) and what it may do (permission).
-  readonly menu = signal<'agent' | 'perm' | 'place' | null>(null);
+  readonly menu = signal<'agent' | 'perm' | 'place' | 'context' | null>(null);
   readonly team = computed<'single' | 'parallel' | 'pipeline'>(() => (this.mode() === 'parallel' ? 'parallel' : this.mode() === 'pipeline' ? 'pipeline' : 'single'));
 
-  toggleMenu(which: 'agent' | 'perm' | 'place'): void {
+  toggleMenu(which: 'agent' | 'perm' | 'place' | 'context'): void {
     const opening = this.menu() !== which;
     this.menu.set(opening ? which : null);
     if (opening && which === 'place') void this.loadBranches();
