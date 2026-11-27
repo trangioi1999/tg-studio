@@ -949,6 +949,13 @@ tg-integrations { display: block; }
 .mascot[data-pose='success'] .mascot-img { animation: mascot-jump 0.9s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
 .mascot[data-pose='success']::before { animation: mascot-shadow 0.9s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
 .mascot[data-pose='sleep'] .mascot-img { animation: mascot-breathe 4.5s ease-in-out infinite; }
+.mascot[data-pose='oops'] .mascot-img { filter: saturate(0.45) brightness(0.85); animation: mascot-shake 0.5s ease-in-out 2; }
+.mascot[data-pose='oops']::before { opacity: 0.4; }
+/* Standing on the top edge of the dock, at the right; the chat scrolls clear of it. */
+.dock-col { position: relative; }
+.dock-mascot { position: absolute; right: 6px; bottom: 100%; pointer-events: none; animation: tg-fade var(--t-med) var(--ease); transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease); }
+.dock-mascot.away { opacity: 0; transform: translateY(8px); }
+.chat-scroll:has(+ .chat-dock .dock-mascot) { padding-bottom: 72px; }
 .mascot-z { position: absolute; top: 4%; right: 6%; font: 700 14px/1 var(--font); color: var(--wait); pointer-events: none; }
 .mascot-z i { position: absolute; font-style: normal; opacity: 0; animation: mascot-z 3s ease-out infinite; }
 .mascot-z i:nth-child(2) { animation-delay: 1s; font-size: 0.85em; }
@@ -958,6 +965,7 @@ tg-integrations { display: block; }
   0% { background-position-x: 0; } 12% { background-position-x: 25%; } 24% { background-position-x: 50%; } 38% { background-position-x: 75%; }
   52% { background-position-x: 50%; } 66% { background-position-x: 75%; } 82% { background-position-x: 100%; } 100% { background-position-x: 0; }
 }
+@keyframes mascot-shake { 20%, 60% { transform: translateX(-3%) rotate(-2deg); } 40%, 80% { transform: translateX(3%) rotate(2deg); } }
 @keyframes mascot-breathe { 50% { transform: scale(1.012, 0.985); } }
 @keyframes mascot-type { 50% { transform: translateY(1.5%); } }
 @keyframes mascot-ponder { 25% { transform: rotate(-1.5deg); } 75% { transform: rotate(1.5deg); } }

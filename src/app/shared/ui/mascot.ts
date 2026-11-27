@@ -1,6 +1,9 @@
 import { Component, computed, input, output } from '@angular/core';
 
-export type MascotPose = 'idle' | 'coding' | 'thinking' | 'success' | 'sleep' | 'wave';
+export type MascotPose = 'idle' | 'coding' | 'thinking' | 'success' | 'sleep' | 'wave' | 'oops';
+
+/** No art for a failure yet: the puzzled pose, shaken and greyed by CSS. */
+const IMAGE: Record<Exclude<MascotPose, 'wave'>, string> = { idle: 'idle', coding: 'coding', thinking: 'thinking', success: 'success', sleep: 'sleep', oops: 'thinking' };
 
 const LABEL: Record<MascotPose, string> = {
   idle: 'Mèo TG đang đứng chờ',
@@ -9,6 +12,7 @@ const LABEL: Record<MascotPose, string> = {
   success: 'Mèo TG ăn mừng',
   sleep: 'Mèo TG đang ngủ',
   wave: 'Mèo TG vẫy tay chào',
+  oops: 'Mèo TG gặp lỗi',
 };
 
 /**
@@ -21,7 +25,7 @@ const LABEL: Record<MascotPose, string> = {
   @if (pose() === 'wave') {
     <span class="mascot-sprite" (animationend)="waved.emit()"></span>
   } @else {
-    <img class="mascot-img" [src]="'mascot/' + pose() + '.webp'" alt="" draggable="false" />
+    <img class="mascot-img" [src]="'mascot/' + image() + '.webp'" alt="" draggable="false" />
   }
   @if (pose() === 'sleep') {
     <span class="mascot-z" aria-hidden="true"><i>z</i><i>z</i><i>z</i></span>
@@ -35,4 +39,5 @@ export class Mascot {
   readonly waved = output<void>();
   protected readonly height = computed(() => Math.round((this.size() * 400) / 360));
   protected readonly label = computed(() => LABEL[this.pose()]);
+  protected readonly image = computed(() => IMAGE[this.pose() as Exclude<MascotPose, 'wave'>]);
 }
