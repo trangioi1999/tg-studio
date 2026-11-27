@@ -119,6 +119,7 @@ pub fn run() {
             agents::options::agent_options,
             agents::options::agent_commands,
             tasks::set_approval,
+            tasks::refresh_context,
             tasks::list_branches,
             tasks::send_message,
             tasks::respond_permission,

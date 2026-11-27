@@ -16,6 +16,7 @@ pub trait RuleMemory: Send + Sync + 'static {
     fn rules(&self) -> Result<Vec<String>, String>;
     fn add(&self, rule: &str) -> Result<(), String>;
 }
+pub type ContextHook = Arc<dyn Fn() + Send + Sync>;
 pub type ModeHook = Arc<dyn Fn(Approval) -> Result<(), String> + Send + Sync>;
 struct Pending { reply: oneshot::Sender<Value>, tool: Value, options: Vec<Value> }
 #[derive(Default)]
@@ -47,6 +48,7 @@ pub struct TaskSession {
     throwaway: AtomicBool,
     /// Tells the connection about a new `approval` (Claude's own permission mode follows it).
     mode_hook: Mutex<Option<ModeHook>>,
+    context_hook: Mutex<Option<ContextHook>>,
     /// The agent's latest message, and whether a tool call ended it (the next chunk starts anew).
     reply: Mutex<(String, bool)>,
     /// The agent's own subagents (ACP child sessions): session id → (run id, still working).
@@ -76,7 +78,7 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default(),turn_chars:AtomicU64::new(0),progress_at:Mutex::new(None),real_progress:AtomicBool::new(false)})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),context_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default(),turn_chars:AtomicU64::new(0),progress_at:Mutex::new(None),real_progress:AtomicBool::new(false)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     /// Changes how requests are answered, and tells the connection through the hook if there is one.
@@ -99,6 +101,12 @@ impl TaskSession {
     }
     /// Set by `start_task` (`follow_mode`) once the connection exists.
     pub fn set_mode_hook(&self, hook:ModeHook) { *self.mode_hook.lock().unwrap() = Some(hook); }
+    /// Set by `start_task` (`follow_context`): asks the connection for a fresh context table.
+    pub fn set_context_hook(&self, hook:ContextHook) { *self.context_hook.lock().unwrap() = Some(hook); }
+    pub fn refresh_context(&self) {
+        let hook = self.context_hook.lock().unwrap().clone();
+        if let Some(hook) = hook { hook(); }
+    }
     pub fn approval(&self) -> Approval { *self.approval.lock().unwrap() }
     /// The agent's latest message: a delegated agent's summary for its parent.
     pub fn last_reply(&self) -> String { self.reply.lock().unwrap().0.clone() }
@@ -451,7 +459,16 @@ impl ClientHandler for TaskSession {
         if self.muted.load(Ordering::SeqCst) { return; }
         self.note_kiro_extension(method, &params);
         if method.trim_start_matches('_') == "kiro.dev/metadata" { self.kiro_metering(&params); self.flush_events(); return; }
-        if method == "_tg/progress" || method == "tg/progress" { self.real_progress.store(true,Ordering::SeqCst); return; }
+        if method == "_tg/progress" || method == "tg/progress" {
+            self.real_progress.store(true,Ordering::SeqCst);
+            self.queue_data("progress", json!({"inputTokens": params["inputTokens"], "outputTokens": params["outputTokens"], "estimated": false}));
+            self.flush_events();
+            return;
+        }
+        if method == "_tg/context" {
+            self.queue_data("context", claude_context(&params)); self.flush_events();
+            return;
+        }
         if method != "session/update" {
             if let Some(update) = crate::agents::options::commands_in(method, &params) {
                 self.queue_data("commands", json!({"commands": crate::agents::options::parse_commands(self.agent, &update, Some(&self.cwd))}));
@@ -728,7 +745,9 @@ mod tests {
         session.on_notification("_tg/progress", json!({"outputTokens": 10}));
         chunk(&session, "abcd");
         session.turn_finished(&json!({}));
-        assert!(events_of(&sink, "progress").is_empty());
+        let progress = events_of(&sink, "progress");
+        assert_eq!(progress.len(), 1, "only the real count, no estimate");
+        assert_eq!(progress[0].data.as_ref().unwrap()["estimated"], false);
     }
     #[derive(Default)]
     struct Memory(Mutex<Vec<String>>);
@@ -1140,4 +1159,42 @@ mod tests {
         release.send(()).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(1),finish).await.unwrap().unwrap();emitter.join().unwrap();
     }
+}
+
+/// The `context` event of Claude's `get_context_usage` answer (`_tg/context`). Fields the
+/// answer lacks are left out; `mcpTools` are counted per server.
+fn claude_context(table:&Value) -> Value {
+    let mut event = serde_json::Map::new();
+    event.insert("used".into(), table["totalTokens"].clone());
+    event.insert("size".into(), table["maxTokens"].clone());
+    event.insert("percent".into(), table["percentage"].clone());
+    event.insert("source".into(), json!("claude"));
+    if let Some(at) = table["autoCompactThreshold"].as_u64() { event.insert("autoCompactAt".into(), json!(at)); }
+    let list = |key:&str| table[key].as_array().cloned().unwrap_or_default();
+    let categories: Vec<Value> = list("categories").iter().filter_map(|c| {
+        let name = c["name"].as_str()?;
+        let mut item = json!({"name": name, "tokens": c["tokens"].as_u64().unwrap_or(0)});
+        for key in ["id", "kind"] { if let Some(v) = c[key].as_str() { item[key] = json!(v); } }
+        Some(item)
+    }).collect();
+    if !categories.is_empty() { event.insert("categories".into(), json!(categories)); }
+    let files: Vec<Value> = list("memoryFiles").iter().filter_map(|f| {
+        Some(json!({"path": f["path"].as_str()?, "tokens": f["tokens"].as_u64().unwrap_or(0)}))
+    }).collect();
+    if !files.is_empty() { event.insert("memoryFiles".into(), json!(files)); }
+    let mut servers: Vec<(String, u64, u64)> = Vec::new();
+    for tool in list("mcpTools") {
+        let server = tool["serverName"].as_str().map(str::to_string)
+            .or_else(|| tool["name"].as_str().and_then(|n| n.strip_prefix("mcp__")).and_then(|n| n.split("__").next()).map(str::to_string));
+        let Some(server) = server else { continue };
+        let tokens = tool["tokens"].as_u64().unwrap_or(0);
+        match servers.iter_mut().find(|s| s.0 == server) {
+            Some(s) => { s.1 += 1; s.2 += tokens; }
+            None => servers.push((server, 1, tokens)),
+        }
+    }
+    if !servers.is_empty() {
+        event.insert("mcpTools".into(), json!(servers.iter().map(|(server, count, tokens)| json!({"server": server, "count": count, "tokens": tokens})).collect::<Vec<_>>()));
+    }
+    Value::Object(event)
 }

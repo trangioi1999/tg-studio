@@ -214,6 +214,8 @@ pub(crate) fn private_dir(app: &AppHandle) -> PathBuf {
 pub(crate) fn follow_mode(session: &TaskSession, client: &Arc<dyn AgentConn>) {
     let conn = Arc::downgrade(client);
     session.set_mode_hook(Arc::new(move |approval| conn.upgrade().map_or(Ok(()), |c| c.set_mode(approval))));
+    let conn = Arc::downgrade(client);
+    session.set_context_hook(Arc::new(move || { if let Some(c) = conn.upgrade() { c.refresh_context(); } }));
 }
 
 /// How a task gets its adapter: start one, or take a session opened ahead of time.
@@ -837,8 +839,16 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     Ok(id)
 }
 
+/// Asks an open session for a fresh context table (Claude: `get_context_usage`, 0 token).
+#[tauri::command]
+pub fn refresh_context(tasks: State<'_, TaskRuns>, run_id: String) -> Result<(), String> {
+    let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
+    session.ok_or("Phiên này đã đóng.")?.refresh_context();
+    Ok(())
+}
+
 /// Changes how an open session answers permission requests (Hỏi trước, Tự động, Chỉ hỏi); the session's mode hook (Claude) follows.
-#[tauri::command(async)]
+#[tauri::command]
 pub fn set_approval(tasks: State<'_, TaskRuns>, run_id: String, approval: Approval) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
     session.ok_or("Phiên này đã đóng.")?.switch_approval(approval)

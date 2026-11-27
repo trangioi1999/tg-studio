@@ -20,6 +20,8 @@ pub trait AgentConn: Send + Sync {
     fn set_config_option<'a>(&'a self, session_id: &'a str, config_id: &'a str, value: &'a str) -> BoxFuture<'a, Result<(), String>>;
     /// Đổi quyền giữa phiên. ACP: không làm gì (TaskSession tự xử lý quyền).
     fn set_mode(&self, _approval: Approval) -> Result<(), String> { Ok(()) }
+    /// Pide lại bảng context (chỉ Claude); các agent khác không làm gì.
+    fn refresh_context(self: std::sync::Arc<Self>) {}
     fn close(&self);
 }
 

@@ -30,6 +30,8 @@ pub enum ClaudeStep {
     WaitForControl(&'static str),
     /// Ends the turn: `stop` is the result subtype (`success`, `error_max_turns`…).
     Result { stop: &'static str, usage: Value, cost: f64 },
+    /// What the fake answers to `get_context_usage` from now on (default `{}`).
+    ContextUsage(Value),
     /// Closes stdout without ending the turn.
     Crash,
 }
@@ -70,11 +72,16 @@ pub fn fake_claude(steps: Vec<ClaudeStep>) -> (Reader, Writer, Log) {
             }
         });
 
+        let mut context = json!({});
         while let Some(message) = inbox.recv().await {
             match message["type"].as_str() {
                 Some("control_request") => {
                     let id = message["request_id"].clone();
-                    let body = if message["request"]["subtype"] == "initialize" { init_response() } else { json!({}) };
+                    let body = match message["request"]["subtype"].as_str() {
+                        Some("initialize") => init_response(),
+                        Some("get_context_usage") => context.clone(),
+                        _ => json!({}),
+                    };
                     send(&mut out, success(&id, body)).await;
                     if message["request"]["subtype"] == "initialize" {
                         send(&mut out, json!({ "type": "system", "subtype": "hook_started", "hook_name": "SessionStart:startup", "session_id": SESSION_ID })).await;
@@ -82,6 +89,7 @@ pub fn fake_claude(steps: Vec<ClaudeStep>) -> (Reader, Writer, Log) {
                 }
                 Some("user") => {
                     for step in steps.clone() {
+                        if let ClaudeStep::ContextUsage(reply) = &step { context = reply.clone(); continue; }
                         if !play(step, &mut out, &mut inbox).await { return; }
                     }
                 }
@@ -161,6 +169,7 @@ async fn play(step: ClaudeStep, out: &mut Writer, inbox: &mut mpsc::UnboundedRec
                 "modelUsage": { "claude-opus-5-5": { "contextWindow": 1_000_000, "costUSD": cost } },
             })).await;
         }
+        ClaudeStep::ContextUsage(_) => {}
         ClaudeStep::Crash => {
             let _ = out.shutdown().await;
             return false;

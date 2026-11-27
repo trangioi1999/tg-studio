@@ -43,6 +43,13 @@
 //!   `usage_update._meta["_claude/rateLimit"]` (`usage::parse_rate_limit` reads both).
 //!   Fields that are missing are ignored, never an error.
 
+//! `get_context_usage` with `{"detail":"summary"}` (CLI 2.1.332, 0 tokens, not logged in): the answer
+//! has `categories` (`id`, `name`, `tokens`, `color`, `kind`: used/deferred/buffer/free),
+//! `totalTokens`, `maxTokens`, `percentage`, `autoCompactThreshold`, `memoryFiles`, `mcpTools`
+//! (both `[]` when none; item shapes not observed, read leniently) and a bulky `gridRows` that
+//! is not forwarded. `message_start.message.usage` and `message_delta.usage.output_tokens`
+//! (cumulative per message) feed `_tg/progress`.
+
 //! `--resume <id>`, checked the same way (CLI 2.1.332, an `initialize` only, 0 tokens): for a
 //! conversation saved under `~/.claude/projects/*/<id>.jsonl` (any project folder, not only
 //! the one of the working directory), every line reports `session_id` `<id>`, so
@@ -137,8 +144,20 @@ pub struct ClaudeConn {
     /// Subagents Claude announced: the ids that name one (`task_id`, the spawning `tool_use_id`)
     /// to its `task_id`, which is its session id for `TaskSession`.
     subagents: Mutex<HashMap<String, String>>,
+    /// Tokens of the running turn, from the stream (`_tg/progress`).
+    progress: Mutex<Progress>,
+    /// When `get_context_usage` was last asked: `refresh_context` waits `CONTEXT_EVERY`.
+    context_asked: Mutex<Option<std::time::Instant>>,
     handler: Arc<dyn ClientHandler>,
 }
+
+/// Live counts of a turn: input adds up over its messages, output of the message being
+/// written is cumulative (`message_delta`), so earlier messages' output is folded into `done`.
+#[derive(Default)]
+struct Progress { input: u64, done: u64, current: u64 }
+
+/// `refresh_context` is a no-op when the last request was this recent.
+const CONTEXT_EVERY: Duration = Duration::from_secs(5);
 
 impl ClaudeConn {
     /// Đọc stdout của `claude -p`, ghi stdin. `handler` nhận mọi thứ đã dịch sang ACP.
@@ -167,6 +186,8 @@ impl ClaudeConn {
             context: Mutex::default(),
             last_usage: Mutex::default(),
             subagents: Mutex::default(),
+            progress: Mutex::default(),
+            context_asked: Mutex::new(None),
             handler,
         });
         let reading = conn.clone();
@@ -243,6 +264,43 @@ impl ClaudeConn {
         self.handler.on_notification("session/update", json!({ "sessionId": session, "update": update }));
     }
 
+    /// `_tg/progress` from the stream events of the main agent: `message_start` carries the
+    /// input of one model call (cache counted in), `message_delta` its output so far.
+    fn count_tokens(&self, event: &Value) {
+        let report = {
+            let mut p = self.progress.lock().unwrap();
+            match event["type"].as_str() {
+                Some("message_start") => {
+                    let u = &event["message"]["usage"];
+                    let n = |k: &str| u[k].as_u64().unwrap_or(0);
+                    p.done += p.current;
+                    p.current = 0;
+                    p.input += n("input_tokens") + n("cache_creation_input_tokens") + n("cache_read_input_tokens");
+                }
+                Some("message_delta") => match event["usage"]["output_tokens"].as_u64() {
+                    Some(out) => p.current = out,
+                    None => return,
+                },
+                _ => return,
+            }
+            json!({ "inputTokens": p.input, "outputTokens": p.done + p.current })
+        };
+        self.handler.on_notification("_tg/progress", report);
+    }
+
+    /// Asks Claude for its context table (`get_context_usage`, summary: no API call, 0 tokens)
+    /// and passes the answer on as `_tg/context`. A failed request is dropped: the table is
+    /// only a display.
+    fn ask_context(self: &Arc<Self>) {
+        *self.context_asked.lock().unwrap() = Some(std::time::Instant::now());
+        let conn = self.clone();
+        tokio::spawn(async move {
+            if let Ok(table) = conn.control(json!({ "subtype": "get_context_usage", "detail": "summary" })).await {
+                conn.handler.on_notification("_tg/context", table);
+            }
+        });
+    }
+
     fn dispatch(self: &Arc<Self>, message: Value) {
         // Recorded with the id it carries, in one change: whoever waits for the id sees both.
         let failed = (message["type"] == "result" && message["is_error"] == true && self.turn.lock().unwrap().is_none())
@@ -273,6 +331,7 @@ impl ClaudeConn {
             // Subagent output (`parent_tool_use_id`) belongs to its own run, not this reply.
             Some("stream_event") if matches!(self.owner(&message), Owner::Main) => {
                 let event = &message["event"];
+                self.count_tokens(event);
                 if event["type"] == "content_block_delta" && event["delta"]["type"] == "text_delta" {
                     if let Some(text) = event["delta"]["text"].as_str() {
                         self.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } }));
@@ -413,7 +472,7 @@ impl ClaudeConn {
         });
     }
 
-    fn result(&self, result: &Value) {
+    fn result(self: &Arc<Self>, result: &Value) {
         let (used, model) = self.context.lock().unwrap().clone();
         let mut usage = json!({ "sessionUpdate": "usage_update", "used": used.unwrap_or_else(|| tokens(&result["usage"])) });
         if let Some(size) = context_window(&result["modelUsage"], model.as_deref()) { usage["size"] = json!(size); }
@@ -425,6 +484,8 @@ impl ClaudeConn {
         let interrupted = self.interrupted.swap(false, Ordering::SeqCst);
         let Some(turn) = self.turn.lock().unwrap().take() else { return };
         let _ = turn.send(turn_end(result, interrupted));
+        // Once the turn is handed over: the table shows the context as the turn left it.
+        self.ask_context();
     }
 
     fn closed(&self) {
@@ -653,6 +714,7 @@ impl AgentConn for ClaudeConn {
                 // Before the slot is filled: a `cancel` (which needs the slot) lands after this, never between.
                 self.interrupted.store(false, Ordering::SeqCst);
                 *turn = Some(reply);
+                *self.progress.lock().unwrap() = Progress::default();
             }
             let mut slot = TurnSlot { conn: self, armed: true };
             let line = json!({ "type": "user", "message": { "role": "user", "content": crate::system::attachments::claude_content(text) } });
@@ -691,6 +753,11 @@ impl AgentConn for ClaudeConn {
         self.fire(json!({ "subtype": "set_permission_mode", "mode": permission_mode(approval) }))
     }
 
+    fn refresh_context(self: Arc<Self>) {
+        let recent = self.context_asked.lock().unwrap().is_some_and(|t| t.elapsed() < CONTEXT_EVERY);
+        if !recent && !self.session.borrow().closed { self.ask_context(); }
+    }
+
     /// Closes stdin: Claude exits, and stdout closing ends any running turn.
     fn close(&self) { self.writer.lock().unwrap().take(); }
 }
@@ -705,11 +772,12 @@ mod tests {
     use serde_json::json;
 
     #[derive(Default)]
-    struct Recorder { updates: Mutex<Vec<Value>> }
+    struct Recorder { updates: Mutex<Vec<Value>>, notes: Mutex<Vec<(String, Value)>> }
 
     impl ClientHandler for Recorder {
         fn on_notification(&self, method: &str, params: Value) {
             if method == "session/update" { self.updates.lock().unwrap().push(params["update"].clone()); }
+            else { self.notes.lock().unwrap().push((method.to_string(), params)); }
         }
         fn on_request(&self, method: String, _params: Value) -> HandlerFuture {
             Box::pin(async move { Err(crate::acp::client::method_not_found(&method)) })
@@ -1053,6 +1121,56 @@ mod tests {
         let (conn, _recorder, id) = open(vec![result("success")]).await;
         conn.interrupted.store(true, Ordering::SeqCst);
         assert_eq!(conn.prompt_turn(&id, "x").await.unwrap()["stopReason"], "end_turn");
+        conn.close();
+    }
+
+    impl Recorder {
+        fn notes(&self, method: &str) -> Vec<Value> { self.notes.lock().unwrap().iter().filter(|(m, _)| m == method).map(|(_, p)| p.clone()).collect() }
+    }
+
+    fn stream(event: Value) -> ClaudeStep {
+        ClaudeStep::Line(json!({ "type": "stream_event", "event": event, "parent_tool_use_id": null, "session_id": fake_claude::SESSION_ID }))
+    }
+
+    #[tokio::test]
+    async fn claude_conn_reports_live_tokens() {
+        let (conn, recorder, id) = open(vec![
+            stream(json!({"type":"message_start","message":{"usage":{"input_tokens":100,"cache_read_input_tokens":20}}})),
+            stream(json!({"type":"message_delta","usage":{"output_tokens":5}})),
+            stream(json!({"type":"message_delta","usage":{"output_tokens":12}})),
+            result("success"),
+        ]).await;
+        conn.prompt_turn(&id, "x").await.unwrap();
+        let last = recorder.notes("_tg/progress").pop().unwrap();
+        assert_eq!((last["inputTokens"].as_u64(), last["outputTokens"].as_u64()), (Some(120), Some(12)));
+        conn.close();
+    }
+
+    #[tokio::test]
+    async fn claude_conn_asks_context_after_turn() {
+        let table = json!({"totalTokens":184000,"maxTokens":1000000,"percentage":18.4,"categories":[{"name":"Messages","tokens":99300,"color":"x"}]});
+        let recorder = Arc::new(Recorder::default());
+        let (reader, writer, log) = fake_claude(vec![ClaudeStep::ContextUsage(table.clone()), result("success")]);
+        let conn = ClaudeConn::start(reader, writer, recorder.clone());
+        conn.initialize().await.unwrap();
+        let id = conn.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+        conn.prompt_turn(&id, "x").await.unwrap();
+        until("_tg/context", || !recorder.notes("_tg/context").is_empty()).await;
+        assert_eq!(recorder.notes("_tg/context")[0], table);
+        let asked = controls(&log, "get_context_usage");
+        assert_eq!((asked.len(), asked[0]["request"]["detail"].as_str()), (1, Some("summary")));
+        conn.close();
+    }
+
+    #[tokio::test]
+    async fn context_refresh_is_rate_limited() {
+        let (conn, _id, log) = open_logged(vec![]).await;
+        for _ in 0..3 { conn.clone().refresh_context(); }
+        until("get_context_usage", || !controls(&log, "get_context_usage").is_empty()).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let asked = controls(&log, "get_context_usage");
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0]["request"]["detail"], "summary");
         conn.close();
     }
 

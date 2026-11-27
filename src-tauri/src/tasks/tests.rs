@@ -1573,3 +1573,26 @@ async fn direct_and_reuse_skip_setup() {
     assert!(error.contains("Không chạy được"), "direct runs must not run the setup script: {error}");
     assert!(sink.0.lock().unwrap().is_empty());
 }
+
+#[test]
+fn claude_context_maps_to_event() {
+    use crate::acp::client::ClientHandler;
+    let sink = Arc::new(Recorder::default());
+    let session = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap();
+    session.on_notification("_tg/context", json!({
+        "totalTokens": 184000, "maxTokens": 1000000, "percentage": 18.4, "autoCompactThreshold": 967000,
+        "categories": [{"id": "messages", "name": "Messages", "tokens": 99300, "color": "x", "kind": "used"}],
+        "memoryFiles": [{"path": "CLAUDE.md", "tokens": 700}],
+        "mcpTools": [{"name": "mcp__a__x", "serverName": "a", "tokens": 10}, {"name": "mcp__a__y", "serverName": "a", "tokens": 5}],
+    }));
+    session.on_notification("_tg/progress", json!({"inputTokens": 120, "outputTokens": 12}));
+    let events = sink.0.lock().unwrap().clone();
+    let data = events.iter().find(|e| e.kind == "context").unwrap().data.clone().unwrap();
+    assert_eq!((data["used"].as_u64(), data["size"].as_u64(), data["percent"].as_f64()), (Some(184000), Some(1000000), Some(18.4)));
+    assert_eq!((data["categories"][0]["name"].as_str(), data["source"].as_str()), (Some("Messages"), Some("claude")));
+    assert_eq!(data["autoCompactAt"], 967000);
+    assert_eq!(data["memoryFiles"][0]["path"], "CLAUDE.md");
+    assert_eq!(data["mcpTools"], json!([{"server": "a", "count": 2, "tokens": 15}]));
+    let progress = events.iter().find(|e| e.kind == "progress").unwrap().data.clone().unwrap();
+    assert_eq!(progress, json!({"inputTokens": 120, "outputTokens": 12, "estimated": false}));
+}
