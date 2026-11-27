@@ -6,6 +6,12 @@ import { fmtDuration, fmtTokens } from '../../../shared/utils/format';
 import { segmentsOf } from '../conversation/timeline';
 import { ChatState } from '../chat.state';
 
+/** `~` marks a count the core estimated from the text; the input side is unknown for ACP agents. */
+export function liveTokens(t: LiveTokens): string {
+  const mark = t.estimated ? '~' : '';
+  return `${t.inputTokens === null ? '' : `↑ ${mark}${fmtTokens(t.inputTokens)} · `}↓ ${mark}${fmtTokens(t.outputTokens)} token`;
+}
+
 /** What the selected run is doing right now, as the strip on top of the composer block. */
 @Component({
   selector: 'tg-live-status',
@@ -36,10 +42,8 @@ export class LiveStatus {
     return { run: r, step };
   });
 
-  /** `~` marks a count the core estimated from the text; the input side is unknown for ACP agents. */
   protected tokens(t: LiveTokens): string {
-    const mark = t.estimated ? '~' : '';
-    return `${t.inputTokens === null ? '' : `↑ ${mark}${fmtTokens(t.inputTokens)} · `}↓ ${mark}${fmtTokens(t.outputTokens)} token`;
+    return liveTokens(t);
   }
 
   protected duration(r: Run): string {
