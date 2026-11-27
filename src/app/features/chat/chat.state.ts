@@ -574,7 +574,13 @@ export class ChatState {
         if (liveSession && (sameMode || canSwitchLive(current!, approval))) {
           // The open session takes the message; only its approval mode changes.
           if (!sameMode) await this.runs.setApproval(current!.id, approval);
-          await this.runs.sendMessage(current!.id, text);
+          try {
+            await this.runs.sendMessage(current!.id, text);
+          } catch (e) {
+            // The process may have closed before its exit reached the UI: resume its session.
+            if (!(perm === 'read' && agent === 'claude' && errorText(e).includes('đã đóng'))) throw e;
+            await this.runs.start(agent, text, cwd, thread, current!.id, scope, null);
+          }
         } else if (perm === 'read' && !this.readViaAcp()) {
           // Read-only CLI run on the real folder (Claude: a session in plan mode); the core
           // resumes this agent's CLI session.

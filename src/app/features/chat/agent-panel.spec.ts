@@ -354,7 +354,43 @@ describe('AgentPanel composer', () => {
     const now = runs.selected()!;
     expect(now.id).not.toBe(first.id);
     expect(now.thread).toBe(first.thread);
+    expect(backend.lastStart?.recap).toContain('câu một');
     expect(now.lines.some((l) => l.text === 'Đã mở phiên mới để cho phép sửa code')).toBe(true);
+  });
+
+  it('resumes Claude\'s question session when the open process has just closed', async () => {
+    const { backend, panel } = await setup();
+    const runs = TestBed.inject(RunsService);
+    panel.mode.set('read');
+    panel.prompt.set('câu một');
+    await panel.send();
+    const first = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
+    TestBed.tick();
+    backend.sendMessage = () => Promise.reject(new Error('Phiên này đã đóng.'));
+    backend.starts = 0;
+    panel.prompt.set('câu hai');
+    await panel.send();
+    expect(panel.error()).toBeNull();
+    expect(backend.starts).toBe(1);
+    expect(backend.lastStart).toMatchObject({ approval: 'deny', place: 'direct', reuse: first.id, thread: first.thread, prompt: 'câu hai' });
+  });
+
+  it('reloads a closed Claude question session, keeping its thread', async () => {
+    const { backend, panel } = await setup();
+    const runs = TestBed.inject(RunsService);
+    panel.mode.set('read');
+    panel.prompt.set('câu một');
+    await panel.send();
+    const first = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
+    runs.runs.update((l) => l.map((r) => (r.id === first.id ? { ...r, status: 'done' as const, restored: true } : r)));
+    TestBed.tick();
+    expect(panel.resumeChoice()).not.toBeNull();
+    panel.resumePick.set('resume');
+    panel.prompt.set('câu hai');
+    await panel.send();
+    expect(backend.lastStart).toMatchObject({ approval: 'deny', place: 'direct', reuse: first.id, thread: first.thread, recap: null });
   });
 
   it('keeps the prompt and shows why when a pipeline cannot start', async () => {
