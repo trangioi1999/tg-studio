@@ -1596,3 +1596,34 @@ fn claude_context_maps_to_event() {
     let progress = events.iter().find(|e| e.kind == "progress").unwrap().data.clone().unwrap();
     assert_eq!(progress, json!({"inputTokens": 120, "outputTokens": 12, "estimated": false}));
 }
+
+#[tokio::test]
+async fn delegate_direct_child_takes_warm_session() {
+    let repo = Repo::new();
+    let cwd = repo.0.join("child-scope");
+    std::fs::create_dir(&cwd).unwrap();
+    let store = Store::open_in_memory().unwrap();
+    let agent = AgentKind::Codex;
+    let key = warm::key_for(&store, agent, &cwd);
+    for snapshot in [Some("snapshot".into()), None] {
+        let pool = warm::WarmPool::default();
+        let ready = warm::tests::warm();
+        let slot = warm::tests::entry(&pool, key.clone(), 1, Some(ready));
+        let place = place_for(agent, Approval::Auto, None, None, Some(snapshot)).unwrap();
+        let command = (PathBuf::from("unused-adapter"), vec![]);
+        let adapter = select_adapter(&store, &pool, agent, &place, Ok(cwd.clone()), true, command).await;
+        if place == Place::Direct {
+            let Adapter::Warm(ready, _) = adapter else { panic!("agent con direct phải dùng phiên mở sẵn"); };
+            assert!(slot.lock().await.is_none());
+            assert!(pool.take(&key).await.is_none(), "phiên chỉ được lấy một lần");
+            let (mut process, claimed) = ready.into_parts();
+            assert_eq!(claimed.session_id, "s");
+            terminate_adapter(&mut process, claimed.pid).await;
+            claimed.release();
+        } else {
+            assert!(matches!(adapter, Adapter::Spawn(_)));
+            assert!(slot.lock().await.is_some(), "snapshot không được lấy phiên mở sẵn");
+            pool.take(&key).await.unwrap().close().await;
+        }
+    }
+}

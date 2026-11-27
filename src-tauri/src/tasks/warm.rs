@@ -241,13 +241,13 @@ pub async fn warm_task(app: AppHandle, agent: AgentKind, repo: String, scope: Op
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     fn key(agent: AgentKind) -> WarmKey { WarmKey { agent, cwd: std::env::temp_dir(), servers: "[]".into(), bridge: false } }
 
     /// A warm session over the fake agent, with a long-lived stand-in process.
-    fn warm() -> Warm {
+    pub(in crate::tasks) fn warm() -> Warm {
         let mut sleep = env::command(if cfg!(windows) { "timeout" } else { "sleep" });
         sleep.arg("30").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).kill_on_drop(true);
         let child = sleep.spawn().unwrap();
@@ -258,7 +258,7 @@ mod tests {
         Warm { child, pid, parts: Claimed { client, mcp_file: None, late, session_id: "s".into(), pid, token: None, notes: vec![], relay: Default::default(), stderr_task: tokio::spawn(async {}), hub: Arc::new(BridgeHub::default()) } }
     }
 
-    fn entry(pool: &WarmPool, key: WarmKey, generation: u64, ready: Option<Warm>) -> Arc<tokio::sync::Mutex<Option<Warm>>> {
+    pub(in crate::tasks) fn entry(pool: &WarmPool, key: WarmKey, generation: u64, ready: Option<Warm>) -> Arc<tokio::sync::Mutex<Option<Warm>>> {
         let slot = Arc::new(tokio::sync::Mutex::new(ready));
         *pool.entry.lock().unwrap() = Some(Entry { key, generation, slot: slot.clone() });
         slot
