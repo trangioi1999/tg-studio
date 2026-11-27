@@ -1,9 +1,10 @@
 import { Component, inject } from '@angular/core';
 import { computed } from '@angular/core';
+import { LiveTokens } from '../../../core/protocol';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { turnStart, Run } from '../../../services/runs/run';
-import { fmtDuration } from '../../../shared/utils/format';
+import { fmtDuration, fmtTokens } from '../../../shared/utils/format';
 import { segmentsOf } from '../conversation/timeline';
 import { ChatState } from '../chat.state';
 
@@ -18,6 +19,9 @@ import { ChatState } from '../chat.state';
     <strong>{{ meta[l.run.agent].name }} {{ l.verb }}</strong>
     @if (!l.waiting) { <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span> }
     <span class="sep">·</span><span class="mono clock">{{ duration(l.run) }}</span>
+    @if (l.run.live; as t) {
+      <span class="sep">·</span><span class="mono tokens">{{ tokens(t) }}</span>
+    }
     <span class="sep">·</span><span class="ellipsis step" [title]="l.step">{{ l.step }}</span>
     <button class="act-btn bordered" [title]="'Dừng (Esc)'" (click)="chat.runs.stop(l.run.id)">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>Dừng<span class="kbd">Esc</span>
@@ -42,6 +46,12 @@ export class LiveStatus {
     else if (last?.kind === 'text') step = 'đang viết câu trả lời…';
     return { run: r, waiting, step, verb: waiting ? 'đang chờ bạn' : r.task && r.perm !== 'read' ? 'đang làm' : 'đang trả lời' };
   });
+
+  /** `~` marks a count the core estimated from the text; the input side is unknown for ACP agents. */
+  protected tokens(t: LiveTokens): string {
+    const mark = t.estimated ? '~' : '';
+    return `${t.inputTokens === null ? '' : `↑ ${mark}${fmtTokens(t.inputTokens)} · `}↓ ${mark}${fmtTokens(t.outputTokens)} token`;
+  }
 
   protected duration(r: Run): string {
     return fmtDuration(Math.max(0, (r.endedAt ?? this.chat.runs.now()) - turnStart(r)));

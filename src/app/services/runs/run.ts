@@ -1,5 +1,5 @@
 import { ConsoleLine } from '../../features/chat/conversation/describe-line';
-import { Approval, Delegation, PermissionRequest, Place, PlanEntry, AgentId, RunStatus, Usage } from '../../core/protocol';
+import { Approval, ContextUsage, LiveTokens, Delegation, PermissionRequest, Place, PlanEntry, AgentId, RunStatus, Usage } from '../../core/protocol';
 
 export type { RunStatus };
 
@@ -21,6 +21,10 @@ export interface Run {
   status: RunStatus;
   lines: ConsoleLine[];
   usage: Usage | null;
+  /** Tokens of the turn in progress; null between turns. Live runs only. */
+  live?: LiveTokens | null;
+  /** Latest reading of the context window. Live runs only. */
+  context?: ContextUsage | null;
   /** Kiro counts credits: the whole session's and the current turn's. Live runs only. */
   credits?: { total: number; turn: number } | null;
   exitCode: number | null;

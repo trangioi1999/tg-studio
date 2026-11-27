@@ -304,8 +304,14 @@ export class MockBackend extends AgentBackend {
 
   /** A session that stays open waits for the next message; a pipeline step ends. */
   private endTurn(runId: string, run: MockRun, delay: number): void {
-    if (run.open) this.later(runId, run, { kind: 'turn_end', data: { status: 'done' } }, delay);
-    else this.later(runId, run, { kind: 'exit', code: 0, data: { status: 'done' } }, delay);
+    if (delay > 300) {
+      const live = (f: number, out: number) => this.later(runId, run, { kind: 'progress', data: { inputTokens: run.agent === 'claude' ? 1800 : null, outputTokens: out, estimated: run.agent !== 'claude' } }, delay * f);
+      live(0.3, 120); live(0.6, 480); live(0.85, 900);
+    }
+    if (run.open) {
+      this.later(runId, run, { kind: 'turn_end', data: { status: 'done' } }, delay);
+      this.later(runId, run, this.contextEvent(runId, run.agent), delay + 20);
+    } else this.later(runId, run, { kind: 'exit', code: 0, data: { status: 'done' } }, delay);
   }
 
   async sendMessage(runId: string, prompt: string): Promise<void> {
@@ -570,6 +576,17 @@ export class MockBackend extends AgentBackend {
   }
 
   async killProcess(_pid: number): Promise<void> {}
+
+  async refreshContext(runId: string): Promise<void> {
+    const run = this.runs.get(runId);
+    if (run) this.emit(this.contextEvent(runId, run.agent));
+  }
+
+  private contextEvent(runId: string, agent: AgentId): AgentEvent {
+    const used = 36_800;
+    const data = { used, size: 200_000, percent: 18.4, source: agent === 'claude' ? 'claude' : 'acp' };
+    return { runId, agent, kind: 'context', line: null, usage: null, code: null, atMs: Date.now(), data };
+  }
 
   async refreshClaudeLimits(): Promise<AccountLimits | null> {
     const hour = 3_600_000;

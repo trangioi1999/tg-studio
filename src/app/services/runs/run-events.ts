@@ -1,6 +1,6 @@
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from '../../features/chat/conversation/describe-line';
 import { planProposal, toolProposal } from '../../features/chat/dock/proposal';
-import { AgentCommand, AgentEvent, AgentId, Delegation, PermissionRequest, PlanEntry, RunStatus, StoredRun, Usage } from '../../core/protocol';
+import { AgentCommand, AgentEvent, AgentId, ContextUsage, Delegation, PermissionRequest, PlanEntry, RunStatus, StoredRun, Usage } from '../../core/protocol';
 import { AGENT_IDS } from '../agents/agent-meta';
 import { Handoff, MAX_LINES, Run } from './run';
 
@@ -83,6 +83,13 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
         ? { total: d['credits'], turn: d['turnCredits'] } : run.credits;
       return { ...run, usage: mergeUsage(run.usage, e.usage), credits };
     }
+    case 'progress': {
+      const d = dataOf(e);
+      if (run.status !== 'running' || typeof d['outputTokens'] !== 'number') return run;
+      return { ...run, live: { inputTokens: typeof d['inputTokens'] === 'number' ? d['inputTokens'] : null, outputTokens: d['outputTokens'], estimated: d['estimated'] === true } };
+    }
+    case 'context':
+      return { ...run, context: dataOf(e) as unknown as ContextUsage };
     case 'limits':
       return run; // handled above: limits belong to the account, not the run
     case 'commands': {
@@ -116,13 +123,13 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
       return { ...run, lines };
     }
     case 'user':
-      return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, proposal: null, lastTurn: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
+      return { ...run, status: 'running', turnAt: e.atMs, endedAt: null, exitCode: null, proposal: null, lastTurn: null, live: null, lines: e.line ? [...run.lines, { text: e.line, tone: 'user' as const }].slice(-MAX_LINES) : run.lines };
     case 'turn_end': {
       const reported = dataOf(e)['status'];
       const lastTurn = reported === 'failed' || reported === 'stopped' ? reported : ctx.stopping ? 'stopped' : 'done';
       effects.push({ kind: 'forget' }, { kind: 'limits' });
       const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
-      return { ...run, status: 'idle', lastTurn, endedAt: e.atMs, permissions: [], waits };
+      return { ...run, status: 'idle', lastTurn, live: null, endedAt: e.atMs, permissions: [], waits };
     }
     case 'exit': {
       const reported = dataOf(e)['status'];
@@ -130,7 +137,7 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
         ? reported : ctx.stopping ? 'stopped' : e.code === 0 ? 'done' : 'failed';
       effects.push({ kind: 'forget' }, { kind: 'limits' });
       const waits = run.waits.map((w) => (w.to === null ? { ...w, to: e.atMs } : w));
-      return { ...run, status, exitCode: e.code, endedAt: e.atMs, permissions: [], waits };
+      return { ...run, status, live: null, exitCode: e.code, endedAt: e.atMs, permissions: [], waits };
     }
   }
 }

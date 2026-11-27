@@ -344,6 +344,19 @@ describe('AgentPanel composer', () => {
     });
   }
 
+  it('shows the live tokens of a running turn in the status line', async () => {
+    const { backend } = await setup();
+    void backend;
+    const fixture = TestBed.createComponent(AgentPanel);
+    const runs = TestBed.inject(RunsService);
+    await runs.start('claude', 'câu một', '/demo');
+    const id = runs.selected()!.id;
+    runs.runs.update((l) => l.map((r) => (r.id === id ? { ...r, status: 'running' as const, permissions: [], live: { inputTokens: null, outputTokens: 1500, estimated: true } } : r)));
+    TestBed.tick();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.live-status')?.textContent).toContain('~1.5k token');
+  });
+
   it('waits for Claude\'s Chỉ hỏi answer before taking the next question', async () => {
     const { backend, panel } = await setup();
     const runs = TestBed.inject(RunsService);

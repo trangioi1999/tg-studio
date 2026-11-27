@@ -29,6 +29,26 @@ describe('applyEvent', () => {
     expect(tone('Error: spawn claude ENOENT')).toBe('error');
   });
 
+  it('progress_updates_live_tokens', () => {
+    const live = { inputTokens: 120, outputTokens: 12, estimated: false };
+    const { run: next } = applyEvent(run(), ev({ kind: 'progress', data: { ...live } }), { stopping: false });
+    expect(next.live).toEqual(live);
+    expect(applyEvent(next, ev({ kind: 'turn_end', data: { status: 'done' } }), { stopping: false }).run.live).toBeNull();
+    expect(applyEvent(next, ev({ kind: 'exit', code: 0 }), { stopping: false }).run.live).toBeNull();
+    expect(applyEvent(next, ev({ kind: 'user', line: 'tiếp' }), { stopping: false }).run.live).toBeNull();
+  });
+
+  it('late_progress_does_not_revive_status', () => {
+    const { run: next } = applyEvent(run({ status: 'idle' }), ev({ kind: 'progress', data: { inputTokens: null, outputTokens: 5, estimated: true } }), { stopping: false });
+    expect(next.live ?? null).toBeNull();
+    expect(next.status).toBe('idle');
+  });
+
+  it('context_event_sets_run_context', () => {
+    const data = { used: 36800, size: 200000, percent: 18.4, source: 'claude' };
+    expect(applyEvent(run(), ev({ kind: 'context', data }), { stopping: false }).run.context?.percent).toBe(18.4);
+  });
+
   it('keeps the credits Kiro reported next to its usage', () => {
     const usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0.04, source: 'reported' as const, cumulative: true };
     const first = applyEvent(run({ agent: 'kiro' }), ev({ agent: 'kiro', kind: 'usage', usage, data: { credits: 1, turnCredits: 0.32 } }), { stopping: false }).run;

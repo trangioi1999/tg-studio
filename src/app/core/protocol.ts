@@ -126,7 +126,8 @@ export interface AccountLimits {
 }
 
 export type AgentEventKind = 'started' | 'log' | 'stderr' | 'usage' | 'exit' | 'limits'
-  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge' | 'user' | 'turn_end' | 'commands';
+  | 'message' | 'tool' | 'plan' | 'permission' | 'permission_resolved' | 'bridge' | 'user' | 'turn_end' | 'commands'
+  | 'progress' | 'context';
 
 /** A tg-bridge note shared by the runs of one task. Keep in sync with ledger.rs `BridgeNote`. */
 export interface BridgeNote {
@@ -134,6 +135,19 @@ export interface BridgeNote {
   agent: AgentId;
   at: number;
   text: string;
+}
+
+/** Tokens of the turn in progress (`progress` event). Keep in sync with the core. */
+export interface LiveTokens { inputTokens: number | null; outputTokens: number; estimated: boolean }
+
+export interface ContextCategory { id?: string; name: string; tokens: number; kind?: 'used' | 'free' | 'buffer' | 'deferred' }
+
+/** How full the agent's context window is (`context` event). */
+export interface ContextUsage {
+  used: number | null; size: number | null; percent: number | null;
+  categories?: ContextCategory[]; memoryFiles?: { path: string; tokens: number }[];
+  mcpTools?: { server: string; count: number; tokens: number }[];
+  autoCompactAt?: number; source: 'claude' | 'acp' | 'kiro';
 }
 
 export interface AgentEvent {

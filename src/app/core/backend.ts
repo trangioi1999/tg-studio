@@ -96,6 +96,8 @@ export abstract class AgentBackend {
   /** Stops a leftover child process that belongs to no live conversation. */
   abstract killProcess(pid: number): Promise<void>;
   /** Asks Claude Code's local `/usage` (no tokens); null when it reports none. At most once a minute. */
+  /** Ask the agent for a fresh reading of its context window; the answer arrives as a `context` event. */
+  abstract refreshContext(runId: string): Promise<void>;
   abstract refreshClaudeLimits(): Promise<AccountLimits | null>;
   /** Kiro's plan credits from `kiro-cli /usage`; null when Kiro is missing or says nothing. */
   abstract refreshKiroLimits(): Promise<AccountLimits | null>;
@@ -286,6 +288,9 @@ export class TauriBackend extends AgentBackend {
   }
   killProcess(pid: number) {
     return invoke<void>('kill_process', { pid });
+  }
+  refreshContext(runId: string) {
+    return invoke<void>('refresh_context', { runId });
   }
   refreshClaudeLimits() {
     return invoke<AccountLimits | null>('refresh_claude_limits');
