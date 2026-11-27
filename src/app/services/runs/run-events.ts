@@ -1,5 +1,5 @@
 import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from '../../features/chat/conversation/describe-line';
-import { planProposal } from '../../features/chat/dock/proposal';
+import { planProposal, toolProposal } from '../../features/chat/dock/proposal';
 import { AgentCommand, AgentEvent, AgentId, Delegation, PermissionRequest, PlanEntry, RunStatus, StoredRun, Usage } from '../../core/protocol';
 import { AGENT_IDS } from '../agents/agent-meta';
 import { Handoff, MAX_LINES, Run } from './run';
@@ -38,9 +38,12 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
         lines: addLine(run.lines, toConsoleLine(run.agent, 'message', text)).slice(-MAX_LINES),
       };
     }
-    case 'tool':
+    case 'tool': {
       effects.push({ kind: 'track', update: dataOf(e), at: e.atMs });
-      return { ...run, task: true, lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
+      // Claude's Chỉ hỏi is a task: its plan arrives as the tool call that writes it.
+      const proposal = run.perm === 'read' ? toolProposal(run.agent, dataOf(e)) : null;
+      return { ...run, task: true, ...(proposal ? { proposal } : {}), lines: applyTool(run.lines, dataOf(e)).slice(-MAX_LINES) };
+    }
     case 'plan': {
       const entries = dataOf(e)['entries'];
       const plan = Array.isArray(entries) ? (entries as PlanEntry[]).filter((p) => typeof p?.content === 'string') : run.plan;

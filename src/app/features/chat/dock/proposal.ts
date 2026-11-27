@@ -21,9 +21,31 @@ export function planProposal(agent: AgentId, line: string | null): string | null
   const content = Array.isArray(msg?.content) ? msg.content : [];
   for (const c of content as { type?: string; name?: string; input?: Record<string, unknown> }[]) {
     if (c.type !== 'tool_use' || !c.input) continue;
-    if (c.name === 'ExitPlanMode' && typeof c.input['plan'] === 'string') return c.input['plan'];
-    const path = typeof c.input['file_path'] === 'string' ? c.input['file_path'].replace(/\\/g, '/') : '';
-    if (c.name === 'Write' && path.includes('/.claude/plans/') && typeof c.input['content'] === 'string') return c.input['content'];
+    const plan = planOf(c.name, c.input);
+    if (plan !== null) return plan;
   }
+  return null;
+}
+
+/**
+ * The same plan, from the ACP `tool_call` a task session reports (ClaudeConn's `tool_call_of`:
+ * the tool's name in `_meta.claudeCode.toolName`, its input in `rawInput`). Claude's Chỉ hỏi
+ * runs as a task, so this is where its plan arrives.
+ */
+export function toolProposal(agent: AgentId, update: Record<string, unknown>): string | null {
+  if (agent !== 'claude') return null;
+  const meta = update['_meta'] as { claudeCode?: { toolName?: unknown } } | undefined;
+  const name = meta?.claudeCode?.toolName;
+  const input = update['rawInput'];
+  if (typeof name !== 'string' || !input || typeof input !== 'object' || Array.isArray(input)) return null;
+  return planOf(name, input as Record<string, unknown>);
+}
+
+function planOf(name: string | undefined, input: Record<string, unknown>): string | null {
+  if (name === 'ExitPlanMode' && typeof input['plan'] === 'string') return input['plan'];
+  // Since CLI 2.1.280 Write also takes `path`.
+  const file = typeof input['file_path'] === 'string' ? input['file_path'] : typeof input['path'] === 'string' ? input['path'] : '';
+  const path = file.replace(/\\/g, '/');
+  if (name === 'Write' && path.includes('/.claude/plans/') && typeof input['content'] === 'string') return input['content'];
   return null;
 }

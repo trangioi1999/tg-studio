@@ -147,6 +147,15 @@ export class ChatState {
     const a = this.agents.agents().find((x) => x.id === this.agent());
     return this.mode() === 'read' && !!a && !a.headless;
   });
+  /**
+   * Claude's Chỉ hỏi is a code session in the folder (Sửa code later reuses it), which needs a
+   * Git repo with a commit; elsewhere it answers through its CLI, like Codex.
+   */
+  private readonly claudeInPlace = computed(() => this.workspace.project()?.git === 'ready');
+  /** A Chỉ hỏi of this agent runs as a task session in the folder itself. */
+  private readAsTask(agent: AgentId): boolean {
+    return agent === 'claude' && this.claudeInPlace();
+  }
   /** The picked agent only while it can work with the chosen permission (Kiro and Gemini have no Chỉ hỏi). */
   readonly agent = computed<AgentId | ''>(() => {
     const chosen = this.chosen();
@@ -167,7 +176,7 @@ export class ChatState {
   /** Why Run is disabled, in words. */
   readonly blocked = computed(() => {
     if (this.budget.blockReason()) return this.budget.blockReason();
-    if (this.mode() === 'read' && this.run() && !this.run()!.task && this.run()!.status === 'running') return 'Agent đang trả lời. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
+    if (this.mode() === 'read' && this.run() && isReadRun(this.run()!) && this.run()!.status === 'running') return 'Agent đang trả lời. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (this.mode() === 'task' && this.run()?.task && this.run()?.status === 'running') return 'Agent đang chạy. Hãy chờ, bấm Dừng, hoặc mở Trò chuyện mới.';
     if (!this.choices().length) return 'Chưa có agent nào chạy được. Cài một CLI ở cột Agents rồi bấm Dò lại.';
     if (!this.workspace.folder()) return 'Bấm Mở thư mục ở thanh trên cùng để chọn dự án.';
@@ -318,7 +327,7 @@ export class ChatState {
   });
   readonly placeholder = computed(() => {
     const r = this.run();
-    if (this.mode() === 'read' && r && !r.task && r.status !== 'running') return `Hỏi tiếp ${AGENT_META[r.agent].name}`;
+    if (this.mode() === 'read' && r && isReadRun(r) && r.status !== 'running') return `Hỏi tiếp ${AGENT_META[r.agent].name}`;
     if (this.mode() === 'task' && r?.task && r.status !== 'running') return `Nhắn tiếp cho ${AGENT_META[r.agent].name}`;
     return 'Giao việc hoặc hỏi agent';
   });
@@ -332,7 +341,7 @@ export class ChatState {
     const r = this.run();
     if (!r || this.team() !== 'single' || this.agent() !== r.agent || r.status === 'running') return null;
     if (!r.restored && r.status === 'idle') return null; // still open: the next message is cheap
-    if (this.perm() === 'read' ? (r.agent === 'claude' ? !r.task : r.task || this.readViaAcp()) : !r.task || r.perm === 'read') return null;
+    if (this.perm() === 'read' ? (this.readAsTask(r.agent) ? !r.task : r.task || this.readViaAcp()) : !r.task || r.perm === 'read') return null;
     const turns = 1 + r.lines.filter((l) => l.tone === 'user').length;
     const chars = r.lines.reduce((n, l) => n + l.text.length, r.prompt.length);
     // Only Claude's code sessions take `/compact` as a turn (through its ACP adapter).
@@ -571,22 +580,31 @@ export class ChatState {
         const scope = current ? current.scope : this.threads.draftScope();
         const liveSession = current?.task && current.agent === agent && current.status === 'idle';
         const sameMode = (current?.perm === 'read') === (perm === 'read') && (perm === 'read' || current?.perm === perm);
-        if (liveSession && (sameMode || canSwitchLive(current!, approval))) {
-          // The open session takes the message; only its approval mode changes.
-          if (!sameMode) await this.runs.setApproval(current!.id, approval);
+        let live = !!liveSession && (sameMode || canSwitchLive(current!, approval));
+        if (live && !sameMode) {
+          // The open session takes the message; only its approval mode changes. A question
+          // in a throwaway draft stays read-only (the core refuses): a new session takes it.
+          try {
+            await this.runs.setApproval(current!.id, approval);
+          } catch (e) {
+            if (!errorText(e).includes('bản nháp tạm')) throw e;
+            live = false;
+          }
+        }
+        if (live) {
           try {
             await this.runs.sendMessage(current!.id, text);
           } catch (e) {
             // The process may have closed before its exit reached the UI: resume its session.
             if (!(perm === 'read' && agent === 'claude' && errorText(e).includes('đã đóng'))) throw e;
-            await this.runs.start(agent, text, cwd, thread, current!.id, scope, null);
+            await this.runs.start(agent, text, cwd, thread, current!.id, scope, null, this.claudeInPlace());
           }
         } else if (perm === 'read' && !this.readViaAcp()) {
           // Read-only CLI run on the real folder (Claude: a session in plan mode); the core
           // resumes this agent's CLI session.
           const fresh = this.resumeMode() === 'fresh';
-          const resumable = !fresh && current && current.agent === agent && current.status !== 'running' && (agent === 'claude' ? current.task && current.perm === 'read' : !current.task) ? current : null;
-          await this.runs.start(agent, text, cwd, thread, resumable?.id ?? null, scope, resumable || !current ? null : (recap ?? null));
+          const resumable = !fresh && current && current.agent === agent && current.status !== 'running' && (this.readAsTask(agent) ? current.task && current.perm === 'read' : !current.task) ? current : null;
+          await this.runs.start(agent, text, cwd, thread, resumable?.id ?? null, scope, resumable || !current ? null : (recap ?? null), this.claudeInPlace());
           this.noteNewSession(current);
         } else {
           // A code task (or an ACP question). An earlier code task's draft or folder is reused.
@@ -612,7 +630,8 @@ export class ChatState {
 
   /** An agent whose Chỉ hỏi cannot become Sửa code in place: say that the session is a new one. */
   private noteNewSession(before: Run | null): void {
-    if (!before || before.perm !== 'read' || before.status !== 'idle' || before.restored || this.perm() === 'read') return;
+    // Claude's question session waits `idle`; a CLI question (Codex) has ended `done`.
+    if (!before || before.perm !== 'read' || (before.status !== 'idle' && before.status !== 'done') || before.restored || this.perm() === 'read') return;
     const id = this.runs.selectedId();
     if (id && id !== before.id) this.runs.note(id, 'Đã mở phiên mới để cho phép sửa code');
   }
@@ -650,4 +669,9 @@ function loadSteps(): PipelineStep[] | null {
   } catch {
     return null;
   }
+}
+
+/** A Chỉ hỏi run: a CLI question (no task), or Claude's question session (a task that may not edit). */
+function isReadRun(r: Run): boolean {
+  return !r.task || r.perm === 'read';
 }

@@ -150,10 +150,14 @@ export class RunsService {
     if (!this.selectedId()) this.selectedId.set(this.runs()[0]?.id ?? null);
   }
 
-  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null, recap: string | null = null): Promise<void> {
+  /**
+   * A Chỉ hỏi question. `inPlace`: the folder is a Git repo with a commit, so Claude can open
+   * its code session there; elsewhere Claude answers through its CLI like the others.
+   */
+  async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null, recap: string | null = null, inPlace = true): Promise<void> {
     // Claude's Chỉ hỏi is a session like any other, in the folder itself, so a later switch
     // to Hỏi trước needs no new session. The other agents answer through their CLI.
-    if (agent === 'claude') {
+    if (agent === 'claude' && inPlace) {
       const previous = resumeFrom ? this.runs().find((r) => r.id === resumeFrom) : undefined;
       await this.startTask(agent, prompt, cwd, { approval: 'deny', place: 'direct', thread, scope, recap: recap ?? undefined, reuse: previous?.task ? previous.id : undefined });
       return;

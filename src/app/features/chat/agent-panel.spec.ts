@@ -4,7 +4,7 @@ import { RunsService } from '../../services/runs/runs.service';
 import { AgentBackend } from '../../core/backend';
 import { AgentsService } from '../../services/agents/agents.service';
 import { MockBackend } from '../../core/mock/mock-backend';
-import { AgentId } from '../../core/protocol';
+import { AgentEvent, AgentId } from '../../core/protocol';
 import { WorkspaceService } from '../../services/workspace.service';
 import { AgentPanel } from './agent-panel';
 import { ChatState } from './chat.state';
@@ -255,8 +255,13 @@ describe('AgentPanel composer', () => {
     await p.send();
     const question = runs.selected()!;
     await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
-    runs.runs.update((list) => list.map((r) => (r.id === question.id ? { ...r, proposal: '# Đổi a.txt\n- Ghi đè thành xin chào' } : r)));
+    // ClaudeConn reports the plan-mode write as a tool call (`tool_call_of`).
+    const plan = '# Đổi a.txt\n- Ghi đè thành xin chào';
+    (backend as unknown as { emit(e: AgentEvent): void }).emit({ runId: question.id, agent: 'claude', kind: 'tool', line: null, usage: null, code: null, atMs: Date.now(),
+      data: { sessionUpdate: 'tool_call', toolCallId: 'toolu_1', title: 'Write /Users/a/.claude/plans/doi-a.md', kind: 'edit', status: 'in_progress',
+        rawInput: { file_path: '/Users/a/.claude/plans/doi-a.md', content: plan }, _meta: { claudeCode: { toolName: 'Write' } } } });
     TestBed.tick();
+    expect(runs.runs().find((r) => r.id === question.id)?.proposal).toBe(plan);
     const set = vi.spyOn(backend, 'setApproval');
     const sent = vi.spyOn(backend, 'sendMessage');
     backend.starts = 0;
@@ -310,6 +315,59 @@ describe('AgentPanel composer', () => {
     await vi.waitFor(() => expect(runs.selected()!.lines.some((l) => l.tone === 'user' && l.text === 'câu hai')).toBe(true));
   });
 
+  for (const folder of ['/demo-nogit', '/demo-nocommit']) {
+    it(`asks Claude through its CLI where a code session cannot open (${folder})`, async () => {
+      const { backend, panel } = await setup();
+      await TestBed.inject(WorkspaceService).setFolder(folder);
+      const calls: { agent: AgentId; resumeFrom: string | null | undefined }[] = [];
+      const start = backend.start.bind(backend);
+      backend.start = (agent, prompt, cwd, thread, resumeFrom) => {
+        calls.push({ agent, resumeFrom });
+        return start(agent, prompt, cwd);
+      };
+      const runs = TestBed.inject(RunsService);
+      panel.mode.set('read');
+      expect(panel.blocked()).toBeNull();
+      panel.prompt.set('câu một');
+      await panel.send();
+      expect(panel.error()).toBeNull();
+      expect(backend.starts).toBe(0);
+      expect(calls).toEqual([{ agent: 'claude', resumeFrom: null }]);
+      const first = runs.selected()!;
+      expect(first.perm).toBe('read');
+      await vi.waitFor(() => expect(['done', 'idle']).toContain(runs.selected()?.status), { timeout: 4000 });
+      TestBed.tick();
+      panel.prompt.set('câu hai');
+      await panel.send();
+      expect(backend.starts).toBe(0);
+      expect(calls[1]).toEqual({ agent: 'claude', resumeFrom: first.id });
+    });
+  }
+
+  it('waits for Claude\'s Chỉ hỏi answer before taking the next question', async () => {
+    const { backend, panel } = await setup();
+    const runs = TestBed.inject(RunsService);
+    panel.mode.set('read');
+    panel.prompt.set('câu một');
+    await panel.send();
+    const first = runs.selected()!;
+    runs.runs.update((l) => l.map((r) => (r.id === first.id ? { ...r, status: 'running' as const } : r)));
+    TestBed.tick();
+    expect(first).toMatchObject({ task: true, perm: 'read' });
+    panel.prompt.set('câu hai');
+    expect(panel.blocked()).toContain('Agent đang trả lời');
+    expect(panel.canRun()).toBe(false);
+    backend.starts = 0;
+    panel.onEnter(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await Promise.resolve();
+    expect(backend.starts).toBe(0);
+    expect(runs.selected()!.id).toBe(first.id);
+    // Once it has answered, the box invites the next question to the same session.
+    runs.runs.update((l) => l.map((r) => (r.id === first.id ? { ...r, status: 'idle' as const } : r)));
+    TestBed.tick();
+    expect((panel as unknown as { placeholder(): string }).placeholder()).toBe('Hỏi tiếp Claude Code');
+  });
+
   it('changes the mode of Claude\'s open session instead of starting a new one', async () => {
     const { backend, panel } = await setup();
     const p = panel as unknown as Composer & { setPerm(p: string): void };
@@ -332,6 +390,34 @@ describe('AgentPanel composer', () => {
     expect(runs.selected()!.lines.some((l) => l.text.includes('Đã mở phiên mới'))).toBe(false);
   });
 
+  it('opens a new session, with a note, when the core keeps a throwaway question read-only', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { setPerm(p: string): void };
+    const runs = TestBed.inject(RunsService);
+    p.setPerm('read');
+    p.prompt.set('câu một');
+    await p.send();
+    const first = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
+    TestBed.tick();
+    // What `set_approval` answers for a question in a throwaway draft (TG_CLAUDE_ACP=1).
+    backend.setApproval = () => Promise.reject(new Error('Claude Code trả lời Chỉ hỏi trong một bản nháp tạm, sẽ bị xoá khi phiên kết thúc, nên phiên này không sửa code được. Hãy mở phiên mới.'));
+    const sent = vi.spyOn(backend, 'sendMessage');
+    backend.starts = 0;
+    p.setPerm('ask');
+    p.prompt.set('giờ sửa đi');
+    await p.send();
+    expect(p.error()).toBeNull();
+    expect(sent).not.toHaveBeenCalled();
+    expect(backend.starts).toBe(1);
+    expect(backend.lastStart).toMatchObject({ approval: 'ask', reuse: null, thread: first.thread });
+    expect(backend.lastStart?.recap).toContain('câu một');
+    const now = runs.selected()!;
+    expect(now.id).not.toBe(first.id);
+    expect(now.lines.some((l) => l.text === 'Đã mở phiên mới để cho phép sửa code')).toBe(true);
+    expect(runs.runs().find((r) => r.id === first.id)?.perm).toBe('read');
+  });
+
   it('opens a new session, with a note, when Codex leaves Chỉ hỏi', async () => {
     const { backend, panel } = await setup();
     const p = panel as unknown as Composer & { setPerm(p: string): void };
@@ -341,9 +427,8 @@ describe('AgentPanel composer', () => {
     p.prompt.set('@codex câu một');
     await p.send();
     const first = runs.selected()!;
+    // Codex's read-only CLI run ends `done`, its process gone.
     await vi.waitFor(() => expect(runs.selected()?.status).toBe('done'), { timeout: 4000 });
-    // Make the read-only run look like an idle open one: only the mode switch is under test.
-    runs.runs.update((l) => l.map((r) => (r.id === first.id ? { ...r, status: 'idle' as const } : r)));
     TestBed.tick();
     backend.starts = 0;
     p.setPerm('ask');
