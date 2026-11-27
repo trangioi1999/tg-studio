@@ -1,0 +1,7 @@
+Fix round 1 for Task 3 (Rust part), Codex worktree ../tg-studio-wt/d3-warm.
+
+CRITICAL — src-tauri/src/tasks/mod.rs:643-646 with warm.rs:160,196-198: a warm session reserves its tg-bridge token with bridge_server(..., false) and native Claude launches with native_launch(..., false, ...), so the stdio tg-bridge has no TG_BRIDGE_CHILD=1 and tools/list (bridge.rs:57, tools_for(child)) advertises delegate, wait_delegated, resolve_delegated and handoff_to. bind uses the child's TaskEnv (child flag correct server-side) and delegate is rejected server-side (bridge_env.rs:68), but handoff_to is NOT guarded for children (bridge.rs:118). This breaks the one-level rule.
+Controller ruling — implement exactly:
+ (1) A delegate child takes a warm session ONLY when the warm key has no bridge (key.bridge == false / bridge disabled). With the bridge on, the child spawns as before. Update the comment to say why (tools/list is fixed at agent start).
+ (2) Defense in depth: in the TaskEnv / bridge call path, reject `handoff_to` (and the delegate family) when the env is a child, with a Vietnamese error string, matching how delegate is already rejected.
+IMPORTANT — the test uses a fake Warm with token None, so it can't catch this. Add tests: (a) with bridge on, a direct child does NOT take the warm session (pool still holds it); (b) with bridge off it does (existing case); (c) a child TaskEnv calling handoff_to gets an error.

@@ -20,10 +20,39 @@ Ghi chú để làm tiếp ở phiên hoặc tài khoản khác. Đọc hết t�
 | Đợt | Trạng thái |
 |---|---|
 | A · Một phiên cho mọi chế độ | **Xong**, lượt soát toàn nhánh sạch (commit `8d1d14b..44b1078`) |
-| B · Token và context | Task 1 xong (`4e0a034`). Task 2 xong (`31f9e44`), đã sửa theo lượt soát (`6330492`) nhưng **chưa soát lại phần sửa** (xem dưới). Task 3, 4 chưa làm |
-| C · Ô chat A, dòng kiểu CLI, nhóm Đang chạy | Chưa làm (plan sẵn) |
-| D · Agent con trong chat, cửa sổ lớn | Chưa làm (plan sẵn) |
+| B · Token và context | **Xong** (`4e0a034..fcfdf07`), soát toàn đợt và soát lại lượt sửa đều sạch |
+| C · Ô chat A, dòng kiểu CLI, nhóm Đang chạy | **Xong code** (`7e575a7..468c01b`). Lượt sửa sau soát toàn đợt là `468c01b` (danh sách: `2026-11-27-findings/dot-c-final-findings.md`), **chưa soát lại** |
+| D · Agent con trong chat, cửa sổ lớn | Dở, xem "Cập nhật 2026-11-27 tối" |
 | E · Bảng agent | Chưa làm (plan sẵn) |
+
+### Cập nhật 2026-11-27 tối (phiên trên máy chủ repo)
+
+Mỗi task: subagent làm, subagent khác soát; một số task giao Codex (`codex exec` trong worktree `../tg-studio-wt/<task>`, Claude commit và soát). Kiểm tra lúc dừng: npm test 353, cargo 442, build qua.
+
+Việc làm tiếp, theo thứ tự:
+1. **Soát lại `468c01b`** (sửa sau soát đợt C) theo `2026-11-27-findings/dot-c-final-findings.md`. Lưu ý: test "Nhắn thêm…" chỉ dựng được khi `ChatState.mode` khác chế độ của run.
+2. **Đợt D task 1** (terminal nhỏ): nhánh `claude/d1-terminal` (`1705be3`, base `0d34482`), đã soát: Approved. Còn một điểm Important: "một agent con mở trong một tin nhắn" mới đúng trong từng `tg-delegations`; tin có nhiều dấu giao việc thì mở được nhiều cái. Cách sửa: giữ khoá mở theo `parent.id` ở service dùng chung. Điểm nhỏ:
+   - `view` chạy lại `segmentsOf` mỗi giây.
+   - Run `idle` vẫn đếm giờ.
+   - Một chú thích test sai.
+
+   Sửa xong thì cherry-pick vào nhánh chính.
+3. **Đợt D task 3, phần Rust** (agent con direct lấy phiên mở sẵn): nhánh `codex/d3-warm` (`330becd`). Soát ra lỗi **Critical**: phiên mở sẵn chạy tg-bridge không có `TG_BRIDGE_CHILD`, nên agent con thấy `delegate` và `handoff_to`, mà `handoff_to` không chặn agent con. Quyết định sửa và test cần thêm nằm trong `2026-11-27-findings/dot-d-task-3-findings.md`:
+   - Agent con chỉ lấy phiên mở sẵn khi tg-bridge tắt.
+   - Chặn `handoff_to` và nhóm tool giao việc ở `TaskEnv` của agent con.
+
+   Lượt sửa của Codex bị dừng giữa chừng: worktree có thể còn thay đổi dở chưa commit. Xem `git -C ../tg-studio-wt/d3-warm diff`, bỏ nếu không chắc. **Không** cherry-pick `330becd` khi chưa sửa.
+4. Đợt D: task 2 (cửa sổ lớn), rồi phần UI của task 3 (dòng subagent trong `delegations.ts`, mock có subagent Claude). Phần UI làm sau task 1 vì task 1 viết lại `delegations.ts`. Cuối đợt soát toàn đợt.
+5. Đợt E.
+
+Quyết định đã đưa ra trong phiên này (giá phải trả nếu sai):
+- Plan B ghi `agent-backend.ts`, tệp thật là `core/backend.ts`. Không tốn gì.
+- Số token dùng `fmtTokens` (dấu chấm: `~1.5k`) ở mọi nơi, kể cả bảng context. Sai thì đổi một hàm.
+- Chấp nhận: thẻ nhắc thu gọn có thể hiện lại một thoáng sau `/compact`; giới hạn 5 s của `refresh_context` không nguyên tử. Giá: hiện cũ một thoáng.
+- Nhãn "Tự động"/"Sửa code" → "Tự làm"/"Hỏi trước" sửa ở lượt soát cuối đợt C, không mở vòng sửa riêng.
+- Giữ việc chặn gửi giữa lượt; chỉ đổi câu gợi ý khi đang chạy. Sai thì sửa một câu.
+- Bấm dòng agent con ở nhóm Đang chạy mở run cha (plan ghi `openRun(id)`). Sai thì dòng con mở chat của cha thay vì con.
+- Đợt D task 3: tách phần Rust (Codex làm trước) và phần UI (sau task 1). Agent con chỉ lấy phiên mở sẵn khi tg-bridge tắt. Giá: tg-bridge bật (mặc định) thì agent con không nhanh hơn.
 
 Mèo TG (`tg-mascot`, `tg-dock-mascot`, `public/mascot/`) đã có trên `main` từ trước.
 
