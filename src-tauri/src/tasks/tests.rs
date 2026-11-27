@@ -1598,12 +1598,22 @@ fn claude_context_maps_to_event() {
 }
 
 #[tokio::test]
-async fn delegate_direct_child_takes_warm_session() {
+async fn delegate_direct_child_takes_warm_session_with_bridge_off() {
+    child_warm_session(false).await;
+}
+
+#[tokio::test]
+async fn delegate_direct_child_keeps_warm_session_with_bridge_on() {
+    child_warm_session(true).await;
+}
+
+async fn child_warm_session(bridge_on: bool) {
     let repo = Repo::new();
     let cwd = repo.0.join("child-scope");
     std::fs::create_dir(&cwd).unwrap();
     let store = Store::open_in_memory().unwrap();
     let agent = AgentKind::Codex;
+    store.set_setting("bridge", &json!({"enabled": bridge_on}).to_string()).unwrap();
     let key = warm::key_for(&store, agent, &cwd);
     for snapshot in [Some("snapshot".into()), None] {
         let pool = warm::WarmPool::default();
@@ -1611,8 +1621,8 @@ async fn delegate_direct_child_takes_warm_session() {
         let slot = warm::tests::entry(&pool, key.clone(), 1, Some(ready));
         let place = place_for(agent, Approval::Auto, None, None, Some(snapshot)).unwrap();
         let command = (PathBuf::from("unused-adapter"), vec![]);
-        let adapter = select_adapter(&store, &pool, agent, &place, Ok(cwd.clone()), true, command).await;
-        if place == Place::Direct {
+        let adapter = select_adapter(&store, &pool, agent, &place, Ok(cwd.clone()), true, true, command).await;
+        if place == Place::Direct && !bridge_on {
             let Adapter::Warm(ready, _) = adapter else { panic!("agent con direct phải dùng phiên mở sẵn"); };
             assert!(slot.lock().await.is_none());
             assert!(pool.take(&key).await.is_none(), "phiên chỉ được lấy một lần");
@@ -1622,8 +1632,33 @@ async fn delegate_direct_child_takes_warm_session() {
             claimed.release();
         } else {
             assert!(matches!(adapter, Adapter::Spawn(_)));
-            assert!(slot.lock().await.is_some(), "snapshot không được lấy phiên mở sẵn");
+            assert!(slot.lock().await.is_some(), "agent con không đủ điều kiện phải giữ phiên trong pool");
             pool.take(&key).await.unwrap().close().await;
         }
     }
+}
+
+// No app access is allowed for rejected child tools.
+#[derive(Clone)]
+struct UnusedApp;
+impl std::borrow::Borrow<AppHandle> for UnusedApp {
+    fn borrow(&self) -> &AppHandle { panic!("tool bị chặn không được truy cập app") }
+}
+
+#[tokio::test]
+async fn child_task_env_rejects_handoff_and_delegate_family() {
+    let repo = Repo::new();
+    let sink = Arc::new(Recorder::default());
+    let session = Arc::new(TaskSession::new("child", AgentKind::Codex, &repo.0, sink.clone(), Arc::new(Rules)).unwrap());
+    let env = TaskEnv {
+        app: UnusedApp, run_id: "child".into(), agent: AgentKind::Codex,
+        scope: "scope".into(), prompt: "task".into(), group: None,
+        wt: repo.wt(), sink: sink.clone(), session, repo: repo.0.clone(),
+        thread: None, subfolder: None, child: true,
+    };
+    for tool in ["handoff_to", "delegate", "wait_delegated", "resolve_delegated"] {
+        let result = bridge::call_tool(&env, tool, &json!({"agent": "claude", "task": "test", "id": "d"})).await;
+        assert_eq!(result.unwrap_err(), "Agent được giao việc không giao tiếp cho agent khác được.", "{tool}");
+    }
+    assert!(sink.0.lock().unwrap().is_empty());
 }

@@ -3,8 +3,9 @@
 use super::*;
 
 /// What tg-bridge tools can reach for one task run.
-pub(super) struct TaskEnv {
-    pub(super) app: AppHandle,
+/// The app handle can be substituted to test rejected calls without starting a GUI.
+pub(super) struct TaskEnv<A = AppHandle> {
+    pub(super) app: A,
     pub(super) run_id: String,
     pub(super) agent: AgentKind,
     /// Notes are shared by the runs of one task: a parallel group or a pipeline's worktree.
@@ -17,11 +18,11 @@ pub(super) struct TaskEnv {
     pub(super) repo: PathBuf,
     pub(super) thread: Option<String>,
     pub(super) subfolder: Option<String>,
-    /// Working on a piece another agent delegated: it cannot delegate further.
+    /// Working on a piece another agent delegated: it cannot delegate or hand off further.
     pub(super) child: bool,
 }
 
-impl TaskEnv {
+impl<A: std::borrow::Borrow<AppHandle> + Clone + Send + Sync + 'static> TaskEnv<A> {
     /// A delegation event in the parent's log, for the UI's nested block.
     fn emit_delegation(&self, kind: &str, d: &crate::tasks::delegate::Delegation) {
         let mut data = serde_json::to_value(d).unwrap_or_default();
@@ -34,7 +35,8 @@ impl TaskEnv {
     }
 }
 
-impl ToolEnv for TaskEnv {
+impl<A: std::borrow::Borrow<AppHandle> + Clone + Send + Sync + 'static> ToolEnv for TaskEnv<A> {
+    fn is_child(&self) -> bool { self.child }
     fn emit(&self, data: serde_json::Value, line: String) {
         let mut event = AgentEvent::new(&self.run_id, self.agent, "bridge");
         event.data = Some(data);
@@ -42,10 +44,10 @@ impl ToolEnv for TaskEnv {
         self.sink.emit(event);
     }
     fn add_note(&self, topic: &str, text: &str) -> Result<(), String> {
-        self.app.state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, crate::system::clock::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
+        self.app.borrow().state::<Store>().add_note(&self.scope, topic, text, &self.run_id, self.agent, crate::system::clock::now_ms()).map_err(|e| format!("Không lưu được ghi chú: {e}"))
     }
     fn notes(&self, topic: Option<&str>) -> Result<Vec<(String, String, u64, String)>, String> {
-        self.app.state::<Store>().notes(&self.scope, topic).map_err(|e| format!("Không đọc được ghi chú: {e}"))
+        self.app.borrow().state::<Store>().notes(&self.scope, topic).map_err(|e| format!("Không đọc được ghi chú: {e}"))
     }
     fn approve(&self, action: String, reason: String) -> bridge::BoxFuture<bool> {
         self.session.ask(action, reason)
@@ -68,7 +70,7 @@ impl ToolEnv for TaskEnv {
         if self.child { return Box::pin(async { Err("Agent được giao việc không giao tiếp cho agent khác được.".to_string()) }); }
         let approval = self.session.approval();
         if approval == Approval::Deny { return Box::pin(async { Err("Ở chế độ Chỉ hỏi không giao việc cho agent khác được.".to_string()) }); }
-        let all = self.app.state::<Arc<Delegations>>().inner().clone();
+        let all = self.app.borrow().state::<Arc<Delegations>>().inner().clone();
         let mut d = Delegation {
             id: uuid::Uuid::new_v4().to_string(), parent: self.run_id.clone(), child: None, agent, task: task.clone(),
             status: if approval == Approval::Ask { "waiting_approval" } else { "running" }.into(),
@@ -120,12 +122,12 @@ impl ToolEnv for TaskEnv {
                 single_turn: Some(true), thread: me.thread.clone(), scope: me.subfolder.clone(), approval: Some(approval), child: Some(spec),
                 ..TaskRequest::new(agent, prompt, me.repo.to_string_lossy().into_owned())
             };
-            let started = start_task_with(me.app.clone(), request).await;
+            let started = start_task_with(me.app.borrow().clone(), request).await;
             let child_id = match started {
                 Ok(id) => id,
                 Err(e) => return fail("failed", e),
             };
-            let child_wt = me.app.state::<Store>().run_worktree(&child_id).map(|(_, wt)| wt).ok();
+            let child_wt = me.app.borrow().state::<Store>().run_worktree(&child_id).map(|(_, wt)| wt).ok();
             // In place, its edits are already in the parent's folder: no draft to show or merge.
             let draft = child_wt.clone().filter(|w| !w.is_direct());
             let d = all.update(&d.id, |x| { x.child = Some(child_id.clone()); x.worktree = draft.as_ref().map(|w| w.path.clone()); x.child_wt = draft.clone(); })
@@ -140,14 +142,14 @@ impl ToolEnv for TaskEnv {
                 if let Some(wt) = child_wt.as_ref().filter(|w| w.is_direct()) {
                     // Only its bookkeeping goes; the parent's review already shows these edits.
                     if let Err(e) = worktree::remove(&me.repo, wt, false) { eprintln!("Không dọn được sổ của việc con: {e}"); }
-                    let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
+                    let _ = me.app.borrow().state::<Store>().clear_run_worktree(&child_id);
                 }
                 let outcome = match (&draft, status.as_str(), &base) {
                     (None, "done", _) => ("done", vec![], vec![], None),
                     (Some(wt), "done", Some(base)) => match crate::tasks::delegate::merge_back(&me.wt.path, wt, base) {
                         Ok(merged) if merged.conflicts.is_empty() => {
                             if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
-                            let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
+                            let _ = me.app.borrow().state::<Store>().clear_run_worktree(&child_id);
                             ("done", merged.applied, vec![], None)
                         }
                         Ok(merged) => ("conflict", merged.applied, merged.conflicts, None),
@@ -156,7 +158,7 @@ impl ToolEnv for TaskEnv {
                     (wt, other, _) => {
                         if let Some(wt) = wt {
                             if let Err(e) = worktree::remove(&me.repo, wt, true) { eprintln!("Không dọn được bản nháp của việc con: {e}"); }
-                            let _ = me.app.state::<Store>().clear_run_worktree(&child_id);
+                            let _ = me.app.borrow().state::<Store>().clear_run_worktree(&child_id);
                         }
                         (if other == "stopped" { "stopped" } else { "failed" }, vec![], vec![], None)
                     }
@@ -175,7 +177,7 @@ impl ToolEnv for TaskEnv {
         })
     }
     fn wait_delegated(&self, ids: Vec<String>, timeout: Duration) -> bridge::BoxFuture<Result<Value, String>> {
-        let all = self.app.state::<Arc<crate::tasks::delegate::Delegations>>().inner().clone();
+        let all = self.app.borrow().state::<Arc<crate::tasks::delegate::Delegations>>().inner().clone();
         let parent = self.run_id.clone();
         Box::pin(async move {
             let list = all.wait(&parent, &ids, timeout).await;
@@ -184,11 +186,11 @@ impl ToolEnv for TaskEnv {
         })
     }
     fn resolve_delegated(&self, id: String) -> Result<String, String> {
-        let all = self.app.state::<Arc<crate::tasks::delegate::Delegations>>().inner().clone();
+        let all = self.app.borrow().state::<Arc<crate::tasks::delegate::Delegations>>().inner().clone();
         let d = all.get(&id).filter(|d| d.parent == self.run_id).ok_or("Không có việc con này.")?;
         if d.status != "conflict" { return Ok("Việc này không có xung đột cần gộp.".into()); }
         if let Some(wt) = &d.child_wt { worktree::remove(&self.repo, wt, true)?; }
-        if let Some(child) = &d.child { let _ = self.app.state::<Store>().clear_run_worktree(child); }
+        if let Some(child) = &d.child { let _ = self.app.borrow().state::<Store>().clear_run_worktree(child); }
         let d = all.update(&id, |x| { x.status = "done".into(); x.worktree = None; x.child_wt = None; }).ok_or("Không có việc con này.")?;
         self.emit_delegation("delegate_done", &d);
         Ok("Đã dọn bản nháp của việc con.".into())
