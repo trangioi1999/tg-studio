@@ -1,50 +1,39 @@
 import { Component, inject } from '@angular/core';
 import { computed } from '@angular/core';
 import { LiveTokens } from '../../../core/protocol';
-import { AgentAvatar } from '../../../shared/ui/agent-avatar';
-import { AGENT_META } from '../../../services/agents/agent-meta';
 import { turnStart, Run } from '../../../services/runs/run';
 import { fmtDuration, fmtTokens } from '../../../shared/utils/format';
 import { segmentsOf } from '../conversation/timeline';
 import { ChatState } from '../chat.state';
 
-/** What the selected run is doing right now, with its clock and a stop button. */
+/** What the selected run is doing right now, as the strip on top of the composer block. */
 @Component({
   selector: 'tg-live-status',
-  imports: [AgentAvatar],
+  imports: [],
   template: `
 @if (live(); as l) {
-  <div class="live-status" role="status" [class.waiting]="l.waiting">
-    <tg-agent-avatar [agent]="l.run.agent" [size]="20" />
-    <strong>{{ meta[l.run.agent].name }} {{ l.verb }}</strong>
-    @if (!l.waiting) { <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span> }
-    <span class="sep">·</span><span class="mono clock">{{ duration(l.run) }}</span>
-    @if (l.run.live; as t) {
-      <span class="sep">·</span><span class="mono tokens">{{ tokens(t) }}</span>
-    }
-    <span class="sep">·</span><span class="ellipsis step" [title]="l.step">{{ l.step }}</span>
-    <button class="act-btn bordered" [title]="'Dừng (Esc)'" (click)="chat.runs.stop(l.run.id)">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>Dừng<span class="kbd">Esc</span>
-    </button>
+  <div class="cx-tray mono" role="status">
+    <span class="cx-mark" aria-hidden="true">✻</span>
+    <span class="ellipsis step" [title]="l.step">{{ l.step }}</span>
+    <span class="dim clock">{{ duration(l.run) }}@if (l.run.live; as t) { · {{ tokens(t) }} }</span>
+    <span class="grow"></span>
+    <span class="dim esc">Esc để dừng</span>
   </div>
 }
   `,
 })
 export class LiveStatus {
   protected readonly chat = inject(ChatState);
-  protected readonly meta = AGENT_META;
   protected readonly live = computed(() => {
     const r = this.chat.run();
     // While an approval card is up it says what is waiting; a second line would repeat it.
     if (!r || r.status !== 'running' || r.permissions.length) return null;
     const last = segmentsOf(r.lines, true).at(-1);
-    const waiting = r.permissions.length > 0;
     let step = 'đang suy nghĩ…';
-    if (waiting) step = `chờ bạn duyệt: ${r.permissions[0].toolCall.title ?? 'một thao tác'}`;
-    else if (r.progress) step = r.progress.step;
+    if (r.progress) step = r.progress.step;
     else if (last?.kind === 'work') step = last.steps.at(-1)?.text ?? step;
     else if (last?.kind === 'text') step = 'đang viết câu trả lời…';
-    return { run: r, waiting, step, verb: waiting ? 'đang chờ bạn' : r.task && r.perm !== 'read' ? 'đang làm' : 'đang trả lời' };
+    return { run: r, step };
   });
 
   /** `~` marks a count the core estimated from the text; the input side is unknown for ACP agents. */

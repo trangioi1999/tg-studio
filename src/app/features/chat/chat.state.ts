@@ -207,10 +207,12 @@ export class ChatState {
   });
 
   // Composer menus: who works (agent, model, team) and what it may do (permission).
-  readonly menu = signal<'agent' | 'perm' | 'place' | 'context' | null>(null);
+  readonly menu = signal<'agent' | 'perm' | 'place' | 'context' | 'plus' | null>(null);
+  /** The chat is scrolled to its end: the cat on the composer stays, else it fades out. */
+  readonly atBottom = signal(true);
   readonly team = computed<'single' | 'parallel' | 'pipeline'>(() => (this.mode() === 'parallel' ? 'parallel' : this.mode() === 'pipeline' ? 'pipeline' : 'single'));
 
-  toggleMenu(which: 'agent' | 'perm' | 'place' | 'context'): void {
+  toggleMenu(which: 'agent' | 'perm' | 'place' | 'context' | 'plus'): void {
     const opening = this.menu() !== which;
     this.menu.set(opening ? which : null);
     if (opening && which === 'place') void this.loadBranches();
@@ -327,8 +329,9 @@ export class ChatState {
   });
   readonly placeholder = computed(() => {
     const r = this.run();
-    if (this.mode() === 'read' && r && isReadRun(r) && r.status !== 'running') return `Hỏi tiếp ${AGENT_META[r.agent].name}`;
-    if (this.mode() === 'task' && r?.task && r.status !== 'running') return `Nhắn tiếp cho ${AGENT_META[r.agent].name}`;
+    if (r?.status === 'running') return 'Nhắn thêm, agent đọc sau bước này…';
+    if (this.mode() === 'read' && r && isReadRun(r)) return `Hỏi tiếp ${AGENT_META[r.agent].name}`;
+    if (this.mode() === 'task' && r?.task) return `Nhắn tiếp cho ${AGENT_META[r.agent].name}`;
     return 'Giao việc hoặc hỏi agent';
   });
   readonly sending = signal(false);
@@ -475,6 +478,19 @@ export class ChatState {
     this.prompt.set(box.value);
     this.caret.set(box.selectionStart);
     this.cmdIndex.set(0);
+  }
+
+  /** The "+" menu's "Lệnh": starts a "/" at the caret so the command list opens. */
+  startCommand(): void {
+    this.menu.set(null);
+    const box = this.box;
+    const text = this.prompt();
+    const at = box?.selectionStart ?? text.length;
+    const lead = at > 0 && !/\s/.test(text[at - 1]) ? ' ' : '';
+    this.prompt.set(text.slice(0, at) + lead + '/' + text.slice(at));
+    const caret = at + lead.length + 1;
+    this.caret.set(caret);
+    queueMicrotask(() => { box?.focus(); box?.setSelectionRange(caret, caret); });
   }
 
   onKeyUp(e: KeyboardEvent): void {

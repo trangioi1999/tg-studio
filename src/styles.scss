@@ -28,6 +28,8 @@
   --wait-bg: rgba(232, 182, 114, 0.14);
   /* Diff and tags share one green/red pair. */
   --add: var(--done); --add-bg: rgba(111, 211, 168, 0.10); --del: var(--fail); --del-bg: rgba(242, 155, 139, 0.10);
+  /* The cat's orange: send button, the ✻ mark, the caret. */
+  --cat: #ff8a3d; --cat-ink: #1a0e05;
   --focus: #8ab4ff;
   --ok: #6fd3a8;
   --warn: #e8b672;
@@ -37,7 +39,7 @@
   /* Type scale. */
   --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 14px; --fs-xl: 16px; --fs-2xl: 20px; --fs-3xl: 28px;
   /* Corners. */
-  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-full: 99px;
+  --r-xs: 4px; --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 20px; --r-full: 99px;
   /* Control heights. */
   --h-sm: 28px; --h-md: 32px; --h-lg: 40px;
   /* Motion: short, and off when the system asks for less. */
@@ -824,21 +826,42 @@ tg-integrations { display: block; }
 .handoff { padding: 12px; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--raised); }
 
 /* Approvals pinned above the composer */
-.ap-approvals { flex: none; max-height: 50vh; overflow: auto; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; }
-.ap-approvals .permission { margin: 0; border-color: var(--wait-line); background: var(--wait-tint); border-radius: var(--r-lg); }
 
 /* Composer */
-.cmp { position: relative; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--input); }
-.cmp:focus-within { border-color: var(--line-hover); }
-.cmp textarea { display: block; width: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--text); font-size: var(--fs-lg); padding: 16px 16px 6px; }
-.cmp.big textarea { font-size: var(--fs-lg); padding: 16px 16px 6px; }
-.cmp textarea::placeholder { color: var(--faint); }
+.cx { position: relative; border: 1px solid var(--line-strong); border-radius: var(--r-xl); background: var(--input); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.cx:focus-within { border-color: var(--line-hover); }
+.cx textarea { display: block; width: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--text); font-size: var(--fs-lg); padding: 16px 16px 6px; }
+.cx.big textarea { font-size: var(--fs-lg); padding: 16px 16px 6px; }
+.cx textarea::placeholder { color: var(--faint); }
 .cmp-scope { padding: 12px 16px 0; font-size: var(--fs-sm); }
-.cmp-keys { display: none; align-items: center; gap: 4px; margin-right: 8px; color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; }
-.cmp-keys .kbd { margin: 0; }
-.cmp:focus-within .cmp-keys { display: inline-flex; }
-.cmp-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px 8px; flex-wrap: wrap; }
-.cmp.dropping { border-color: var(--run); box-shadow: 0 0 0 2px color-mix(in srgb, var(--run) 35%, transparent); }
+.cx-row { display: flex; align-items: center; gap: 4px 6px; padding: 8px 10px 10px; flex-wrap: wrap; }
+.cx-end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.cx-plus { width: 34px; height: 34px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--r-full); background: transparent; color: var(--text-2); cursor: pointer; }
+.cx-plus:hover, .cx-plus.open { background: var(--hover); color: var(--text); }
+.plus-pop { width: 220px; }
+.cx-send { width: 36px; height: 36px; flex: none; border: 0; border-radius: var(--r-full); background: var(--cat); color: var(--cat-ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.cx-send svg { width: 14px; height: 14px; }
+.cx-send .ic { width: 18px; height: 18px; stroke-width: 2.4; }
+.cx-send:hover:not(:disabled) { filter: brightness(1.08); }
+.cx-send:disabled { opacity: 0.35; cursor: default; }
+.cx-send.stop { background: var(--text); color: var(--bg); }
+/* Strips on top of the block: what the agent does, or the approval it waits for (never both). */
+.cx-tray { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px 16px; border-bottom: 1px solid var(--line); border-radius: var(--r-xl) var(--r-xl) 0 0; background: var(--panel); font-size: var(--fs-sm); color: var(--text); }
+.cx-tray .cx-mark { color: var(--cat); flex: none; }
+.cx-tray .step { min-width: 0; }
+.cx-tray .step::first-letter { text-transform: uppercase; }
+.cx-tray .clock, .cx-tray .esc { white-space: nowrap; flex: none; }
+.cx-tray .grow { flex: 1; }
+.cx-tray .esc { display: none; }
+@media (min-width: 560px) { .cx-tray .esc { display: inline; } }
+.cx-approve { border-bottom: 1px solid var(--wait-line); border-radius: var(--r-xl) var(--r-xl) 0 0; background: var(--wait-tint); max-height: 50vh; overflow: auto; }
+.cx-approve .permission { margin: 0; padding: 10px 12px 10px 16px; border: 0; border-radius: 0; background: transparent; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.cx-approve .permission code { display: inline-block; padding: 3px 8px; border-radius: var(--r-sm); background: var(--bg); }
+.cx-approve .permission-actions { margin-left: auto; }
+.cx-approve .permission-actions .btn { border-radius: var(--r-full); }
+.cx-approve .ap-child-label { margin: 8px 16px 0; font-size: var(--fs-sm); }
+.cx-approve-more { margin: 0 16px 8px; font-size: var(--fs-xs); }
+.cx.dropping { border-color: var(--run); box-shadow: 0 0 0 2px color-mix(in srgb, var(--run) 35%, transparent); }
 .chip-btn.icon-only { padding: 0; width: var(--h-md); justify-content: center; color: var(--muted); }
 .chip-btn.icon-only:hover { color: var(--text); }
 .cmp-resume { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; padding: 2px 12px 0; font-size: var(--fs-xs); }
@@ -870,17 +893,12 @@ tg-integrations { display: block; }
 .perm-auto { color: var(--wait); }
 .pop-error { margin: 0 8px 6px; padding: 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; border-radius: var(--r-md); background: var(--fail-tint); color: var(--fail); font-size: var(--fs-xs); }
 .place-pop { width: 380px; max-height: 420px; overflow: auto; }
-.send { width: var(--h-md); height: var(--h-md); flex: none; border: 0; border-radius: var(--r-xs); background: var(--text); color: var(--bg); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-.send svg { width: 14px; height: 14px; }
-.send .ic { width: 16px; height: 16px; }
-.send:hover:not(:disabled) { background: var(--text-strong); }
-.send:disabled { opacity: 0.3; cursor: default; }
 
 /* Pop-overs */
 .pop-anchor { position: relative; }
 .pop-backdrop { position: fixed; inset: 0; z-index: 20; }
 .pop { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 21; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--raised); box-shadow: var(--shadow-pop); padding: 6px; }
-.cmp.big .pop { bottom: auto; top: calc(100% + 8px); }
+.cx.big .pop { bottom: auto; top: calc(100% + 8px); }
 .cmd-pop { right: 0; width: auto; max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
 .cmd-group { padding: 8px 8px 4px; color: var(--muted); font-size: var(--fs-sm); font-weight: 500; }
 .cmd-opt { width: 100%; min-height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--text-2); font-size: var(--fs-md); text-align: left; cursor: pointer; }
@@ -946,7 +964,7 @@ tg-integrations { display: block; }
 .mascot[data-pose='oops']::before { opacity: 0.4; }
 /* Standing on the top edge of the dock, at the right; the chat scrolls clear of it. */
 .dock-col { position: relative; }
-.dock-mascot { position: absolute; right: 6px; bottom: 100%; pointer-events: none; animation: tg-fade var(--t-med) var(--ease); transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease); }
+.dock-mascot { position: absolute; z-index: 2; right: 18px; bottom: calc(100% - 8px); pointer-events: none; animation: tg-fade var(--t-med) var(--ease); transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease); }
 .dock-mascot.away { opacity: 0; transform: translateY(8px); }
 .chat-scroll:has(+ .chat-dock .dock-mascot) { padding-bottom: 72px; }
 .mascot-z { position: absolute; top: 4%; right: 6%; font: 700 14px/1 var(--font); color: var(--wait); pointer-events: none; }
@@ -997,13 +1015,6 @@ tg-integrations { display: block; }
 .tree-dir .tree-row { flex: 1; min-width: 0; }
 
 /* Live status above the composer, copy actions, typing cursor */
-.live-status { display: flex; align-items: center; gap: 8px; height: 36px; margin-bottom: 8px; padding: 0 6px 0 12px; border: 1px solid var(--run-line); border-radius: var(--r-md); background: var(--run-tint); font-size: var(--fs-sm); color: var(--muted); min-width: 0; }
-.live-status strong { color: var(--text); font-weight: 500; white-space: nowrap; }
-.live-status.waiting { border-color: var(--wait-line); background: var(--wait-tint); }
-.live-status.waiting strong { color: var(--wait); }
-.live-status .sep { color: var(--faint); }
-.live-status .clock { font-size: var(--fs-sm); white-space: nowrap; }
-.live-status .step { flex: 1; }
 .ctx-wrap { position: relative; display: inline-flex; }
 .ctx-chip { height: var(--h-md); display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-md); background: transparent; color: var(--muted); font: 500 var(--fs-sm) var(--mono, monospace); cursor: pointer; white-space: nowrap; }
 .ctx-chip:hover, .ctx-chip.open { background: var(--hover); border-color: var(--line-strong); }
@@ -1181,19 +1192,19 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 
 /* Chat parts are components; their host elements must not break the column's flex layout. */
 tg-chat-turn, tg-changes-card, tg-handoff-cards, tg-pending-message, tg-pipeline-stepper, tg-plan-tab,
-tg-approvals, tg-proposal-card, tg-live-status, tg-context-alert, tg-context-chip, tg-context-panel, tg-composer, tg-chat-home, tg-command-menu, tg-pipeline-steps, tg-git-setup,
+tg-approvals, tg-proposal-card, tg-live-status, tg-dock-mascot, tg-context-alert, tg-context-chip, tg-context-panel, tg-composer, tg-chat-home, tg-command-menu, tg-pipeline-steps, tg-git-setup,
 tg-mcp-servers, tg-skill-library, tg-mcp-editor, tg-skill-editor,
 tg-usage-kpis, tg-usage-chart, tg-usage-by-agent, tg-usage-runs, tg-usage-prices { display: contents; }
 tg-page, tg-agents-panel, tg-price-settings { display: block; }
 
 /* Motion: state changes ease instead of snapping; things that appear fade in from where they come. */
-.btn, .chip-btn, .pill-btn, .act-btn, .icon-btn, .status-btn, .send, .opt, .cmd-opt, .tree-row, .chat-tab, .tl-thread, .tl-screen, .tl-project-name, .tl-add, .queue-row, .cost-split-row, .fchip, .lg-chip, .limit,
+.btn, .chip-btn, .pill-btn, .act-btn, .icon-btn, .status-btn, .cx-send, .cx-plus, .opt, .cmd-opt, .tree-row, .chat-tab, .tl-thread, .tl-screen, .tl-project-name, .tl-add, .queue-row, .cost-split-row, .fchip, .lg-chip, .limit,
 input, textarea, select { transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
-.btn:active:not(:disabled), .send:active:not(:disabled), .pill-btn:active { transform: translateY(0.5px); }
+.btn:active:not(:disabled), .cx-send:active:not(:disabled), .pill-btn:active { transform: translateY(0.5px); }
 .pop { animation: tg-pop var(--t-fast) var(--ease); transform-origin: bottom left; }
 .sheet-backdrop, .pop-backdrop { animation: tg-fade var(--t-med) var(--ease); }
 .sheet { animation: tg-sheet var(--t-med) var(--ease); }
-.permission, .live-status, .conn-toast, .changes-card, .handoff, .chat-notice, .notice { animation: tg-fade-in var(--t-med) var(--ease); }
+.permission, .cx-tray, .conn-toast, .changes-card, .handoff, .chat-notice, .notice { animation: tg-fade-in var(--t-med) var(--ease); }
 @keyframes tg-pop { from { opacity: 0; transform: translateY(4px) scale(0.98); } }
 @keyframes tg-fade { from { opacity: 0; } }
 @keyframes tg-sheet { from { opacity: 0; transform: translateX(24px); } }

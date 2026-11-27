@@ -1,6 +1,9 @@
 import { Component, inject } from '@angular/core';
 import { ElementRef, effect, viewChild } from '@angular/core';
 import { AgentMenu } from './agent-menu';
+import { Approvals } from '../dock/approvals';
+import { DockMascot } from '../dock/dock-mascot';
+import { LiveStatus } from '../dock/live-status';
 import { CommandMenu } from './command-menu';
 import { ContextChip } from './context-chip';
 import { GitSetup } from './git-setup';
@@ -12,10 +15,12 @@ import { ChatState } from '../chat.state';
 /** The box that hands out work, with who works, what it may do and where. */
 @Component({
   selector: 'tg-composer',
-  imports: [AgentMenu, CommandMenu, ContextChip, GitSetup, PermMenu, PipelineSteps, PlaceMenu],
+  imports: [AgentMenu, Approvals, CommandMenu, ContextChip, DockMascot, GitSetup, LiveStatus, PermMenu, PipelineSteps, PlaceMenu],
   template: `
-<section class="cmp" [class.big]="!chat.run()" [class.dropping]="chat.dragging()" aria-label="Giao việc"
+<section class="cx" [class.big]="!chat.run()" [class.dropping]="chat.dragging()" aria-label="Giao việc"
   (dragover)="chat.onDragOver($event)" (dragleave)="chat.dragging.set(false)" (drop)="chat.onDrop($event)">
+  @if (chat.run()) { <tg-dock-mascot [away]="!chat.atBottom()" /> }
+  @if (chat.run()?.permissions?.length || chat.childApprovals().length) { <tg-approvals /> } @else { <tg-live-status /> }
   @if (chat.scopeShown(); as scope) {
     <div class="cmp-scope dim">Trong thư mục <code>{{ scope }}/</code>
       @if (!chat.run()) { <button class="link" (click)="chat.threads.draftScope.set(null)">Bỏ</button> }
@@ -55,9 +60,23 @@ import { ChatState } from '../chat.state';
         (click)="chat.resumePick.set('fresh')">Bắt đầu mới kèm tóm tắt · ~{{ rc.recapTokens }} token</button>
     </div>
   }
-  <div class="cmp-bar">
+  <div class="cx-row">
     <input #picker type="file" multiple hidden (change)="pick(picker)" />
-    <button class="chip-btn icon-only" aria-label="Đính kèm tệp hoặc ảnh" title="Đính kèm tệp hoặc ảnh (hoặc dán, kéo thả vào đây)" (click)="picker.click()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.5l-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button>
+    <span class="pop-anchor">
+      <button class="cx-plus" [class.open]="chat.menu() === 'plus'" aria-label="Thêm tệp, lệnh hoặc skill" aria-haspopup="true" [attr.aria-expanded]="chat.menu() === 'plus'" title="Thêm tệp, lệnh hoặc skill (cũng dán hoặc kéo thả tệp vào đây)" (click)="chat.toggleMenu('plus')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      @if (chat.menu() === 'plus') {
+        <div class="pop plus-pop" role="menu" aria-label="Thêm vào tin nhắn" (keydown.escape)="chat.menu.set(null)">
+          <button role="menuitem" class="opt" (click)="chat.menu.set(null); picker.click()">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.5l-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg>
+            <span class="grow">Đính kèm tệp</span>
+          </button>
+          <button role="menuitem" class="opt" (click)="chat.startCommand()">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4 8 20"/></svg>
+            <span class="grow">Lệnh <span class="mono dim">/</span></span>
+          </button>
+        </div>
+      }
+    </span>
     <tg-agent-menu />
     <tg-perm-menu />
     @if (chat.perm() !== 'read' && !chat.run()?.task) {
@@ -66,14 +85,14 @@ import { ChatState } from '../chat.state';
     @if (chat.team() === 'pipeline') {
       <button class="chip-btn" [attr.aria-expanded]="chat.editSteps()" (click)="chat.editSteps.set(!chat.editSteps())">{{ chat.editSteps() ? 'Xong' : 'Sửa mẫu' }}</button>
     }
-    <span class="spacer"></span>
+    <span class="cx-end">
     <tg-context-chip />
-    @if (!chat.prompt()) { <span class="cmp-keys" aria-hidden="true"><span class="kbd">↵</span> gửi · <span class="kbd">⇧↵</span> xuống dòng</span> }
     @if (chat.run()?.status === 'running') {
-      <button class="send" aria-label="Dừng agent" title="Dừng" (click)="chat.runs.stop(chat.run()!.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>
+      <button class="cx-send stop" aria-label="Dừng agent" title="Dừng (Esc)" (click)="chat.runs.stop(chat.run()!.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button>
     } @else {
-      <button class="send" aria-label="Gửi" [disabled]="!chat.canRun()" [title]="chat.blocked() ?? 'Gửi (Enter)'" (click)="chat.send()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+      <button class="cx-send" aria-label="Gửi" [disabled]="!chat.canRun()" [title]="chat.blocked() ?? 'Gửi (Enter)'" (click)="chat.send()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
     }
+    </span>
   </div>
 </section>
 @if (chat.team() === 'pipeline') {
@@ -90,7 +109,7 @@ import { ChatState } from '../chat.state';
   </div>
 }
 @if (chat.perm() === 'auto' && (chat.run()?.task ? chat.run()?.place === 'direct' : chat.effectivePlace() === 'direct')) {
-  <p class="cmp-hint warn-text">Tự động + Thư mục hiện tại: agent sửa thẳng code của bạn mà không hỏi. Hoàn tác được theo tệp ở tab Thay đổi.</p>
+  <p class="cmp-hint warn-text">Tự làm + Thư mục hiện tại: agent sửa thẳng code của bạn mà không hỏi. Hoàn tác được theo tệp ở tab Thay đổi.</p>
 }
 @if (chat.blocked(); as b) { @if (chat.prompt().trim() || chat.run()?.status !== 'running') { <p class="dim cmp-hint">{{ b }}</p> } }
 @else if (chat.loginHint(); as h) { <p class="cmp-hint warn-text">{{ h }}</p> }

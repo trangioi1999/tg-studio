@@ -353,7 +353,62 @@ describe('AgentPanel composer', () => {
     runs.runs.update((l) => l.map((r) => (r.id === id ? { ...r, status: 'running' as const, permissions: [], live: { inputTokens: null, outputTokens: 1500, estimated: true } } : r)));
     TestBed.tick();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('.live-status')?.textContent).toContain('~1.5k token');
+    expect(fixture.nativeElement.querySelector('.cx-tray')?.textContent).toContain('~1.5k token');
+  });
+
+  describe('composer block (phương án A)', () => {
+    async function running() {
+      await setup();
+      const fixture = TestBed.createComponent(AgentPanel);
+      const runs = TestBed.inject(RunsService);
+      await runs.start('claude', 'câu một', '/demo');
+      const id = runs.selected()!.id;
+      const patch = (p: Record<string, unknown>) => {
+        runs.runs.update((l) => l.map((r) => (r.id === id ? { ...r, ...p } : r)));
+        TestBed.tick();
+        fixture.detectChanges();
+      };
+      patch({ status: 'running', permissions: [] });
+      return { fixture, runs, id, patch, el: fixture.nativeElement as HTMLElement };
+    }
+
+    it('approval_replaces_status_tray', async () => {
+      const { el, patch } = await running();
+      expect(el.querySelector('section.cx .cx-tray')?.textContent).toMatch(/\d+(s|m|:\d\d)/);
+      expect(el.querySelector('.cx-approve')).toBeNull();
+      patch({ permissions: [{ requestId: 'p1', toolCall: { title: 'Chạy bun test' }, options: [{ optionId: 'a', name: 'Allow', kind: 'allow_once' }, { optionId: 'r', name: 'Reject', kind: 'reject_once' }], rule: null }] });
+      const card = el.querySelector('section.cx .cx-approve');
+      expect(card?.textContent).toContain('Cho phép lần này');
+      expect(el.querySelector('.cx-tray')).toBeNull();
+      patch({ permissions: [] });
+      expect(el.querySelector('.cx-approve')).toBeNull();
+      expect(el.querySelector('.cx-tray')?.textContent).toMatch(/\d+(s|m|:\d\d)/);
+    });
+
+    it('sends with the cat-coloured button, and stops a running agent', async () => {
+      const { el, runs, id, patch } = await running();
+      const stop = vi.spyOn(runs, 'stop').mockResolvedValue(undefined as never);
+      expect(el.querySelector('.cx-row .cx-send')?.getAttribute('aria-label')).toBe('Dừng agent');
+      (el.querySelector('.cx-send') as HTMLButtonElement).click();
+      expect(stop).toHaveBeenCalledWith(id);
+      patch({ status: 'idle' });
+      expect(el.querySelector('.cx-send')?.getAttribute('aria-label')).toBe('Gửi');
+    });
+
+    it('offers the first message as a plain send button before any run', async () => {
+      await setup();
+      const fixture = TestBed.createComponent(AgentPanel);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.cx-send[aria-label="Gửi"]')).not.toBeNull();
+    });
+
+    it('keeps the cat inside the block, and the plus button in its button row', async () => {
+      const { el } = await running();
+      expect(el.querySelector('section.cx tg-dock-mascot')).not.toBeNull();
+      expect(el.querySelector('.cx-row button[aria-label="Thêm tệp, lệnh hoặc skill"]')).not.toBeNull();
+      expect(el.querySelector('.cx-row tg-agent-menu')).not.toBeNull();
+      expect(el.querySelector('textarea#prompt')?.getAttribute('placeholder')).toBe('Nhắn thêm, agent đọc sau bước này…');
+    });
   });
 
   it('waits for Claude\'s Chỉ hỏi answer before taking the next question', async () => {

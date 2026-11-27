@@ -1,8 +1,7 @@
-import { Component, ElementRef, HostListener, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, HostListener, computed, effect, inject, viewChild } from '@angular/core';
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { isQuiet } from '../../services/runs/run';
 import { AgentAvatar } from '../../shared/ui/agent-avatar';
-import { Approvals } from './dock/approvals';
 import { ChangesCard } from './conversation/changes-card';
 import { ChatHome } from './home/chat-home';
 import { ChatState } from './chat.state';
@@ -10,8 +9,6 @@ import { ChatTurn } from './conversation/chat-turn';
 import { Composer } from './composer/composer';
 import { HandoffCards } from './conversation/handoff-cards';
 import { ContextAlert } from './dock/context-alert';
-import { DockMascot } from './dock/dock-mascot';
-import { LiveStatus } from './dock/live-status';
 import { PendingMessage } from './conversation/pending-message';
 import { PipelineStepper } from './conversation/pipeline-stepper';
 import { PlanTab } from './plan/plan-tab';
@@ -24,7 +21,7 @@ import { ProposalCard } from './dock/proposal-card';
  */
 @Component({
   selector: 'tg-agent-panel',
-  imports: [AgentAvatar, Approvals, ChangesCard, ChatHome, ChatTurn, Composer, ContextAlert, DockMascot, HandoffCards, LiveStatus, PendingMessage, PipelineStepper, PlanTab, ProposalCard],
+  imports: [AgentAvatar, ChangesCard, ChatHome, ChatTurn, Composer, ContextAlert, HandoffCards, PendingMessage, PipelineStepper, PlanTab, ProposalCard],
   providers: [ChatState],
   template: `
     @if (chat.menu()) { <div class="pop-backdrop" (click)="chat.menu.set(null)"></div> }
@@ -67,11 +64,8 @@ import { ProposalCard } from './dock/proposal-card';
         </div>
       </div>
       <div class="chat-dock"><div class="dock-col">
-        <tg-dock-mascot [away]="!atBottom()" />
-        <!-- Pinned above the composer: an approval must never scroll out of sight. -->
-        <tg-approvals />
+        <!-- The approval, status and cat live inside the composer block; what sits outside is below. -->
         <tg-proposal-card />
-        <tg-live-status />
         <tg-context-alert />
         <tg-composer />
       </div></div>
@@ -85,8 +79,6 @@ export class AgentPanel {
   protected readonly meta = AGENT_META;
   protected readonly panelTabs = [{ id: 'thread', label: 'Trò chuyện' }, { id: 'plan', label: 'Kế hoạch & ghi chú' }] as const;
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
-  /** The chat is scrolled to its end: the cat on the dock covers only the space kept for it. */
-  protected readonly atBottom = signal(true);
   private readonly remeasure = effect(() => {
     this.chat.run(); // new lines change the height
     this.scroller();
@@ -99,7 +91,7 @@ export class AgentPanel {
 
   protected measure(): void {
     const el = this.scroller()?.nativeElement;
-    this.atBottom.set(!el || el.scrollHeight - el.clientHeight - el.scrollTop < 24);
+    this.chat.atBottom.set(!el || el.scrollHeight - el.clientHeight - el.scrollTop < 24);
   }
 
   /** Ctrl/⌘+Shift+M opens the agent and model picker; Esc closes a menu, or stops the agent. */

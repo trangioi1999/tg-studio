@@ -10,7 +10,7 @@ import { ChatState } from '../chat.state';
       <button class="chip-btn" [class.open]="chat.menu() === 'perm'" aria-haspopup="true" [attr.aria-expanded]="chat.menu() === 'perm'" title="Agent được phép làm gì" (click)="chat.toggleMenu('perm')">
         @switch (chat.perm()) {
           @case ('read') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Chỉ hỏi }
-          @case ('auto') { <svg class="ic perm-auto" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Tự động }
+          @case ('auto') { <svg class="ic perm-auto" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Tự làm }
           @default { <svg class="ic perm-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Hỏi trước }
         }
         <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
@@ -29,7 +29,7 @@ import { ChatState } from '../chat.state';
           </button>
           <button role="option" class="opt tall" [class.on]="chat.perm() === 'auto'" [attr.aria-selected]="chat.perm() === 'auto'" (click)="chat.setPerm('auto')">
             <svg class="ic perm-auto" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
-            <span class="grow"><strong>Tự động <span class="dim">· cần repo Git</span></strong><span class="opt-desc">Agent tự sửa tệp và chạy lệnh, không xin phép. Lệnh bị cấm (git push, merge) vẫn bị chặn. Mọi việc vẫn ghi trong Nhật ký làm việc.</span></span>
+            <span class="grow"><strong>Tự làm <span class="dim">· cần repo Git</span></strong><span class="opt-desc">Agent tự sửa tệp và chạy lệnh, không xin phép. Lệnh bị cấm (git push, merge) vẫn bị chặn. Mọi việc vẫn ghi trong Nhật ký làm việc.</span></span>
             @if (chat.perm() === 'auto') { <svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> }
           </button>
         </div>
