@@ -57,6 +57,12 @@ pub struct TaskSession {
     kiro: Mutex<(f64, HashMap<String, (u64, f64)>)>,
     /// Kiro extension notifications already noted in the log (the first of each kind).
     kiro_seen: Mutex<std::collections::HashSet<String>>,
+    /// Characters of the agent's text this turn, for the estimated token counter (chars / 4).
+    turn_chars: AtomicU64,
+    /// When the last estimated `progress` went out (at most one per 250 ms).
+    progress_at: Mutex<Option<std::time::Instant>>,
+    /// The connection sent real counts (`_tg/progress`): the estimate stays silent.
+    real_progress: AtomicBool,
 }
 
 /// How permission requests are answered. `Ask` shows a card; `Auto` allows without asking
@@ -70,7 +76,7 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default()})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default(),turn_chars:AtomicU64::new(0),progress_at:Mutex::new(None),real_progress:AtomicBool::new(false)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     /// Changes how requests are answered, and tells the connection through the hook if there is one.
@@ -175,14 +181,33 @@ impl TaskSession {
     /// The folder the agent works in.
     pub fn root(&self) -> &Path { &self.cwd }
     pub fn set_busy(&self, busy:bool) {
-        if busy && !self.busy.swap(true,Ordering::SeqCst) { self.turn_seq.fetch_add(1,Ordering::SeqCst); }
+        if busy && !self.busy.swap(true,Ordering::SeqCst) { self.new_turn(); }
         else { self.busy.store(busy,Ordering::SeqCst); }
     }
     /// True for the one caller that may start the next turn.
     pub fn claim_turn(&self) -> bool {
         let claimed = self.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_ok();
-        if claimed { self.turn_seq.fetch_add(1,Ordering::SeqCst); }
+        if claimed { self.new_turn(); }
         claimed
+    }
+    fn new_turn(&self) {
+        self.turn_seq.fetch_add(1,Ordering::SeqCst);
+        self.turn_chars.store(0,Ordering::SeqCst);
+        *self.progress_at.lock().unwrap() = None;
+    }
+    /// Estimated output tokens of the turn (~4 characters each), unless real counts exist.
+    /// `force` skips the 250 ms throttle (the last event of a turn).
+    fn estimated_progress(&self, force:bool) {
+        if self.real_progress.load(Ordering::SeqCst) { return; }
+        let chars = self.turn_chars.load(Ordering::SeqCst);
+        if chars == 0 { return; }
+        {
+            let mut at = self.progress_at.lock().unwrap();
+            let now = std::time::Instant::now();
+            if !force && at.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_millis(250)) { return; }
+            *at = Some(now);
+        }
+        self.queue_data("progress", json!({"inputTokens": null, "outputTokens": chars.div_ceil(4), "estimated": true}));
     }
     /// The first notification of each Kiro extension goes to the run's log (muted, so not in
     /// the chat): Kiro's own messages are undocumented, and this shows what a version sends.
@@ -200,6 +225,9 @@ impl TaskSession {
     /// frame covers its session's turn so far, so a later frame of the same turn replaces it.
     /// Frames of a sub-agent session count too: that work belongs to this run.
     fn kiro_metering(&self, params:&Value) {
+        if let Some(percent) = params["contextUsagePercentage"].as_f64().filter(|p| p.is_finite() && *p >= 0.0) {
+            self.queue_data("context", json!({"used": null, "size": null, "percent": percent, "source": "kiro"}));
+        }
         let Some(credits) = crate::usage::kiro_credits(params) else { return };
         let turn = self.turn_seq.load(Ordering::SeqCst);
         let key = params["sessionId"].as_str().unwrap_or_default().to_string();
@@ -226,6 +254,7 @@ impl TaskSession {
     }
     /// Token counts arrive only with the prompt result, per turn; keep the last reported cost with them.
     pub fn turn_finished(&self, result:&Value) {
+        self.estimated_progress(true); self.flush_events();
         let cost = *self.last_cost.lock().unwrap();
         if let Some(usage) = crate::usage::parse_acp_turn(result, cost) {
             {
@@ -422,6 +451,7 @@ impl ClientHandler for TaskSession {
         if self.muted.load(Ordering::SeqCst) { return; }
         self.note_kiro_extension(method, &params);
         if method.trim_start_matches('_') == "kiro.dev/metadata" { self.kiro_metering(&params); self.flush_events(); return; }
+        if method == "_tg/progress" || method == "tg/progress" { self.real_progress.store(true,Ordering::SeqCst); return; }
         if method != "session/update" {
             if let Some(update) = crate::agents::options::commands_in(method, &params) {
                 self.queue_data("commands", json!({"commands": crate::agents::options::parse_commands(self.agent, &update, Some(&self.cwd))}));
@@ -444,7 +474,9 @@ impl ClientHandler for TaskSession {
                         if reply.1 { reply.0.clear(); reply.1=false; }
                         reply.0.push_str(text);
                         drop(reply);
+                        self.turn_chars.fetch_add(text.chars().count() as u64,Ordering::SeqCst);
                         self.queue_data("message",json!({"text":text}));
+                        self.estimated_progress(false);
                     }
                 }
             }
@@ -452,6 +484,7 @@ impl ClientHandler for TaskSession {
             Some("available_commands_update") => self.queue_data("commands", json!({"commands": crate::agents::options::parse_commands(self.agent, update, Some(&self.cwd))})),
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
+                if let Some(context) = crate::usage::parse_context(update) { self.queue_data("context", context); }
                 if let Some(windows) = crate::usage::parse_rate_limit(&update["_meta"]["_claude/rateLimit"]) {
                     self.queue_data("limits", json!({"windows": windows}));
                 }
@@ -544,7 +577,7 @@ mod tests {
         session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2,
             "_meta":{"_claude/rateLimit":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":5,"status":"allowed"}}}}}}));
         session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2}}));
-        let events = sink.0.lock().unwrap();
+        let events: Vec<_> = sink.0.lock().unwrap().iter().filter(|e| e.kind != "context").cloned().collect();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "limits");
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["utilization"], 0.3);
@@ -559,7 +592,7 @@ mod tests {
         let cost = |sink: &Recorder| sink.0.lock().unwrap().iter().rev().find_map(|e| e.usage.as_ref().and_then(|u| u.cost_usd)).unwrap();
         // Session creation: context share only, no usage yet (only the log note).
         session.on_notification("_kiro.dev/metadata", json!({"sessionId":"main","contextUsagePercentage":0.7}));
-        assert!(sink.0.lock().unwrap().iter().all(|e| e.kind == "stderr"));
+        assert!(sink.0.lock().unwrap().iter().all(|e| matches!(e.kind, "stderr" | "context")));
         assert!(session.claim_turn());
         session.on_notification("_kiro.dev/metadata", frame("main", &[0.5]));
         session.on_notification("_kiro.dev/metadata", frame("main", &[0.5, 0.25]));
@@ -572,7 +605,7 @@ mod tests {
         session.on_notification("_kiro.dev/metadata", frame("main", &[0.25]));
         session.on_notification("_kiro.dev/metadata", frame("sub", &[0.25]));
         assert!((cost(&sink) - 1.5 * crate::usage::KIRO_USD_PER_CREDIT).abs() < 1e-9);
-        let events: Vec<_> = sink.0.lock().unwrap().iter().filter(|e| e.kind != "stderr").cloned().collect();
+        let events: Vec<_> = sink.0.lock().unwrap().iter().filter(|e| !matches!(e.kind, "stderr" | "context")).cloned().collect();
         // The first metadata frame is also noted once in the log.
         assert_eq!(sink.0.lock().unwrap().iter().filter(|e| e.kind == "stderr").count(), 1);
         assert!(events.iter().all(|e| e.kind == "usage" && e.usage.as_ref().unwrap().cumulative));
@@ -648,6 +681,55 @@ mod tests {
     #[derive(Default)]
     struct Recorder(Mutex<Vec<AgentEvent>>);
     impl EventSink for Recorder { fn emit(&self, ev: AgentEvent) { self.0.lock().unwrap().push(ev); } }
+    fn events_of(sink: &Recorder, kind: &str) -> Vec<AgentEvent> {
+        sink.0.lock().unwrap().iter().filter(|e| e.kind == kind).cloned().collect()
+    }
+    fn chunk(session: &TaskSession, text: &str) {
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}}));
+    }
+    #[test]
+    fn usage_update_emits_context() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Codex, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":999,"size":2000}}));
+        let ctx = events_of(&sink, "context");
+        assert_eq!(ctx.len(), 1);
+        assert_eq!(ctx[0].data.as_ref().unwrap()["percent"], 50.0);
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Kiro, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification("_kiro.dev/metadata", json!({"sessionId":"main","contextUsagePercentage":7.11}));
+        let ctx = events_of(&sink, "context");
+        assert_eq!(ctx.len(), 1);
+        let d = ctx[0].data.as_ref().unwrap();
+        assert_eq!((d["percent"].as_f64(), d["source"].as_str()), (Some(7.11), Some("kiro")));
+        assert!(d["used"].is_null() && d["size"].is_null());
+    }
+    #[test]
+    fn estimated_progress_is_throttled() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Codex, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        assert!(session.claim_turn());
+        for _ in 0..200 { chunk(&session, "abcd"); }
+        assert!(events_of(&sink, "progress").len() <= 2);
+        session.turn_finished(&json!({"stopReason":"end_turn"}));
+        let last = events_of(&sink, "progress").pop().unwrap();
+        assert_eq!(last.data.unwrap(), json!({"inputTokens":null,"outputTokens":200,"estimated":true}));
+        // A new turn starts again from zero.
+        session.set_busy(false);
+        assert!(session.claim_turn());
+        chunk(&session, "abcde");
+        session.turn_finished(&json!({}));
+        assert_eq!(events_of(&sink, "progress").pop().unwrap().data.unwrap()["outputTokens"], 2);
+    }
+    #[test]
+    fn real_progress_silences_the_estimate() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification("_tg/progress", json!({"outputTokens": 10}));
+        chunk(&session, "abcd");
+        session.turn_finished(&json!({}));
+        assert!(events_of(&sink, "progress").is_empty());
+    }
     #[derive(Default)]
     struct Memory(Mutex<Vec<String>>);
     impl RuleMemory for Memory {
@@ -689,7 +771,7 @@ mod tests {
         session.on_notification("session/update", json!({"sessionId":"root","update":{"sessionUpdate":"tool_call","toolCallId":"u","title":"Sửa a.json","status":"pending"}}));
         session.on_notification("session/update", text("root", "Xong."));
         let events = sink.events.lock().unwrap();
-        let of = |run: &str| events.iter().filter(|e| e.run_id == run).map(|e| e.kind).collect::<Vec<_>>();
+        let of = |run: &str| events.iter().filter(|e| e.run_id == run && e.kind != "progress").map(|e| e.kind).collect::<Vec<_>>();
         assert_eq!(of("p"), ["message", "tool", "message"], "the parent's log has only its own updates");
         assert_eq!(of("p~1"), ["started", "tool", "message", "exit"]);
         let started = events.iter().find(|e| e.run_id == "p~1" && e.kind == "started").unwrap();
@@ -963,10 +1045,10 @@ mod tests {
         let (client,session,sink,_)=fixture(vec![Step::Message("hello"),Step::Update(tool.clone()),Step::Update(plan.clone()),Step::Update(json!({"sessionUpdate":"usage_update","used":999,"size":2000})),Step::Update(json!({"sessionUpdate":"usage_update","cost":{"amount":0.3,"currency":"USD"}})),Step::End("end_turn")],vec![]).await;
         prompt(client).await.unwrap();
         let events=sink.0.lock().unwrap();
-        assert_eq!(events.iter().map(|e|e.kind).collect::<Vec<_>>(),vec!["message","tool","plan","usage"]);
+        assert_eq!(events.iter().map(|e|e.kind).collect::<Vec<_>>(),vec!["message","progress","tool","plan","context","usage"]);
         assert_eq!(events[0].data,Some(json!({"text":"hello"})));
-        assert_eq!(events[1].data,Some(tool));assert_eq!(events[2].data,Some(plan));
-        assert_eq!(events[3].usage.as_ref().unwrap().cost_usd,Some(0.3));
+        assert_eq!(events[2].data,Some(tool));assert_eq!(events[3].data,Some(plan));
+        assert_eq!(events[5].usage.as_ref().unwrap().cost_usd,Some(0.3));
         drop(events);session.finish().await;
     }
     #[tokio::test]

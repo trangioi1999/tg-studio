@@ -136,6 +136,8 @@ fn is_stream_chunk(line: &str) -> bool {
 fn save_event(store: &Store, ev: &AgentEvent) -> rusqlite::Result<()> {
     // A streamed chunk is repeated whole by the final `assistant` line, which is kept.
     if ev.kind == "log" && ev.line.as_deref().is_some_and(is_stream_chunk) { return Ok(()); }
+    // Live counters only: they never reach history or the ledger.
+    if matches!(ev.kind, "progress" | "context") { return Ok(()); }
     match (ev.kind, &ev.line, &ev.usage) {
         ("started" | "log" | "stderr" | "user", Some(line), _) => {
             store.append_line(&ev.run_id, ev.kind, line, ev.at_ms)
@@ -425,6 +427,17 @@ mod tests {
         let saved = store.list_runs(1).unwrap().remove(0).lines;
         assert!(saved.iter().all(|l| !l.line.contains("\"stream_event\"")));
         assert_eq!(saved.len(), fixture.lines().filter(|l| !l.contains("\"type\":\"stream_event\"")).count());
+    }
+
+    #[test]
+    fn progress_and_context_are_not_saved() {
+        let store = store_with_run();
+        for kind in ["progress", "context"] {
+            let mut ev = event(kind, Some("không được lưu"));
+            ev.data = Some(serde_json::json!({"outputTokens": 5}));
+            save_event(&store, &ev).unwrap();
+        }
+        assert!(store.list_runs(1).unwrap().remove(0).lines.is_empty());
     }
 
     #[test]

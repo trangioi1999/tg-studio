@@ -52,6 +52,15 @@ pub fn parse_acp(update: &Value) -> Option<Usage> {
     Some(Usage {cost_usd:Some(cost),source:"reported",cumulative:true,..Default::default()})
 }
 
+/// Context-window fill from an ACP `usage_update` (`used` of `size` tokens).
+pub fn parse_context(update: &Value) -> Option<Value> {
+    if update["sessionUpdate"] != "usage_update" { return None; }
+    let used = update["used"].as_u64()?;
+    let size = update["size"].as_u64();
+    let percent = size.filter(|s| *s > 0).map(|s| (used as f64 * 1000.0 / s as f64).round() / 10.0);
+    Some(serde_json::json!({"used": used, "size": size, "percent": percent, "source": "acp"}))
+}
+
 /// What one Kiro credit costs, for the cost column: Kiro's price for credits beyond a plan.
 pub const KIRO_USD_PER_CREDIT: f64 = 0.04;
 
@@ -227,6 +236,22 @@ fn parse_gemini(v: &Value) -> Option<Usage> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+    #[test]
+    fn parse_context_reads_used_and_size() {
+        let c = parse_context(&json!({"sessionUpdate":"usage_update","used":53000,"size":200000})).unwrap();
+        assert_eq!(c, json!({"used":53000,"size":200000,"percent":26.5,"source":"acp"}));
+        assert!(parse_context(&json!({"sessionUpdate":"usage_update","cost":{"amount":0.3,"currency":"USD"}})).is_none());
+    }
+
+    #[test]
+    fn context_without_size_has_no_percent() {
+        let c = parse_context(&json!({"sessionUpdate":"usage_update","used":10,"size":0})).unwrap();
+        assert!(c["percent"].is_null());
+        let c = parse_context(&json!({"sessionUpdate":"usage_update","used":10})).unwrap();
+        assert!(c["size"].is_null() && c["percent"].is_null());
+    }
+
     use super::*;
 
     #[test]
