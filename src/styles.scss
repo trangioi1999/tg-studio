@@ -934,6 +934,36 @@ tg-integrations { display: block; }
 .home-head h1 { margin: 0; font-size: var(--fs-2xl); font-weight: 500; overflow-wrap: anywhere; }
 .home-head p { margin: 0; font-size: var(--fs-md); }
 .home-head .btn.lg { margin-top: 16px; }
+.home-mascot { margin: 0 0 4px -8px; padding: 0; border: 0; background: none; cursor: pointer; border-radius: var(--r-lg); }
+.home-mascot:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* The cat (tg-mascot): cut-outs from public/mascot/, moved with CSS only. */
+.mascot { position: relative; display: inline-block; flex: none; }
+.mascot::before { content: ''; position: absolute; left: 18%; right: 18%; bottom: 0; height: 9%; border-radius: 50%; background: radial-gradient(closest-side, rgba(255, 140, 40, 0.35), transparent); }
+.mascot-img, .mascot-sprite { position: absolute; inset: 0; width: 100%; height: 100%; transform-origin: 50% 100%; user-select: none; }
+.mascot-img { object-fit: contain; }
+.mascot-sprite { background: url('/mascot/wave.webp') 0 0 / 500% 100% no-repeat; animation: mascot-wave 1.6s step-end 1 forwards; }
+.mascot[data-pose='idle'] .mascot-img { animation: mascot-breathe 3.2s ease-in-out infinite; }
+.mascot[data-pose='coding'] .mascot-img { animation: mascot-type 0.5s ease-in-out infinite; }
+.mascot[data-pose='thinking'] .mascot-img { animation: mascot-ponder 4s ease-in-out infinite; }
+.mascot[data-pose='success'] .mascot-img { animation: mascot-jump 0.9s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
+.mascot[data-pose='success']::before { animation: mascot-shadow 0.9s cubic-bezier(0.3, 0, 0.3, 1) infinite; }
+.mascot[data-pose='sleep'] .mascot-img { animation: mascot-breathe 4.5s ease-in-out infinite; }
+.mascot-z { position: absolute; top: 4%; right: 6%; font: 700 14px/1 var(--font); color: var(--wait); pointer-events: none; }
+.mascot-z i { position: absolute; font-style: normal; opacity: 0; animation: mascot-z 3s ease-out infinite; }
+.mascot-z i:nth-child(2) { animation-delay: 1s; font-size: 0.85em; }
+.mascot-z i:nth-child(3) { animation-delay: 2s; font-size: 0.7em; }
+/* Frames 0-1-2-3-2-3-4: raise the paw, wave twice, lower it. */
+@keyframes mascot-wave {
+  0% { background-position-x: 0; } 12% { background-position-x: 25%; } 24% { background-position-x: 50%; } 38% { background-position-x: 75%; }
+  52% { background-position-x: 50%; } 66% { background-position-x: 75%; } 82% { background-position-x: 100%; } 100% { background-position-x: 0; }
+}
+@keyframes mascot-breathe { 50% { transform: scale(1.012, 0.985); } }
+@keyframes mascot-type { 50% { transform: translateY(1.5%); } }
+@keyframes mascot-ponder { 25% { transform: rotate(-1.5deg); } 75% { transform: rotate(1.5deg); } }
+@keyframes mascot-jump { 0%, 100% { transform: translateY(0) scale(1.03, 0.96); } 15% { transform: translateY(0) scale(1); } 50% { transform: translateY(-9%); } }
+@keyframes mascot-shadow { 50% { transform: scale(0.7); opacity: 0.5; } }
+@keyframes mascot-z { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(10px, -22px); } }
 .home-repo { display: flex; align-items: center; }
 .status-dot { flex: none; display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--line-hover); }
 .status-dot[data-status='ok'] { background: var(--done); }

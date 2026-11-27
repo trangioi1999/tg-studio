@@ -1,5 +1,6 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
+import { Mascot, MascotPose } from '../../../shared/ui/mascot';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { copyText } from '../../../shared/utils/clipboard';
 import { Composer } from '../composer/composer';
@@ -10,12 +11,13 @@ import { UiService } from '../../../services/app/ui.service';
 /** The start screen: open a folder, then ask; the agents found on this machine. */
 @Component({
   selector: 'tg-chat-home',
-  imports: [AgentAvatar, Composer, PendingMessage],
+  imports: [AgentAvatar, Composer, Mascot, PendingMessage],
   template: `
 <div class="chat-scroll home">
   <div class="home-col">
     @if (!chat.workspace.folder()) {
       <header class="home-head">
+        <button class="home-mascot" type="button" title="Chào!" (click)="pose.set('wave')"><tg-mascot [pose]="pose()" [size]="112" (waved)="pose.set('idle')" /></button>
         <h1>Mở một repo để bắt đầu</h1>
         <p class="dim">Giao việc cho các agent code đã cài trên máy, duyệt và gộp thay đổi trong một cửa sổ.</p>
         <button class="btn primary lg" (click)="chat.workspace.pickFolder()">
@@ -28,6 +30,7 @@ import { UiService } from '../../../services/app/ui.service';
       <tg-composer />
     } @else {
       <header class="home-head">
+        <button class="home-mascot" type="button" title="Chào!" (click)="pose.set('wave')"><tg-mascot [pose]="pose()" [size]="112" (waved)="pose.set('idle')" /></button>
         <h1>{{ projectName() }}</h1>
         <p class="home-repo dim">
           @switch (chat.workspace.project()?.git) {
@@ -81,6 +84,8 @@ export class ChatHome {
     { label: 'Viết test còn thiếu', prompt: 'Tìm phần code quan trọng chưa có test và viết test cho nó.' },
   ];
   protected readonly ui = inject(UiService);
+  /** Waves hello when the screen opens (and when clicked), then stands by. */
+  protected readonly pose = signal<MascotPose>('wave');
   protected readonly ready = computed(() => this.chat.agents.agents().filter((a) => a.path && a.auth !== 'none'));
   /** Installed but not logged in; with nothing installed, every agent and how to install it. */
   protected readonly attention = computed(() => {
