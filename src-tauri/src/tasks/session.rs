@@ -348,6 +348,11 @@ impl TaskSession {
         }
         // A connection that can withdraw a request names it (`tgRequestId`), so `withdraw_permission` finds the card.
         let id = params[crate::acp::client::REQUEST_ID_KEY].as_str().map(str::to_string).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        // A request id already waiting keeps its card: a second one under the same id cannot replace it.
+        if permissions.pending.contains_key(&id) {
+            drop(permissions);
+            return Box::pin(async {Ok(cancelled())});
+        }
         let (reply, receiver) = oneshot::channel();
         permissions.pending.insert(id.clone(), Pending {reply,tool:tool.clone(),options:options.clone()});
         // Shown on the card, so "Always allow" says exactly what it will allow.
@@ -636,6 +641,20 @@ mod tests {
     impl RuleMemory for Memory {
         fn rules(&self)->Result<Vec<String>,String> {Ok(self.0.lock().unwrap().clone())}
         fn add(&self, rule:&str)->Result<(),String> {self.0.lock().unwrap().push(rule.into());Ok(())}
+    }
+    /// A second request under an id that already has a card is refused; the card stays.
+    #[tokio::test]
+    async fn a_permission_request_cannot_replace_an_existing_card() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        let with_id = |command: &str| { let mut p = permission(command); p[crate::acp::client::REQUEST_ID_KEY] = json!("same"); p };
+        let first = session.on_request("session/request_permission".into(), with_id("npm test"));
+        let second = session.on_request("session/request_permission".into(), with_id("npm run build"));
+        assert_eq!(second.await.unwrap(), json!({"outcome":{"outcome":"cancelled"}}));
+        let cards = sink.0.lock().unwrap().iter().filter(|e| e.kind == "permission").count();
+        assert_eq!(cards, 1);
+        session.respond_permission("same", "yes", false).unwrap();
+        assert_eq!(first.await.unwrap()["outcome"]["optionId"], "yes");
     }
     #[tokio::test]
     async fn subagent_sessions_go_to_their_own_nested_run() {

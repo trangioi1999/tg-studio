@@ -284,6 +284,110 @@ async fn claude_permission_routes_through_task_session() {
     }
 }
 
+/// A sink that also notes the nested runs.
+#[derive(Default)]
+struct ChildSink { events: Mutex<Vec<AgentEvent>>, children: Mutex<Vec<String>> }
+impl EventSink for ChildSink {
+    fn emit(&self, event: AgentEvent) { self.events.lock().unwrap().push(event); }
+    fn child_run(&self, id: &str, parent: &str, _: AgentKind, title: &str) { self.children.lock().unwrap().push(format!("open {id} {parent} {title}")); }
+    fn child_finished(&self, id: &str, status: &str) { self.children.lock().unwrap().push(format!("end {id} {status}")); }
+}
+
+fn claude_line(kind: &str, message: serde_json::Value, extra: serde_json::Value) -> crate::acp::fake_claude::ClaudeStep {
+    let mut line = json!({ "type": kind, "message": message, "session_id": crate::acp::fake_claude::SESSION_ID });
+    for (k, v) in extra.as_object().unwrap() { line[k] = v.clone(); }
+    crate::acp::fake_claude::ClaudeStep::Line(line)
+}
+
+async fn claude_turn(steps: Vec<crate::acp::fake_claude::ClaudeStep>, sink: Arc<ChildSink>) -> (Arc<TaskSession>, Arc<crate::acp::claude_conn::ClaudeConn>) {
+    use crate::acp::claude_conn::ClaudeConn;
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink, Arc::new(Rules)).unwrap());
+    let (reader, writer, _log) = crate::acp::fake_claude::fake_claude(steps);
+    let conn = ClaudeConn::start(reader, writer, session.clone());
+    conn.initialize().await.unwrap();
+    let id = conn.new_session(&std::env::temp_dir(), json!([])).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), conn.prompt_turn(&id, "tìm lỗi")).await.unwrap().unwrap();
+    (session, conn)
+}
+
+/// A Claude subagent (`task_started` … `task_notification`) is a nested run `<run>~1`,
+/// with its own messages, tool rows and end.
+#[tokio::test]
+async fn claude_subagent_becomes_child_run() {
+    use crate::acp::fake_claude::ClaudeStep;
+    let sink = Arc::new(ChildSink::default());
+    let steps = vec![
+        ClaudeStep::Line(json!({"type":"system","subtype":"task_started","task_id":"t1","tool_use_id":"toolu_agent","description":"Tìm lỗi","task_type":"local_agent","session_id":crate::acp::fake_claude::SESSION_ID})),
+        claude_line("assistant", json!({"role":"assistant","content":[{"type":"text","text":"đã xem"},{"type":"tool_use","id":"toolu_k","name":"Read","input":{"file_path":"/a.rs"}}]}), json!({"parent_tool_use_id":"toolu_agent"})),
+        claude_line("user", json!({"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_k","content":"fn a() {}","is_error":false}]}), json!({"parent_tool_use_id":"toolu_agent"})),
+        ClaudeStep::Line(json!({"type":"system","subtype":"task_notification","task_id":"t1","tool_use_id":"toolu_agent","status":"completed","summary":"xong","session_id":crate::acp::fake_claude::SESSION_ID})),
+        ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 },
+    ];
+    let (_session, conn) = claude_turn(steps, sink.clone()).await;
+    assert_eq!(*sink.children.lock().unwrap(), ["open r~1 r Tìm lỗi", "end r~1 done"]);
+    let events = sink.events.lock().unwrap();
+    let child: Vec<_> = events.iter().filter(|e| e.run_id == "r~1").collect();
+    let message = child.iter().find(|e| e.kind == "message").expect("tin nhắn của subagent");
+    assert_eq!(message.data.as_ref().unwrap()["text"], "đã xem");
+    assert_eq!(child.iter().filter(|e| e.kind == "tool").count(), 2);
+    assert!(events.iter().filter(|e| e.run_id == "r").all(|e| e.kind != "message" && e.kind != "tool"), "log của cha không lẫn subagent");
+    conn.close();
+}
+
+/// A subagent's `can_use_tool` (carrying `agent_id`) keeps its card on the main session, and
+/// the tool row it asks about shows in the subagent's run.
+#[tokio::test]
+async fn claude_subagent_permission_shows_tool_row_in_child() {
+    use crate::acp::fake_claude::{ClaudeStep, SESSION_ID};
+    let sink = Arc::new(ChildSink::default());
+    let steps = vec![
+        ClaudeStep::Line(json!({"type":"system","subtype":"task_started","task_id":"t1","description":"Dọn","session_id":SESSION_ID})),
+        claude_line("assistant", json!({"role":"assistant","content":[{"type":"tool_use","id":"toolu_rm","name":"Bash","input":{"command":"rm -rf build"}}]}), json!({"parent_tool_use_id":null,"agent_id":"t1"})),
+        ClaudeStep::Ask { tool: "Bash", input: json!({"command":"rm -rf build"}) },
+        ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 },
+    ];
+    use crate::acp::claude_conn::ClaudeConn;
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+    let (reader, writer, _log) = crate::acp::fake_claude::fake_claude(steps);
+    let conn = ClaudeConn::start(reader, writer, session.clone());
+    conn.initialize().await.unwrap();
+    let id = conn.new_session(&std::env::temp_dir(), json!([])).await.unwrap();
+    let turn = { let conn = conn.clone(); tokio::spawn(async move { conn.prompt_turn(&id, "dọn").await }) };
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !sink.events.lock().unwrap().iter().any(|e| e.kind == "permission") { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    let card = sink.events.lock().unwrap().iter().find(|e| e.kind == "permission").unwrap().clone();
+    assert_eq!(card.run_id, "r");
+    {
+        let events = sink.events.lock().unwrap();
+        let row = events.iter().find(|e| e.run_id == "r~1" && e.kind == "tool").expect("dòng tool của subagent");
+        assert_eq!(row.data.as_ref().unwrap()["rawInput"]["command"], "rm -rf build");
+        assert!(!events.iter().any(|e| e.run_id == "r" && e.kind == "tool"));
+    }
+    session.respond_permission(card.data.as_ref().unwrap()["requestId"].as_str().unwrap(), "allow", false).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), turn).await.unwrap().unwrap().unwrap();
+    conn.close();
+}
+
+/// `rate_limit_event` becomes `usage_update` + `_claude/rateLimit`, and the run's `limits`
+/// event carries the 5-hour window (shape of the real `tests/fixtures/claude/2.1.318` line).
+#[tokio::test]
+async fn claude_rate_limit_emits_limits() {
+    use crate::acp::fake_claude::ClaudeStep;
+    let sink = Arc::new(ChildSink::default());
+    let steps = vec![
+        ClaudeStep::Line(json!({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793913000,"rateLimitType":"five_hour","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.41,"resetsAt":1793913000,"status":"allowed"},"seven_day":{"utilization":0.05,"resetsAt":1794171600,"status":"allowed"}}},"session_id":crate::acp::fake_claude::SESSION_ID})),
+        ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 },
+    ];
+    let (_session, conn) = claude_turn(steps, sink.clone()).await;
+    let events = sink.events.lock().unwrap();
+    let limits = events.iter().find(|e| e.kind == "limits").expect("event limits").data.clone().unwrap();
+    assert_eq!(limits["windows"][0]["id"], "five_hour");
+    assert_eq!(limits["windows"][0]["utilization"], 0.41);
+    assert_eq!(limits["windows"][1]["id"], "seven_day");
+    conn.close();
+}
+
 /// Claude withdraws a `can_use_tool` (`control_cancel_request`): its card closes as cancelled,
 /// the other cards stay, and no answer goes back for it.
 #[tokio::test]

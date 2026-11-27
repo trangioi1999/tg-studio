@@ -28,6 +28,21 @@
 //!   passes `--permission-prompt-tool=stdio` whenever `canUseTool` is set). Prompts do not
 //!   time out. Claude may withdraw one with `{"type":"control_cancel_request","request_id"}`.
 
+//! Subagents and rate limits, checked the same day against the same SDK types (`sdk.d.ts`:
+//! `SDKTaskStartedMessage`, `SDKTaskNotificationMessage`, `SDKAssistantMessage`) and the
+//! subagents page of the docs:
+//! - `{"type":"system","subtype":"task_started","task_id","tool_use_id"?,"description",
+//!   "task_type"?,"ambient"?,"skip_transcript"?}`: `tool_use_id` is the `Agent` tool call that
+//!   spawned it. Only `local_agent` tasks (or no `task_type`) are subagents; shell and monitor
+//!   tasks, and ambient ones, are not shown as runs.
+//! - A subagent's `assistant`/`user` lines carry `parent_tool_use_id` (that tool call's id)
+//!   and `agent_id` (= its `task_id`); `can_use_tool` carries `agent_id` too.
+//! - `{"type":"system","subtype":"task_notification","task_id","status":"completed"|"failed"|
+//!   "stopped"}` ends it. `task_progress` and `task_updated` are not needed.
+//! - `rate_limit_event.rate_limit_info` is what claude-agent-acp puts, unchanged, in
+//!   `usage_update._meta["_claude/rateLimit"]` (`usage::parse_rate_limit` reads both).
+//!   Fields that are missing are ignored, never an error.
+
 // Only tests use it until `start_task` spawns Claude this way.
 #![cfg_attr(not(test), allow(dead_code))]
 
@@ -76,6 +91,11 @@ pub struct ClaudeConn {
     config: Mutex<Value>,
     /// The context window figures of the latest top-level answer: tokens used, model.
     context: Mutex<(Option<u64>, Option<String>)>,
+    /// The `used` and `size` of the last `usage_update`, which a rate limit update repeats.
+    last_usage: Mutex<(u64, u64)>,
+    /// Subagents Claude announced: the ids that name one (`task_id`, the spawning `tool_use_id`)
+    /// to its `task_id`, which is its session id for `TaskSession`.
+    subagents: Mutex<HashMap<String, String>>,
     handler: Arc<dyn ClientHandler>,
 }
 
@@ -103,6 +123,8 @@ impl ClaudeConn {
             asking: Mutex::default(),
             config: Mutex::new(Value::Null),
             context: Mutex::default(),
+            last_usage: Mutex::default(),
+            subagents: Mutex::default(),
             handler,
         });
         let reading = conn.clone();
@@ -167,8 +189,11 @@ impl ClaudeConn {
         seen.id.ok_or_else(|| "Claude đã dừng trước khi mở phiên.".to_string())
     }
 
-    fn update(&self, update: Value) {
-        let session = self.session.borrow().id.clone();
+    fn update(&self, update: Value) { self.update_in(None, update) }
+
+    /// An update for a subagent's session (`Some(task_id)`) or the main one.
+    fn update_in(&self, subagent: Option<&str>, update: Value) {
+        let session = subagent.map(str::to_string).or_else(|| self.session.borrow().id.clone());
         self.handler.on_notification("session/update", json!({ "sessionId": session, "update": update }));
     }
 
@@ -195,7 +220,7 @@ impl ClaudeConn {
             }
             Some("control_request") if message["request"]["subtype"] == "can_use_tool" => self.can_use_tool(&message),
             // Subagent output (`parent_tool_use_id`) belongs to its own run, not this reply.
-            Some("stream_event") if message["parent_tool_use_id"].is_null() => {
+            Some("stream_event") if matches!(self.owner(&message), Owner::Main) => {
                 let event = &message["event"];
                 if event["type"] == "content_block_delta" && event["delta"]["type"] == "text_delta" {
                     if let Some(text) = event["delta"]["text"].as_str() {
@@ -203,25 +228,97 @@ impl ClaudeConn {
                     }
                 }
             }
-            Some("assistant") if message["parent_tool_use_id"].is_null() => {
-                let answer = &message["message"];
-                if answer["usage"].is_object() {
-                    *self.context.lock().unwrap() = (Some(tokens(&answer["usage"])), answer["model"].as_str().map(str::to_string));
+            Some("assistant") => match self.owner(&message) {
+                Owner::Main => {
+                    let answer = &message["message"];
+                    if answer["usage"].is_object() {
+                        *self.context.lock().unwrap() = (Some(tokens(&answer["usage"])), answer["model"].as_str().map(str::to_string));
+                    }
+                    for block in blocks(answer, "tool_use") {
+                        let mut call = tool_call_of(block);
+                        call["sessionUpdate"] = json!("tool_call");
+                        self.update(call);
+                    }
                 }
-                for block in blocks(answer, "tool_use") {
-                    let mut call = tool_call_of(block);
-                    call["sessionUpdate"] = json!("tool_call");
-                    self.update(call);
+                // A subagent has no streamed text: its whole message arrives here.
+                Owner::Sub(id) => {
+                    for block in blocks(&message["message"], "text") {
+                        if let Some(text) = block["text"].as_str().filter(|t| !t.is_empty()) {
+                            self.update_in(Some(&id), json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } }));
+                        }
+                    }
+                    for block in blocks(&message["message"], "tool_use") {
+                        let mut call = tool_call_of(block);
+                        call["sessionUpdate"] = json!("tool_call");
+                        self.update_in(Some(&id), call);
+                    }
                 }
-            }
-            Some("user") if message["parent_tool_use_id"].is_null() => {
+                Owner::Unknown => {}
+            },
+            Some("user") => {
+                let target = match self.owner(&message) { Owner::Main => None, Owner::Sub(id) => Some(id), Owner::Unknown => return };
                 for block in blocks(&message["message"], "tool_result") {
-                    self.update(tool_call_update_of(block));
+                    self.update_in(target.as_deref(), tool_call_update_of(block));
                 }
             }
+            Some("system") => self.system(&message),
+            Some("rate_limit_event") => self.rate_limit(&message["rate_limit_info"]),
             Some("result") => self.result(&message),
             _ => {}
         }
+    }
+
+    /// Whose line this is: a subagent's (by `agent_id`, else the tool call that spawned it) or the main agent's.
+    fn owner(&self, message: &Value) -> Owner {
+        if let Some(agent) = message["agent_id"].as_str().filter(|a| !a.is_empty()) {
+            self.open_subagent(agent, None);
+            return Owner::Sub(agent.to_string());
+        }
+        match message["parent_tool_use_id"].as_str().filter(|p| !p.is_empty()) {
+            None => Owner::Main,
+            Some(tool) => self.subagents.lock().unwrap().get(tool).cloned().map_or(Owner::Unknown, Owner::Sub),
+        }
+    }
+
+    /// Announces a subagent to `TaskSession` (which opens its nested run) unless it already did.
+    fn open_subagent(&self, task: &str, title: Option<&str>) {
+        if self.subagents.lock().unwrap().insert(task.to_string(), task.to_string()).is_some() { return; }
+        self.subagent_state(task, "running", title);
+    }
+
+    fn subagent_state(&self, task: &str, state: &str, title: Option<&str>) {
+        let mut update = json!({ "sessionUpdate": "subagent_update", "sessionId": task, "state": { "state": state } });
+        if let Some(title) = title { update["title"] = json!(title); }
+        self.update(update);
+    }
+
+    /// `task_started` and `task_notification`: a subagent's start and end.
+    fn system(&self, message: &Value) {
+        let Some(task) = message["task_id"].as_str().filter(|t| !t.is_empty()) else { return };
+        match message["subtype"].as_str() {
+            Some("task_started") => {
+                let subagent = message["task_type"].as_str().is_none_or(|t| t == "local_agent");
+                if !subagent || message["ambient"] == true || message["skip_transcript"] == true { return; }
+                {
+                    let mut known = self.subagents.lock().unwrap();
+                    known.insert(task.to_string(), task.to_string());
+                    if let Some(tool) = message["tool_use_id"].as_str().filter(|t| !t.is_empty()) { known.insert(tool.to_string(), task.to_string()); }
+                }
+                self.subagent_state(task, "running", message["description"].as_str().filter(|d| !d.is_empty()));
+            }
+            Some("task_notification") => {
+                if self.subagents.lock().unwrap().contains_key(task) { self.subagent_state(task, "idle", None); }
+            }
+            _ => {}
+        }
+    }
+
+    /// The plan's limit windows, as claude-agent-acp reports them: on a `usage_update`
+    /// that repeats the last `used` and `size`.
+    fn rate_limit(&self, info: &Value) {
+        if !info.is_object() { return; }
+        let (used, size) = *self.last_usage.lock().unwrap();
+        self.update(json!({ "sessionUpdate": "usage_update", "used": used, "size": size, "_meta": { "_claude/rateLimit": info } }));
     }
 
     /// Claude asks before running a tool: the handler decides as for an ACP adapter's
@@ -271,6 +368,7 @@ impl ClaudeConn {
         if let Some(size) = context_window(&result["modelUsage"], model.as_deref()) { usage["size"] = json!(size); }
         // Claude adds the cost up over the session, as `usage_update` carries it.
         if let Some(cost) = result["total_cost_usd"].as_f64() { usage["cost"] = json!({ "amount": cost, "currency": "USD" }); }
+        *self.last_usage.lock().unwrap() = (usage["used"].as_u64().unwrap_or(0), usage["size"].as_u64().unwrap_or(0));
         self.update(usage);
 
         let interrupted = self.interrupted.swap(false, Ordering::SeqCst);
@@ -284,6 +382,15 @@ impl ClaudeConn {
         if let Some(turn) = self.turn.lock().unwrap().take() { let _ = turn.send(Err(STOPPED.into())); }
         self.handler.on_closed();
     }
+}
+
+/// Whose line a message is.
+enum Owner {
+    Main,
+    /// A subagent, by its `task_id`.
+    Sub(String),
+    /// A subagent's line that names no subagent announced: dropped.
+    Unknown,
 }
 
 /// Frees the turn slot when `prompt_turn` is dropped mid-turn (its caller gave up): otherwise
@@ -477,9 +584,10 @@ impl AgentConn for ClaudeConn {
                 let mut turn = self.turn.lock().unwrap();
                 if turn.is_some() { return Err("Claude đang trả lời một yêu cầu khác.".into()); }
                 if self.session.borrow().closed { return Err(STOPPED.into()); }
+                // Before the slot is filled: a `cancel` (which needs the slot) lands after this, never between.
+                self.interrupted.store(false, Ordering::SeqCst);
                 *turn = Some(reply);
             }
-            self.interrupted.store(false, Ordering::SeqCst);
             let mut slot = TurnSlot { conn: self, armed: true };
             let line = json!({ "type": "user", "message": { "role": "user", "content": crate::system::attachments::claude_content(text) } });
             self.send(&line)?;
@@ -827,6 +935,16 @@ mod tests {
         assert!(!conn.interrupted.load(Ordering::SeqCst));
         // The next prompt is accepted (it reaches Claude and waits), not refused as busy.
         assert!(tokio::time::timeout(Duration::from_millis(100), conn.prompt_turn(&id, "tiếp")).await.is_err());
+        conn.close();
+    }
+
+    /// A new turn starts clean: the flag is reset under the `turn` lock, so only a `cancel`
+    /// made after the slot is filled can mark it interrupted.
+    #[tokio::test]
+    async fn a_new_turn_does_not_inherit_a_stale_interrupt() {
+        let (conn, _recorder, id) = open(vec![result("success")]).await;
+        conn.interrupted.store(true, Ordering::SeqCst);
+        assert_eq!(conn.prompt_turn(&id, "x").await.unwrap()["stopReason"], "end_turn");
         conn.close();
     }
 

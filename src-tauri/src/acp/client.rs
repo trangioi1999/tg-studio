@@ -70,6 +70,8 @@ impl AcpClient {
                 match message {
                     Incoming::Barrier(barrier) => barrier.release(),
                     Incoming::Notification { method, params } => {
+                        // `_tg/*` are this app's own signals; a real agent cannot send them.
+                        if method.starts_with("_tg/") { continue; }
                         handler.on_notification(&method, params);
                     }
                     Incoming::Request { id, method, params } => {
@@ -352,6 +354,24 @@ mod tests {
             assert_eq!(seen, warned, "{modes}");
             client.close();
         }
+    }
+
+    /// `_tg/*` are this app's own signals between a connection and `TaskSession`: a real agent
+    /// must not be able to send them over the wire.
+    #[tokio::test]
+    async fn agent_notifications_named_tg_are_dropped() {
+        let steps = vec![
+            Step::Notify(WITHDRAW_PERMISSION, json!({ "requestId": "x" })),
+            Step::Notify("_tg/other", json!({})),
+            Step::Message("xin chào"),
+            Step::End("end_turn"),
+        ];
+        let (client, recorder, _) = start(steps);
+        client.initialize().await.unwrap();
+        let id = client.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+        client.prompt_turn(&id, "p").await.unwrap();
+        assert_eq!(*recorder.methods.lock().unwrap(), ["session/update:agent_message_chunk"]);
+        client.close();
     }
 
     #[tokio::test]

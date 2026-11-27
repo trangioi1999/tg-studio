@@ -21,6 +21,8 @@ pub enum Step {
     AskPermission,
     /// Sends `session/request_permission` with this `toolCall`.
     AskPermissionFor(Value),
+    /// Sends any notification (no id) with these params.
+    Notify(&'static str, Value),
     /// Calls any client method with these params.
     Call(&'static str, Value),
     Request(&'static str),
@@ -172,6 +174,7 @@ async fn play(
             ask_permission(writer, next_id, tool).await;
         }
         Step::AskPermissionFor(tool) => ask_permission(writer, next_id, tool).await,
+        Step::Notify(method, params) => send(writer, json!({ "jsonrpc": "2.0", "method": method, "params": params })).await,
         Step::Call(method, params) => call(writer, next_id, method, params).await,
         Step::Request(method) => call(writer, next_id, method, json!({})).await,
         Step::WaitForPermissionReply | Step::WaitForAnyReply => {
