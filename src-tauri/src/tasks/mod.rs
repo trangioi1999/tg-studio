@@ -668,7 +668,7 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     Ok(id)
 }
 
-/// Changes how an open session answers permission requests (Hỏi trước, Tự động, Chỉ hỏi).
+/// Changes how an open session answers permission requests (Hỏi trước, Tự động, Chỉ hỏi); the session's mode hook (Claude) follows.
 #[tauri::command(async)]
 pub fn set_approval(tasks: State<'_, TaskRuns>, run_id: String, approval: Approval) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();

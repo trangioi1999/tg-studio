@@ -284,6 +284,38 @@ async fn claude_permission_routes_through_task_session() {
     }
 }
 
+/// Claude withdraws a `can_use_tool` (`control_cancel_request`): its card closes as cancelled,
+/// the other cards stay, and no answer goes back for it.
+#[tokio::test]
+async fn withdrawn_permission_closes_its_card() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use crate::acp::fake_claude::{fake_claude, ClaudeStep};
+    let sink = Arc::new(Recorder::default());
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+    let steps = vec![
+        ClaudeStep::AskWithdrawn { tool: "Bash", input: json!({ "command": "rm -rf build" }) },
+        ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 },
+    ];
+    let (reader, writer, log) = fake_claude(steps);
+    let conn = ClaudeConn::start(reader, writer, session.clone());
+    conn.initialize().await.unwrap();
+    let id = conn.new_session(&std::env::temp_dir(), json!([])).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), conn.prompt_turn(&id, "dọn")).await.unwrap().unwrap();
+    // The connection tells the session on the reader task: give it a moment.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !sink.0.lock().unwrap().iter().any(|e| e.kind == "permission_resolved") { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    let events = sink.0.lock().unwrap();
+    let card = events.iter().find(|e| e.kind == "permission").unwrap().data.clone().unwrap();
+    let resolved = events.iter().find(|e| e.kind == "permission_resolved").unwrap().data.clone().unwrap();
+    assert_eq!(resolved["requestId"], card["requestId"]);
+    assert_eq!(resolved["outcome"]["outcome"], "cancelled");
+    drop(events);
+    assert!(session.respond_permission(card["requestId"].as_str().unwrap(), "allow", false).is_err());
+    assert!(!log.lock().unwrap().iter().any(|m| m["type"] == "control_response"), "không trả lời yêu cầu đã rút");
+    conn.close();
+}
+
 #[tokio::test]
 async fn messages_stay_in_one_session_and_closing_is_a_normal_end() {
     use crate::acp::fake::Step;

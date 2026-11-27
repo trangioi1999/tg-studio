@@ -17,7 +17,6 @@ type Reader = ReadHalf<DuplexStream>;
 type Writer = WriteHalf<DuplexStream>;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // `WaitForControl` serves the interrupt tests (Task 4).
 pub enum ClaudeStep {
     /// A `text_delta` stream event of the main agent.
     Text(&'static str),
@@ -25,6 +24,8 @@ pub enum ClaudeStep {
     Line(Value),
     /// A `can_use_tool` control request; waits for the client's `control_response`.
     Ask { tool: &'static str, input: Value },
+    /// A `can_use_tool` control request that Claude withdraws at once (`control_cancel_request`).
+    AskWithdrawn { tool: &'static str, input: Value },
     /// Waits for a `control_request` of this subtype from the client and answers it.
     WaitForControl(&'static str),
     /// Ends the turn: `stop` is the result subtype (`success`, `error_max_turns`…).
@@ -127,6 +128,15 @@ async fn play(step: ClaudeStep, out: &mut Writer, inbox: &mut mpsc::UnboundedRec
             while let Some(message) = inbox.recv().await {
                 if message["type"] == "control_response" && message["response"]["request_id"] == id.as_str() { break; }
             }
+        }
+        ClaudeStep::AskWithdrawn { tool, input } => {
+            let id = uuid::Uuid::new_v4().to_string();
+            send(out, json!({
+                "type": "control_request",
+                "request_id": id,
+                "request": { "subtype": "can_use_tool", "tool_name": tool, "input": input, "tool_use_id": format!("toolu_{id}") },
+            })).await;
+            send(out, json!({ "type": "control_cancel_request", "request_id": id })).await;
         }
         ClaudeStep::WaitForControl(subtype) => {
             while let Some(message) = inbox.recv().await {

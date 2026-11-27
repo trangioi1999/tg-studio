@@ -16,6 +16,7 @@ pub trait RuleMemory: Send + Sync + 'static {
     fn rules(&self) -> Result<Vec<String>, String>;
     fn add(&self, rule: &str) -> Result<(), String>;
 }
+pub type ModeHook = Arc<dyn Fn(Approval) -> Result<(), String> + Send + Sync>;
 struct Pending { reply: oneshot::Sender<Value>, tool: Value, options: Vec<Value> }
 #[derive(Default)]
 struct Permissions { closed: bool, pending: HashMap<String, Pending> }
@@ -42,6 +43,8 @@ pub struct TaskSession {
     muted: AtomicBool,
     busy: AtomicBool,
     approval: Mutex<Approval>,
+    /// Tells the connection about a new `approval` (Claude's own permission mode follows it).
+    mode_hook: Mutex<Option<ModeHook>>,
     /// The agent's latest message, and whether a tool call ended it (the next chunk starts anew).
     reply: Mutex<(String, bool)>,
     /// The agent's own subagents (ACP child sessions): session id → (run id, still working).
@@ -65,10 +68,19 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default()})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),mode_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default()})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
-    pub fn set_approval(&self, approval:Approval) { *self.approval.lock().unwrap() = approval; }
+    /// Changes how requests are answered, and tells the connection through the hook if there is one.
+    /// A hook that fails only costs the agent-side mode: the app still answers by the new value.
+    pub fn set_approval(&self, approval:Approval) {
+        *self.approval.lock().unwrap() = approval;
+        let hook = self.mode_hook.lock().unwrap().clone();
+        if let Some(Err(e)) = hook.map(|hook| hook(approval)) { self.note(format!("Không đổi được chế độ của {}: {e}", self.agent.display_name())); }
+    }
+    // Wired by `start_task` once it spawns Claude through `ClaudeConn`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn set_mode_hook(&self, hook:ModeHook) { *self.mode_hook.lock().unwrap() = Some(hook); }
     pub fn approval(&self) -> Approval { *self.approval.lock().unwrap() }
     /// The agent's latest message: a delegated agent's summary for its parent.
     pub fn last_reply(&self) -> String { self.reply.lock().unwrap().0.clone() }
@@ -117,6 +129,15 @@ impl TaskSession {
         drop(permissions);
         self.flush_events();
         Ok(())
+    }
+    /// The agent withdrew one request (Claude's `control_cancel_request`): only its card closes.
+    fn withdraw_permission(&self, request_id:&str) {
+        let mut permissions = self.permissions.lock().unwrap();
+        let Some(pending) = permissions.pending.remove(request_id) else { return };
+        let _ = pending.reply.send(cancelled());
+        self.queue_data("permission_resolved",json!({"requestId":request_id,"outcome":{"outcome":"cancelled"}}));
+        drop(permissions);
+        self.flush_events();
     }
     /// Stops accepting permission requests too, covering requests queued during shutdown.
     pub fn cancel_pending(&self) {
@@ -295,7 +316,8 @@ impl TaskSession {
         let verdict = match (verdict, self.approval()) {
             (Verdict::Ask, Approval::Auto) if !unclear => Verdict::Allow,
             // Claude in plan mode writes its plan to a file (spec §11.2): the one write Chỉ hỏi allows.
-            (_, Approval::Deny) if self.agent == AgentKind::Claude && is_claude_plan_write(&info, &tool) => Verdict::Allow,
+            // Only Ask and Allow can become Allow here: a policy Deny is never overridden.
+            (Verdict::Ask | Verdict::Allow, Approval::Deny) if self.agent == AgentKind::Claude && is_claude_plan_write(&info, &tool) => Verdict::Allow,
             (_, Approval::Deny) => Verdict::Deny,
             (v, _) => v,
         };
@@ -324,7 +346,8 @@ impl TaskSession {
                 return Box::pin(async {Ok(cancelled())});
             }
         }
-        let id = uuid::Uuid::new_v4().to_string();
+        // A connection that can withdraw a request names it (`tgRequestId`), so `withdraw_permission` finds the card.
+        let id = params[crate::acp::client::REQUEST_ID_KEY].as_str().map(str::to_string).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let (reply, receiver) = oneshot::channel();
         permissions.pending.insert(id.clone(), Pending {reply,tool:tool.clone(),options:options.clone()});
         // Shown on the card, so "Always allow" says exactly what it will allow.
@@ -371,6 +394,10 @@ fn resolve(path:&Path) -> Option<std::path::PathBuf> {
 
 impl ClientHandler for TaskSession {
     fn on_notification(&self, method:&str, params:Value) {
+        if method == crate::acp::client::WITHDRAW_PERMISSION {
+            if let Some(id) = params["requestId"].as_str() { self.withdraw_permission(id); }
+            return;
+        }
         if method == crate::acp::client::NO_ASKING_MODE {
             self.note(format!("{} không có chế độ xin duyệt: nếu thiết lập riêng của CLI đang tự duyệt, agent có thể chạy công cụ của nó mà không hiện thẻ duyệt. TG Studio vẫn chặn lệnh bị cấm và chế độ Chỉ hỏi ở terminal và tệp do app cấp.", self.agent.display_name()));
             return;
@@ -647,6 +674,22 @@ mod tests {
     }
 
     /// Chỉ hỏi lets Claude write its plan (spec §11.2) and nothing else.
+    #[test]
+    fn set_approval_calls_mode_hook() {
+        let session = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Memory::default())).unwrap();
+        session.set_approval(Approval::Auto); // no hook yet: only the value changes
+        assert_eq!(session.approval(), Approval::Auto);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        session.set_mode_hook(Arc::new(move |a| { log.lock().unwrap().push(a); Ok(()) }));
+        session.set_approval(Approval::Deny);
+        assert_eq!(*seen.lock().unwrap(), vec![Approval::Deny]);
+        assert_eq!(session.approval(), Approval::Deny);
+        // A refusing hook does not undo the app's side: the session still answers by the new value.
+        session.set_mode_hook(Arc::new(|_| Err("không đổi được".into())));
+        session.set_approval(Approval::Ask);
+        assert_eq!(session.approval(), Approval::Ask);
+    }
     #[tokio::test]
     async fn deny_allows_only_claude_plan_files() {
         let home = std::path::PathBuf::from(crate::agents::detect::home_dir().unwrap());

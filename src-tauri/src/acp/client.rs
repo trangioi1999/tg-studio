@@ -19,6 +19,12 @@ const ASKING_MODE: &str = "default";
 /// agent may then act on its own CLI settings, without the app's approval cards.
 pub const NO_ASKING_MODE: &str = "_tg/no_asking_mode";
 
+/// Key a connection adds to `session/request_permission` params to name the request, so the
+/// card can be found again when the agent withdraws it.
+pub const REQUEST_ID_KEY: &str = "tgRequestId";
+/// Notification `{requestId}`: the agent withdrew that permission request (no answer is owed).
+pub const WITHDRAW_PERMISSION: &str = "_tg/withdraw_permission";
+
 pub type HandlerFuture = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send>>;
 
 pub trait ClientHandler: Send + Sync + 'static {

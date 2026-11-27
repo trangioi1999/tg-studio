@@ -3,6 +3,13 @@
 //! handles (see claude-agent-acp for the shapes), and ACP requests become stdin lines.
 //! It spawns nothing: the caller hands it the process's stdout and stdin.
 //!
+//! `set_permission_mode`, `set_model` and `interrupt` were run against Claude CLI 2.1.332 with
+//! `--permission-prompt-tool stdio --permission-prompts host` (0 tokens, not logged in):
+//! after `initialize`, every one answers `success`: `set_permission_mode` with `"default"`,
+//! `"manual"`, `"plan"` and `"acceptEdits"` (`manual` is accepted too, apparently without
+//! being checked), `set_model` `{model:"sonnet"}`, and `interrupt` with no turn running.
+//! The SDK's canonical name for asking is `"default"` (`ASK_MODE`).
+//!
 //! `can_use_tool`, checked on 2026-11-27 against the Agent SDK TypeScript docs
 //! (code.claude.com/docs/en/agent-sdk/typescript.md: `CanUseTool`, `PermissionResult`) and
 //! the package `@anthropic-ai/claude-agent-sdk` 0.3.332 (`sdk.d.ts`:
@@ -24,7 +31,7 @@
 // Only tests use it until `start_task` spawns Claude this way.
 #![cfg_attr(not(test), allow(dead_code))]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -34,8 +41,9 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::acp::client::ClientHandler;
+use crate::acp::client::{ClientHandler, REQUEST_ID_KEY, WITHDRAW_PERMISSION};
 use crate::acp::conn::{AgentConn, BoxFuture};
+use crate::tasks::session::Approval;
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 const STOPPED: &str = "Claude đã dừng trước khi hoàn tất yêu cầu.";
@@ -44,6 +52,9 @@ const REFUSED: &str = "Người dùng đã từ chối.";
 /// A tool's output in the log is cut to its last characters: a `cat` of a huge file would
 /// otherwise go whole into every event, the SQLite history and the UI.
 const TOOL_TEXT_LIMIT: usize = 20_000;
+
+/// Claude's permission mode that asks before running a tool (`Approval::Ask`).
+const ASK_MODE: &str = "default";
 
 /// The session id Claude reports on its first lines, and whether stdout has closed.
 #[derive(Clone, Default)]
@@ -59,6 +70,8 @@ pub struct ClaudeConn {
     turn: Mutex<Option<oneshot::Sender<Result<Value, String>>>>,
     /// The running turn was interrupted: its `result` ends it as `cancelled`.
     interrupted: AtomicBool,
+    /// `can_use_tool` requests the handler is still deciding; Claude may withdraw them.
+    asking: Mutex<HashSet<String>>,
     /// `configOptions` as ACP adapters report them (`model`), from `initialize`.
     config: Mutex<Value>,
     /// The context window figures of the latest top-level answer: tokens used, model.
@@ -87,6 +100,7 @@ impl ClaudeConn {
             session: watch::Sender::new(SessionState::default()),
             turn: Mutex::default(),
             interrupted: AtomicBool::new(false),
+            asking: Mutex::default(),
             config: Mutex::new(Value::Null),
             context: Mutex::default(),
             handler,
@@ -137,6 +151,12 @@ impl ClaudeConn {
         Err(response["error"].as_str().unwrap_or("lỗi không rõ").to_string())
     }
 
+    /// A control request nobody waits for (its answer finds no `pending` entry and is ignored).
+    fn fire(&self, request: Value) -> Result<(), String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.send(&json!({ "type": "control_request", "request_id": id, "request": request }))
+    }
+
     /// The session id from Claude's first lines, waiting up to `SETUP_TIMEOUT`.
     async fn session_id(&self) -> Result<String, String> {
         let mut state = self.session.subscribe();
@@ -165,6 +185,13 @@ impl ClaudeConn {
                 let response = &message["response"];
                 let waiting = response["request_id"].as_str().and_then(|id| self.pending.lock().unwrap().remove(id));
                 if let Some(waiting) = waiting { let _ = waiting.send(response.clone()); }
+            }
+            Some("control_cancel_request") => {
+                if let Some(id) = message["request_id"].as_str() {
+                    if self.asking.lock().unwrap().remove(id) {
+                        self.handler.on_notification(WITHDRAW_PERMISSION, json!({ "requestId": id }));
+                    }
+                }
             }
             Some("control_request") if message["request"]["subtype"] == "can_use_tool" => self.can_use_tool(&message),
             // Subagent output (`parent_tool_use_id`) belongs to its own run, not this reply.
@@ -208,6 +235,7 @@ impl ClaudeConn {
         let tool_call = tool_call_of(&json!({ "id": tool_use_id, "name": request["tool_name"], "input": input }));
         let params = json!({
             "sessionId": self.session.borrow().id,
+            REQUEST_ID_KEY: request_id,
             "toolCall": tool_call,
             "options": [
                 { "optionId": "allow", "kind": "allow_once", "name": "Cho phép" },
@@ -215,6 +243,7 @@ impl ClaudeConn {
                 { "optionId": "reject", "kind": "reject_once", "name": "Từ chối" },
             ],
         });
+        self.asking.lock().unwrap().insert(request_id.clone());
         let answer = self.handler.on_request("session/request_permission".into(), params);
         let conn = self.clone();
         tokio::spawn(async move {
@@ -222,6 +251,8 @@ impl ClaudeConn {
                 Ok(outcome) if outcome["outcome"]["outcome"] == "selected" => outcome["outcome"]["optionId"].as_str().map(str::to_string),
                 _ => None,
             };
+            // Withdrawn meanwhile: Claude no longer waits for an answer, and a late one would be stray.
+            if !conn.asking.lock().unwrap().remove(&request_id) { return; }
             let decision = match chosen.as_deref() {
                 Some("allow" | "allow_always") => json!({ "behavior": "allow", "updatedInput": input, "toolUseID": tool_use_id }),
                 _ => json!({ "behavior": "deny", "message": REFUSED, "toolUseID": tool_use_id }),
@@ -252,6 +283,18 @@ impl ClaudeConn {
         self.pending.lock().unwrap().clear();
         if let Some(turn) = self.turn.lock().unwrap().take() { let _ = turn.send(Err(STOPPED.into())); }
         self.handler.on_closed();
+    }
+}
+
+/// Frees the turn slot when `prompt_turn` is dropped mid-turn (its caller gave up): otherwise
+/// every later prompt would be refused as "busy". An interrupted turn clears it as well.
+struct TurnSlot<'a> { conn: &'a ClaudeConn, armed: bool }
+
+impl Drop for TurnSlot<'_> {
+    fn drop(&mut self) {
+        if !self.armed { return; }
+        self.conn.turn.lock().unwrap().take();
+        self.conn.interrupted.store(false, Ordering::SeqCst);
     }
 }
 
@@ -437,23 +480,42 @@ impl AgentConn for ClaudeConn {
                 *turn = Some(reply);
             }
             self.interrupted.store(false, Ordering::SeqCst);
+            let mut slot = TurnSlot { conn: self, armed: true };
             let line = json!({ "type": "user", "message": { "role": "user", "content": crate::system::attachments::claude_content(text) } });
-            if let Err(e) = self.send(&line) {
-                self.turn.lock().unwrap().take();
-                return Err(e);
-            }
-            answer.await.unwrap_or_else(|_| Err(STOPPED.into()))
+            self.send(&line)?;
+            let outcome = answer.await.unwrap_or_else(|_| Err(STOPPED.into()));
+            // `result()` or `closed()` already took the slot; the guard must not touch the next turn's.
+            slot.armed = false;
+            outcome
         })
     }
 
+    /// Asks Claude to stop the turn; its `result` then ends the turn as `cancelled`. With no turn
+    /// running it does nothing, so a late press of Dừng cannot mislabel the next turn.
     fn cancel(&self, _session_id: &str) -> Result<(), String> {
-        Err("Chưa dừng được lượt của Claude qua kết nối này.".into())
+        if self.turn.lock().unwrap().is_none() { return Ok(()); }
+        self.interrupted.store(true, Ordering::SeqCst);
+        self.fire(json!({ "subtype": "interrupt" }))
     }
 
     fn config_options(&self) -> Value { self.config.lock().unwrap().clone() }
 
-    fn set_config_option<'a>(&'a self, _session_id: &'a str, config_id: &'a str, _value: &'a str) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move { Err(format!("Chưa đổi được {config_id} của Claude qua kết nối này.")) })
+    fn set_config_option<'a>(&'a self, _session_id: &'a str, config_id: &'a str, value: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            if config_id != "model" { return Err(format!("Chưa đổi được {config_id} của Claude qua kết nối này.")); }
+            self.control(json!({ "subtype": "set_model", "model": value })).await
+                .map_err(|e| format!("Claude không đổi được model: {e}"))?;
+            if let Some(options) = self.config.lock().unwrap().as_array_mut() {
+                for option in options.iter_mut().filter(|o| o["id"] == "model") { option["currentValue"] = json!(value); }
+            }
+            Ok(())
+        })
+    }
+
+    /// Claude's permission mode follows the app's: Chỉ hỏi is `plan`, Tự động `acceptEdits`.
+    fn set_mode(&self, approval: Approval) -> Result<(), String> {
+        let mode = match approval { Approval::Deny => "plan", Approval::Auto => "acceptEdits", Approval::Ask => ASK_MODE };
+        self.fire(json!({ "subtype": "set_permission_mode", "mode": mode }))
     }
 
     /// Closes stdin: Claude exits, and stdout closing ends any running turn.
@@ -466,6 +528,7 @@ mod tests {
     use crate::acp::client::HandlerFuture;
     use crate::acp::fake_claude::{self, fake_claude, ClaudeStep};
     use crate::acp::conn::AgentConn;
+    use crate::tasks::session::Approval;
     use serde_json::json;
 
     #[derive(Default)]
@@ -713,5 +776,80 @@ mod tests {
         let error = tokio::time::timeout(std::time::Duration::from_secs(2), conn.new_session(Path::new("/tmp"), json!([]))).await.unwrap().unwrap_err();
         assert!(error.contains("đã dừng"), "{error}");
         assert!(conn.initialize().await.is_err());
+    }
+
+    async fn open_logged(steps: Vec<ClaudeStep>) -> (Arc<ClaudeConn>, String, fake_claude::Log) {
+        let (reader, writer, log) = fake_claude(steps);
+        let conn = ClaudeConn::start(reader, writer, Arc::new(Recorder::default()));
+        conn.initialize().await.unwrap();
+        let id = conn.new_session(Path::new("/tmp"), json!([])).await.unwrap();
+        (conn, id, log)
+    }
+
+    async fn until(what: &str, mut ready: impl FnMut() -> bool) {
+        tokio::time::timeout(Duration::from_secs(3), async { while !ready() { tokio::task::yield_now().await; } })
+            .await.unwrap_or_else(|_| panic!("quá hạn: {what}"));
+    }
+
+    fn controls(log: &fake_claude::Log, subtype: &str) -> Vec<Value> {
+        log.lock().unwrap().iter().filter(|m| m["type"] == "control_request" && m["request"]["subtype"] == subtype).cloned().collect()
+    }
+
+    #[tokio::test]
+    async fn interrupt_when_idle_is_harmless() {
+        let (conn, id, log) = open_logged(vec![ClaudeStep::Text("a"), result("success")]).await;
+        conn.cancel(&id).unwrap();
+        conn.cancel(&id).unwrap();
+        assert!(controls(&log, "interrupt").is_empty(), "không có lượt thì không gửi gì");
+        let turn = conn.prompt_turn(&id, "hỏi").await.unwrap();
+        assert_eq!(turn["stopReason"], "end_turn");
+        conn.close();
+    }
+
+    #[tokio::test]
+    async fn interrupt_ends_turn_as_cancelled() {
+        let (conn, id, log) = open_logged(vec![ClaudeStep::Text("a"), ClaudeStep::WaitForControl("interrupt"), result("success")]).await;
+        let turn = { let conn = conn.clone(); let id = id.clone(); tokio::spawn(async move { conn.prompt_turn(&id, "dài lắm").await }) };
+        until("lượt đã gửi", || log.lock().unwrap().iter().any(|m| m["type"] == "user")).await;
+        conn.cancel(&id).unwrap();
+        let turn = tokio::time::timeout(Duration::from_secs(3), turn).await.unwrap().unwrap().unwrap();
+        assert_eq!(turn["stopReason"], "cancelled");
+        assert_eq!(controls(&log, "interrupt").len(), 1);
+        conn.close();
+    }
+
+    #[tokio::test]
+    async fn a_dropped_prompt_frees_the_turn_slot() {
+        let (conn, id, _log) = open_logged(vec![ClaudeStep::Text("a"), ClaudeStep::WaitForControl("never")]).await;
+        // The caller gives up (`run_turn` stop timeout): the future is dropped mid-turn.
+        assert!(tokio::time::timeout(Duration::from_millis(100), conn.prompt_turn(&id, "treo")).await.is_err());
+        assert!(conn.turn.lock().unwrap().is_none());
+        assert!(!conn.interrupted.load(Ordering::SeqCst));
+        // The next prompt is accepted (it reaches Claude and waits), not refused as busy.
+        assert!(tokio::time::timeout(Duration::from_millis(100), conn.prompt_turn(&id, "tiếp")).await.is_err());
+        conn.close();
+    }
+
+    #[tokio::test]
+    async fn set_mode_sends_permission_mode() {
+        let (conn, _id, log) = open_logged(vec![]).await;
+        for (approval, mode) in [(Approval::Deny, "plan"), (Approval::Auto, "acceptEdits"), (Approval::Ask, ASK_MODE)] {
+            conn.set_mode(approval).unwrap();
+            let want = mode.to_string();
+            until("set_permission_mode", || controls(&log, "set_permission_mode").last().is_some_and(|m| m["request"]["mode"] == want.as_str())).await;
+        }
+        let sent: Vec<_> = controls(&log, "set_permission_mode").iter().map(|m| m["request"]["mode"].as_str().unwrap().to_string()).collect();
+        assert_eq!(sent, ["plan", "acceptEdits", ASK_MODE]);
+        conn.close();
+    }
+
+    #[tokio::test]
+    async fn set_config_option_model_sends_set_model() {
+        let (conn, id, log) = open_logged(vec![]).await;
+        conn.set_config_option(&id, "model", "sonnet").await.unwrap();
+        assert_eq!(controls(&log, "set_model")[0]["request"]["model"], "sonnet");
+        assert_eq!(conn.config_options()[0]["currentValue"], "sonnet");
+        assert!(conn.set_config_option(&id, "thought_level", "high").await.is_err());
+        conn.close();
     }
 }
