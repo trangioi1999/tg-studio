@@ -50,7 +50,9 @@
 //! (`errors: ["No conversation found with session ID: <id>"]`, `session_id` `<id>`) and exits
 //! 1; that is a failure to start, never an opened session. A new process cannot be asked to
 //! fall back, so `start_task` checks the file first (`session_saved`) and, when it is
-//! missing, opens a new session told the recap instead.
+//! missing, opens a new session told the recap instead; when Claude refuses a conversation
+//! whose file is there, `start_task` sees it before `drive_session` (`refused_resume`) and
+//! launches again without `--resume`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -125,6 +127,9 @@ pub struct ClaudeConn {
     asking: Mutex<HashSet<String>>,
     /// `configOptions` as ACP adapters report them (`model`), from `initialize`.
     config: Mutex<Value>,
+    /// What `initialize` answered: asked once (`start_task` checks a resumed launch before
+    /// `drive_session` initializes it again).
+    init: Mutex<Option<Value>>,
     /// The context window figures of the latest top-level answer: tokens used, model.
     context: Mutex<(Option<u64>, Option<String>)>,
     /// The `used` and `size` of the last `usage_update`, which a rate limit update repeats.
@@ -158,6 +163,7 @@ impl ClaudeConn {
             interrupted: AtomicBool::new(false),
             asking: Mutex::default(),
             config: Mutex::new(Value::Null),
+            init: Mutex::default(),
             context: Mutex::default(),
             last_usage: Mutex::default(),
             subagents: Mutex::default(),
@@ -227,7 +233,7 @@ impl ClaudeConn {
     }
 
     /// Why Claude stopped before any turn, if it said.
-    fn startup_error(&self) -> Option<String> { self.session.borrow().failed.clone() }
+    pub(crate) fn startup_error(&self) -> Option<String> { self.session.borrow().failed.clone() }
 
     fn update(&self, update: Value) { self.update_in(None, update) }
 
@@ -608,13 +614,16 @@ fn model_options(models: &Value) -> Value {
 impl AgentConn for ClaudeConn {
     fn initialize(&self) -> BoxFuture<'_, Result<Value, String>> {
         Box::pin(async move {
+            if let Some(init) = self.init.lock().unwrap().clone() { return Ok(init); }
             // No hooks and no SDK MCP servers: Claude would then send `hook_callback`,
             // `mcp_message` or `elicitation` requests, which this connection does not answer.
             let init = self.control(json!({ "subtype": "initialize" })).await
                 .map_err(|e| self.startup_error().unwrap_or_else(|| format!("Claude không khởi tạo được: {e}")))?;
             *self.config.lock().unwrap() = model_options(&init["models"]);
             self.update(commands_update(&init["commands"]));
-            Ok(json!({ "agentCapabilities": { "loadSession": true, "promptCapabilities": { "image": true, "embeddedContext": true } } }))
+            let answer = json!({ "agentCapabilities": { "loadSession": true, "promptCapabilities": { "image": true, "embeddedContext": true } } });
+            *self.init.lock().unwrap() = Some(answer.clone());
+            Ok(answer)
         })
     }
 

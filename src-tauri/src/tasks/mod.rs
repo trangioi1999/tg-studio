@@ -166,14 +166,40 @@ pub(crate) async fn native_launch(hub: Arc<BridgeHub>, mut servers: Vec<McpServe
 }
 
 /// `claude -p` with these settings (`AgentKind::native_args`); effort goes right after `-p`.
-pub(crate) fn native_command(approval: Approval, resume: Option<&str>, launch: &NativeLaunch, prefs: &SessionPrefs) -> Result<(PathBuf, Vec<String>), String> {
+pub(crate) fn native_command(approval: Approval, resume: Option<&str>, mcp_config: Option<&Path>, prefs: &SessionPrefs) -> Result<(PathBuf, Vec<String>), String> {
     let program = env::which(AgentKind::Claude.binary()).ok_or("Không tìm thấy `claude` trong PATH.")?;
-    let mut args = AgentKind::Claude.native_args(approval, resume, launch.file.as_ref().map(|f| f.path()), prefs.model.as_deref())
+    let mut args = AgentKind::Claude.native_args(approval, resume, mcp_config, prefs.model.as_deref())
         .expect("Claude có lệnh chạy trực tiếp");
     if let Some(effort) = prefs.effort.as_deref().filter(|e| !e.is_empty() && *e != "default") {
         args.splice(1..1, ["--effort".to_string(), effort.to_string()]);
     }
     Ok((program, args))
+}
+
+/// Whether a new task may take a session opened ahead of time. A warm `claude -p` was opened
+/// asking (Hỏi trước) and without `--effort`: Chỉ hỏi must start in `plan` on the command line
+/// (a mode change on claim is not acknowledged), and an effort pick needs its own launch.
+fn warm_fits(native: bool, approval: Approval, prefs: &SessionPrefs) -> bool {
+    !native || (approval != Approval::Deny && prefs.effort.as_deref().is_none_or(|e| e.is_empty() || e == "default"))
+}
+
+/// Claude may refuse `--resume` of a conversation even when its file is there (corrupt, from
+/// another version): it prints an error `result` and exits. `Some(why)`: the launch is dead
+/// and the run should go on in a new one. Any other failure is left to `drive_session`.
+async fn refused_resume(conn: &ClaudeConn) -> Option<String> {
+    match conn.initialize().await { Ok(_) => None, Err(_) => conn.startup_error() }
+}
+
+/// An agent's stderr lines as the run's `stderr` events.
+fn relay_stderr(stderr: tokio::process::ChildStderr, sink: Arc<AppSink>, run_id: String, agent: AgentKind) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let mut event = AgentEvent::new(&run_id, agent, "stderr");
+            event.line = Some(line);
+            sink.emit(event);
+        }
+    })
 }
 
 /// Where the app keeps private files (MCP configs): its data folder, else the temp folder.
@@ -593,18 +619,16 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
             let (servers, bridge_on) = { let store = app.state::<Store>(); (crate::tasks::warm::user_servers(&store), bridge_enabled(&store)) };
             let hub = app.state::<Arc<BridgeHub>>().inner().clone();
             let launch = native_launch(hub, servers, bridge_on, parent.is_some(), &private_dir(&app), &mut notes).await?;
-            (native_command(approval, resumed.as_ref().map(|(s, _)| s.as_str()), &launch, &prefs)?, Some(launch))
+            (native_command(approval, resumed.as_ref().map(|(s, _)| s.as_str()), launch.file.as_ref().map(|f| f.path()), &prefs)?, Some(launch))
         }
     };
     let timeout = setup_timeout(&command.0);
     // Only a throwaway draft goes away with the session; a question in place may become a task.
     let throwaway = approval == Approval::Deny && reuse.is_none() && place != Place::Direct;
-    // A warm `claude -p` was started without `--effort`: an effort pick needs its own launch.
-    let warm_fits = !native || prefs.effort.as_deref().is_none_or(|e| e.is_empty() || e == "default");
     // A new conversation in the user's folder may find its session already open.
     // Not for a delegated agent: a session opened ahead of time has the parent's tg-bridge tools.
     let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
-        (Place::Direct, None, None, Ok(cwd)) if parent.is_none() && warm_fits => {
+        (Place::Direct, None, None, Ok(cwd)) if parent.is_none() && warm_fits(native, approval, &prefs) => {
             let key = crate::tasks::warm::key_for(&app.state::<Store>(), agent, &cwd);
             match app.state::<crate::tasks::warm::WarmPool>().take(&key).await {
                 Some(warm) => Adapter::Warm(Box::new(warm), command),
@@ -647,6 +671,8 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
     };
     let sink_dyn: Arc<dyn EventSink> = sink.clone();
+    // The concrete `claude -p` connection of a launch with `--resume`, checked before `drive_session`.
+    let mut resumed_conn = None;
     let (client, stderr, opened, config_file): (Arc<dyn AgentConn>, _, _, _) = match warm {
         Some(mut warm) => {
             if let Err(e) = warm.late.attach(session.clone()) { eprintln!("Không gắn được phiên mở sẵn: {e}"); }
@@ -659,7 +685,11 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         None => {
             let stdout = child.stdout.take().expect("piped stdout");
             let stdin = child.stdin.take().expect("piped stdin");
-            let client: Arc<dyn AgentConn> = if native { ClaudeConn::start(stdout, stdin, session.clone()) } else { Arc::new(AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout)) };
+            let client: Arc<dyn AgentConn> = if native {
+                let conn = ClaudeConn::start(stdout, stdin, session.clone());
+                if resumed.is_some() { resumed_conn = Some(conn.clone()); }
+                conn
+            } else { Arc::new(AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout)) };
             (client, Ok(child.stderr.take().expect("piped stderr")), None, launch.as_mut().and_then(|l| l.file.take()))
         }
     };
@@ -682,19 +712,11 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     if opened.is_none() && timeout == Duration::from_secs(300) {
         session.note("Đang chuẩn bị adapter. Lần đầu có thể mất vài phút để tải.".into());
     }
-    let stderr_sink = sink.clone();
-    let stderr_id = id.clone();
     let stderr_task = match stderr {
         Err(relay) => relay,
-        Ok(stderr) => tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let mut event = AgentEvent::new(&stderr_id, agent, "stderr");
-                event.line = Some(line);
-                stderr_sink.emit(event);
-            }
-        }),
+        Ok(stderr) => relay_stderr(stderr, sink.clone(), id.clone(), agent),
     };
+    let launch_prefs = prefs.clone();
     let task_id = id.clone();
     let (cleanup_repo, cleanup_wt) = (repo.clone(), wt.clone());
     let scope_name = scope.clone();
@@ -730,7 +752,30 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
                 (_, None) => session.note("tg-bridge không bật được: không xác định được đường dẫn của app.".into()),
             }
         }
-        let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
+        let (mut resume, mut base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
+        let (mut client, mut child, mut pid, mut stderr_task) = (client, child, pid, stderr_task);
+        if let Some(why) = match &resumed_conn { Some(conn) => refused_resume(conn).await, None => None } {
+            // As when the file is missing: a new launch without `--resume`, told the recap.
+            session.note(format!("{why} Mở phiên mới và gửi kèm tóm tắt."));
+            terminate_adapter(&mut child, pid).await;
+            stderr_task.abort();
+            let fresh = native_command(approval, None, _config_file.as_ref().map(|f| f.path()), &launch_prefs)
+                .and_then(|command| spawn_adapter(&command, &start_dir));
+            match fresh {
+                Ok(mut fresh) => {
+                    pid = fresh.id();
+                    if let Some(pid) = pid { crate::system::resources::register(pid, crate::system::resources::Owner::Run(task_id.clone())); }
+                    let (stdout, stdin) = (fresh.stdout.take().expect("piped stdout"), fresh.stdin.take().expect("piped stdin"));
+                    client = ClaudeConn::start(stdout, stdin, session.clone());
+                    follow_mode(&session, &client);
+                    stderr_task = relay_stderr(fresh.stderr.take().expect("piped stderr"), sink.clone(), task_id.clone(), agent);
+                    child = fresh;
+                    (resume, base) = (None, 0.0);
+                }
+                // `drive_session` then fails on the dead launch and ends the run as usual.
+                Err(e) => session.note(e),
+            }
+        }
         session.set_cost_base(base);
         // `claude -p` was launched with the model and effort, except a warm one (no effort, see `warm_fits`).
         let prefs = if native && opened_id.is_none() { SessionPrefs::default() } else { prefs };

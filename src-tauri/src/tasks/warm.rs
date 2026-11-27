@@ -160,7 +160,7 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>, p
         Some(crate::tasks::native_launch(hub.clone(), std::mem::take(&mut servers), key.bridge, false, private, &mut notes).await?)
     } else { None };
     let command = match &launch {
-        Some(launch) => crate::tasks::native_command(Approval::Ask, None, launch, &Default::default())?,
+        Some(launch) => crate::tasks::native_command(Approval::Ask, None, launch.file.as_ref().map(|f| f.path()), &Default::default())?,
         None => key.agent.acp_command(env::which).ok_or("Không tìm thấy adapter.")?,
     };
     let timeout = setup_timeout(&command.0);

@@ -349,6 +349,75 @@ async fn claude_resume_mismatch_falls_back_to_recap() {
     client.close();
 }
 
+/// Claude refuses `--resume` of a conversation whose file is there: it prints an error `result`
+/// and exits. The run notices before `drive_session` (`refused_resume`) and goes on in a new
+/// process without `--resume`, told the recap: what the missing-file case does.
+#[tokio::test]
+async fn claude_refused_resume_goes_on_fresh_with_recap() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use crate::acp::fake_claude::{fake_claude, ClaudeStep, SESSION_ID};
+    use tokio::io::AsyncWriteExt;
+    let sink = Arc::new(Recorder::default());
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+    // The first process: refuses the conversation and exits.
+    let (io, agent) = tokio::io::duplex(4096);
+    let (_agent_in, mut agent_out) = tokio::io::split(agent);
+    let refusal = json!({"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"phien-cu","errors":["No conversation found with session ID: phien-cu"]});
+    agent_out.write_all(format!("{refusal}\n").as_bytes()).await.unwrap();
+    agent_out.shutdown().await.unwrap();
+    let (reader, writer) = tokio::io::split(io);
+    let first = ClaudeConn::start(reader, writer, session.clone());
+    let why = tokio::time::timeout(Duration::from_secs(3), refused_resume(&first)).await.unwrap().expect("Claude đã từ chối phiên cũ");
+    assert!(why.contains("No conversation found"), "{why}");
+    // The new process, launched without `--resume`.
+    let (reader, writer, log) = fake_claude(vec![ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 }]);
+    let client: Arc<dyn AgentConn> = ClaudeConn::start(reader, writer, session.clone());
+    let cwd = std::env::temp_dir();
+    let plan = SessionPlan { cwd: &cwd, prompt: "câu mới".into(), recap: Some("Tóm tắt: đã hỏi về A.".into()), servers: &[], resume: None, opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
+    let (_keep, rx) = oneshot::channel();
+    let mut stop = Some(rx);
+    let mut opened = String::new();
+    let (status, error) = tokio::time::timeout(Duration::from_secs(5), drive_session(&*client, &session, plan, || stop.take().unwrap(), |id| opened = id.to_string(), |_| {}, std::future::pending())).await.unwrap();
+    assert_eq!(status, "done", "{error:?}");
+    assert_eq!(opened, SESSION_ID);
+    let sent: Vec<serde_json::Value> = log.lock().unwrap().iter().filter(|m| m["type"] == "user").cloned().collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["message"]["content"], "Tóm tắt: đã hỏi về A.\n\ncâu mới");
+    client.close();
+}
+
+/// A resumed process that opened fine is left alone, and `drive_session`'s own `initialize`
+/// does not ask Claude a second time.
+#[tokio::test]
+async fn claude_accepted_resume_is_kept() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use crate::acp::fake_claude::fake_claude;
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+    let (reader, writer, log) = fake_claude(vec![]);
+    let conn = ClaudeConn::start(reader, writer, session.clone());
+    assert_eq!(refused_resume(&conn).await, None);
+    let init = conn.initialize().await.unwrap();
+    assert_eq!(init["agentCapabilities"]["loadSession"], true);
+    let asked = log.lock().unwrap().iter().filter(|m| m["request"]["subtype"] == "initialize").count();
+    assert_eq!(asked, 1, "initialize chỉ gửi một lần");
+    conn.close();
+}
+
+/// Chỉ hỏi of Claude always starts with `--permission-mode plan` on the command line: a warm
+/// `claude -p` (opened asking) would only reach `plan` through an unacknowledged mode change.
+#[test]
+fn a_claude_question_never_takes_a_warm_session() {
+    let none = SessionPrefs::default();
+    let effort = SessionPrefs { model: None, effort: Some("high".into()) };
+    assert!(!warm_fits(true, Approval::Deny, &none));
+    assert!(warm_fits(true, Approval::Ask, &none));
+    assert!(warm_fits(true, Approval::Auto, &none));
+    assert!(!warm_fits(true, Approval::Ask, &effort), "phiên mở sẵn không có --effort");
+    assert!(warm_fits(true, Approval::Ask, &SessionPrefs { model: None, effort: Some("default".into()) }));
+    // ACP adapters answer every request through the app, whatever the mode.
+    assert!(warm_fits(false, Approval::Deny, &effort));
+}
+
 /// A sink that also notes the nested runs.
 #[derive(Default)]
 struct ChildSink { events: Mutex<Vec<AgentEvent>>, children: Mutex<Vec<String>> }
@@ -1045,7 +1114,7 @@ async fn live_native(dir: &Path, approval: Approval, questions: &[&str], between
     let session = Arc::new(TaskSession::new("live", AgentKind::Claude, dir, sink.clone(), Arc::new(Rules)).unwrap());
     session.set_approval(approval);
     let launch = native_launch(Arc::new(BridgeHub::default()), vec![], false, false, &std::env::temp_dir(), &mut Vec::new()).await.unwrap();
-    let command = native_command(approval, None, &launch, &SessionPrefs::default()).unwrap();
+    let command = native_command(approval, None, launch.file.as_ref().map(|f| f.path()), &SessionPrefs::default()).unwrap();
     eprintln!("[lệnh] {} {}", command.0.display(), command.1.join(" "));
     let mut child = spawn_adapter(&command, dir).unwrap();
     let pid = child.id();
@@ -1124,7 +1193,7 @@ async fn live_claude_native_opens_without_tokens() {
         let dir = dir.clone();
         async move {
             let launch = native_launch(Arc::new(BridgeHub::default()), vec![], false, false, &std::env::temp_dir(), &mut Vec::new()).await.unwrap();
-            let command = native_command(Approval::Deny, resume, &launch, &SessionPrefs::default()).unwrap();
+            let command = native_command(Approval::Deny, resume, launch.file.as_ref().map(|f| f.path()), &SessionPrefs::default()).unwrap();
             let mut child = spawn_adapter(&command, &dir).unwrap();
             let session = Arc::new(TaskSession::new("live", AgentKind::Claude, &dir, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
             let client: Arc<dyn AgentConn> = ClaudeConn::start(child.stdout.take().unwrap(), child.stdin.take().unwrap(), session.clone());
