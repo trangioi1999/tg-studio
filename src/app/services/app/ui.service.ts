@@ -29,6 +29,8 @@ export class UiService {
   readonly filesShown = computed(() => this.filesOpen() ?? !this.sideCompact());
   /** The run whose big terminal window is open, if any. */
   readonly agentWindow = signal<string | null>(null);
+  /** Per parent run, the delegated agent open as a small terminal: one per message, even across markers. */
+  readonly openDelegation = signal<Record<string, string>>({});
   private agentWindowFrom: HTMLElement | null = null;
   /** The window is narrower than {@link NARROW_QUERY}. */
   readonly narrow = signal(false);

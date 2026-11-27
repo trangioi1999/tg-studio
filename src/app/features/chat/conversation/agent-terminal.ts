@@ -32,14 +32,10 @@ export function clock(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/**
- * What a run shows as a terminal: the task, each step CLI-style, the agent's messages, and while it
- * runs a last status line. Only the last `max` lines are kept; `hidden` counts the ones before.
- */
-export function terminalLines(run: Run, max: number, now: number = Date.now()): { lines: TermLine[]; hidden: number } {
+/** The task, each step CLI-style and the agent's messages: everything but the clock, so it only changes with the run. */
+export function terminalBody(run: Run): TermLine[] {
   const body: TermLine[] = [{ kind: 'prompt', text: taskOf(run.prompt) }];
-  const running = run.status === 'running';
-  for (const seg of segmentsOf(run.lines, running)) {
+  for (const seg of segmentsOf(run.lines, run.status === 'running')) {
     if (seg.kind === 'text') body.push({ kind: 'text', text: seg.text });
     else if (seg.kind === 'work') {
       for (const st of seg.steps) {
@@ -48,10 +44,28 @@ export function terminalLines(run: Run, max: number, now: number = Date.now()): 
       }
     }
   }
-  const status = running ? statusLine(run, body, now) : null;
+  return body;
+}
+
+/** The last `max` lines of `body`, plus a status line while the run runs; `hidden` counts the ones cut. */
+export function fitTerminal(run: Run, body: TermLine[], max: number, now: number): { lines: TermLine[]; hidden: number } {
+  const status = run.status === 'running' ? statusLine(run, body, now) : null;
   const room = Math.max(0, max - (status ? 1 : 0));
   const kept = body.length > room ? body.slice(body.length - room) : body;
   return { lines: status ? [...kept, status] : kept, hidden: body.length - kept.length };
+}
+
+/**
+ * What a run shows as a terminal: the task, each step CLI-style, the agent's messages, and while it
+ * runs a last status line. Only the last `max` lines are kept; `hidden` counts the ones before.
+ */
+export function terminalLines(run: Run, max: number, now: number = Date.now()): { lines: TermLine[]; hidden: number } {
+  return fitTerminal(run, terminalBody(run), max, now);
+}
+
+/** Where the turn's clock stops: now while running, else when it ended (an idle session does not tick). */
+export function runEnd(run: Run, now: number): number {
+  return run.status === 'running' ? now : run.endedAt ?? turnStart(run);
 }
 
 function statusLine(run: Run, body: TermLine[], now: number): TermLine {
@@ -136,16 +150,19 @@ export class AgentTerminal {
   private following = true;
   private seen = 0;
 
+  /** Rebuilt only when the run changes; the clock below re-reads `now` every second. */
+  private readonly body = computed(() => terminalBody(this.run()));
   protected readonly view = computed(() => {
     const r = this.run();
-    return terminalLines(r, this.all() ? Number.MAX_SAFE_INTEGER : this.maxLines(), this.runs.now());
+    const now = r.status === 'running' ? this.runs.now() : 0;
+    return fitTerminal(r, this.body(), this.all() ? Number.MAX_SAFE_INTEGER : this.maxLines(), now);
   });
   protected readonly task = computed(() => taskOf(this.run().prompt));
   protected readonly status = computed(() => turnStatus(this.run()));
   protected readonly label = computed(() => ({ running: 'Đang chạy', needs_you: 'Chờ bạn duyệt', waiting: 'Xong', failed: 'Lỗi', stopped: 'Đã dừng' })[this.status()]);
   protected readonly dm = computed(() => canMessage(this.run()));
   protected readonly cost = computed(() => { const r = this.run(); return costOf(r.agent, r.usage, r.startedAt).usd; });
-  protected readonly elapsed = computed(() => { const r = this.run(); return clock((r.endedAt ?? this.runs.now()) - turnStart(r)); });
+  protected readonly elapsed = computed(() => { const r = this.run(); return clock(runEnd(r, r.status === 'running' ? this.runs.now() : 0) - turnStart(r)); });
   protected readonly pose = computed(() => { const r = this.run(); return mascotPose(r, { now: this.runs.now(), lastEvent: this.runs.lastEvent()[r.id] }).pose; });
 
   constructor() {

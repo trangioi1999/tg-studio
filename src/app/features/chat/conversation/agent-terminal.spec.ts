@@ -5,7 +5,7 @@ import { AgentEvent, DetectedAgent } from '../../../core/protocol';
 import { UiService } from '../../../services/app/ui.service';
 import { RunsService } from '../../../services/runs/runs.service';
 import { Run } from '../../../services/runs/run';
-import { AgentTerminal, canMessage, terminalLines } from './agent-terminal';
+import { AgentTerminal, canMessage, runEnd, terminalLines } from './agent-terminal';
 import { Delegations } from './delegations';
 
 class FakeBackend extends MockBackend {
@@ -105,7 +105,7 @@ describe('Agent terminal', () => {
     fixture.detectChanges();
     expect(el.querySelectorAll('tg-agent-terminal').length).toBe(1);
     // Opening another folds the first.
-    toggles()[0].click(); // A is open, so B is the only row left
+    toggles()[0].click(); // A is open, so its row is gone and this one is B
     fixture.detectChanges();
     expect(el.querySelectorAll('tg-agent-terminal').length).toBe(1);
     expect(toggles().length).toBe(1);
@@ -143,6 +143,36 @@ describe('Agent terminal', () => {
     el.querySelector('form')!.dispatchEvent(new Event('submit'));
     await flush();
     expect(backend.sent).toEqual([['k', 'làm tiếp đi']]);
+  });
+
+  it('idle_run_clock_stops', () => {
+    expect(runEnd(runOf({ status: 'running', endedAt: null }), 9000)).toBe(9000);
+    expect(runEnd(runOf({ status: 'idle', endedAt: 4000 }), 9000)).toBe(4000);
+    expect(runEnd(runOf({ status: 'idle', endedAt: null, turnAt: 3000 }), 9000)).toBe(3000);
+  });
+
+  it('one_child_open_per_parent_across_markers', async () => {
+    const { runs, send } = await setup();
+    send({ kind: 'started', line: 'Claude' });
+    send({ runId: 'a', agent: 'codex', kind: 'started', line: 'Codex', data: { parent: 'p' } });
+    send({ runId: 'b', agent: 'codex', kind: 'started', line: 'Codex', data: { parent: 'p' } });
+    const parent = runs.runs().find((r) => r.id === 'p')!;
+    // Two markers in one message, each with its own tg-delegations.
+    const make = (only: number) => {
+      const f = TestBed.createComponent(Delegations);
+      f.componentRef.setInput('parent', parent);
+      f.componentRef.setInput('only', [only]);
+      f.detectChanges();
+      return f;
+    };
+    const first = make(0);
+    const second = make(1);
+    const open = () => [first, second].reduce((n, f) => (f.detectChanges(), n + f.nativeElement.querySelectorAll('tg-agent-terminal').length), 0);
+    (first.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.dlg-toggle')!.click();
+    expect(open()).toBe(1);
+    (second.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.dlg-toggle')!.click();
+    expect(open()).toBe(1);
+    expect(second.nativeElement.querySelectorAll('tg-agent-terminal').length).toBe(1);
   });
 
   it('opens the big window', async () => {

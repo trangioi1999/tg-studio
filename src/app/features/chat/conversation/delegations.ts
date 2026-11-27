@@ -1,11 +1,13 @@
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, untracked } from '@angular/core';
 import { fmtDuration, fmtUsd } from '../../../shared/utils/format';
 import { costOf } from '../../../services/usage/pricing';
 import { AgentId, Delegation } from '../../../core/protocol';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { RunsService } from '../../../services/runs/runs.service';
 import { Run, turnStart } from '../../../services/runs/run';
+import { runEnd } from './agent-terminal';
 import { WorkspaceService } from '../../../services/workspace.service';
+import { UiService } from '../../../services/app/ui.service';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
 import { AgentTerminal, taskOf } from './agent-terminal';
 
@@ -78,14 +80,18 @@ const LABEL: Record<Delegation['status'], [State, string]> = {
 export class Delegations {
   protected readonly runs = inject(RunsService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly ui = inject(UiService);
   readonly parent = input.required<Run>();
   /** Only these (a delegation id, or a saved one's order): the ones made at this point of the chat. */
   readonly only = input<readonly (string | number)[] | null>(null);
   /** All but these: the ones no marker placed, at the end of the run. */
   readonly except = input<readonly (string | number)[]>([]);
   protected readonly meta = AGENT_META;
-  /** One agent open at a time in a message; a finished one folds back to its summary row. */
-  protected readonly opened = signal<string | null>(null);
+  /**
+   * One agent open at a time in a message; a finished one folds back to its summary row. Kept in
+   * {@link UiService} by parent, since one message can hold several of these (one per marker).
+   */
+  protected readonly opened = computed(() => this.ui.openDelegation()[this.parent().id] ?? null);
   private watched: { key: string | null; status: string | null } = { key: null, status: null };
 
   protected readonly items = computed<Item[]>(() => {
@@ -122,7 +128,7 @@ export class Delegations {
       const status = this.all().find((it) => it.key === key)?.run?.status ?? null;
       untracked(() => {
         // Only a run seen finishing folds: one opened from history stays open.
-        if (key && this.watched.key === key && this.watched.status === 'running' && status !== 'running' && status !== 'idle') this.opened.set(null);
+        if (key && this.watched.key === key && this.watched.status === 'running' && status !== 'running' && status !== 'idle') this.setOpened(null);
         this.watched = { key, status };
       });
     });
@@ -133,7 +139,15 @@ export class Delegations {
   }
 
   protected toggle(key: string): void {
-    this.opened.update((k) => (k === key ? null : key));
+    this.setOpened(this.opened() === key ? null : key);
+  }
+
+  private setOpened(key: string | null): void {
+    const parent = this.parent().id;
+    this.ui.openDelegation.update((all) => {
+      const { [parent]: _, ...rest } = all;
+      return key ? { ...rest, [parent]: key } : rest;
+    });
   }
 
   protected review(runId: string): void {
@@ -149,7 +163,7 @@ export class Delegations {
   }
 
   protected duration(r: Run): string {
-    return fmtDuration(Math.max(0, (r.endedAt ?? this.runs.now()) - turnStart(r)));
+    return fmtDuration(Math.max(0, runEnd(r, this.runs.now()) - turnStart(r)));
   }
 
   private stateOf(run: Run): [State, string] {
