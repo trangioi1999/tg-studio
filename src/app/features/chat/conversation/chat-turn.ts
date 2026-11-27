@@ -1,9 +1,6 @@
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { middleTruncate } from './tool-step';
-import { Component, inject } from '@angular/core';
-import { input } from '@angular/core';
 import { Run } from '../../../services/runs/run';
-import { computed, signal } from '@angular/core';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { copyText } from '../../../shared/utils/clipboard';
@@ -14,6 +11,7 @@ import { turnStart } from '../../../services/runs/run';
 import { Delegations } from './delegations';
 import { UserMessage } from './user-message';
 import { segmentsOf } from './timeline';
+import { middleTruncate } from './tool-step';
 import { TurnStatus, turnStatus } from './turn-status';
 import { ChatState } from '../chat.state';
 
@@ -23,104 +21,108 @@ import { ChatState } from '../chat.state';
   imports: [NgTemplateOutlet, AgentAvatar, Delegations, Markdown, UserMessage],
   template: `
 
-<ng-template #step let-st>
-  @if (st.head; as head) {
-    <li class="cl-step" [attr.data-state]="st.state">
-      <div class="cl-head">
-        <svg class="cl-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/></svg>
-        <b>{{ head.name }}</b>@if (head.arg !== null) {<span class="cl-arg" [title]="head.arg">(@let parts = argParts(head.arg);<span class="cl-arg-prefix">{{ parts[0] }}</span><span class="cl-arg-file">{{ parts[1] }}</span>)</span>}
-      </div>
-      @if (st.diff; as diff) {
-        <div class="cl-result">└ +{{ diff.added }} −{{ diff.removed }}</div>
-        <div class="cl-diff" [title]="diff.path">
-          @for (line of diff.lines; track $index) {
-            <div class="cl-diff-line" [attr.data-sign]="line.sign">{{ line.sign }} {{ line.text }}</div>
+    <ng-template #step let-st>
+      @if (st.head; as head) {
+        <li class="cl-step" [attr.data-state]="st.state">
+          <div class="cl-head">
+            <svg class="cl-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/></svg>
+            <b>{{ head.name }}</b>@if (head.arg !== null) {<span class="cl-arg" [title]="head.arg">(@let parts = argParts(head.arg);<span class="cl-arg-prefix">{{ parts[0] }}</span><span class="cl-arg-file">{{ parts[1] }}</span>)</span>}
+          </div>
+          @if (st.diff; as diff) {
+            <div class="cl-result">└ +{{ diff.added }} −{{ diff.removed }}</div>
+            <div class="cl-diff" [title]="diff.path">
+              @for (line of diff.lines; track $index) {
+                <div class="cl-diff-line" [attr.data-sign]="line.sign">{{ line.sign }} {{ line.text }}</div>
+              }
+              @if (diff.more) { <div class="cl-more">… và {{ diff.more }} dòng nữa</div> }
+            </div>
+          } @else if (st.result) {
+            <div class="cl-result" [title]="st.result">└ {{ st.result }}</div>
           }
-          @if (diff.more) { <div class="cl-more">… và {{ diff.more }} dòng nữa</div> }
+        </li>
+      } @else {
+        <li class="cl-legacy" [attr.data-state]="st.state">
+          <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> } @case ('failed') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg> } @case ('note') { <span class="pill-dot" aria-hidden="true"></span> } @default { <span class="spin"></span> } }</span>
+          <span class="mono ellipsis" [title]="st.text">{{ st.text }}</span>
+        </li>
+      }
+    </ng-template>
+    @let tr = run();
+    <tg-user-message [text]="tr.prompt" />
+    <article class="turn">
+      <header class="turn-who">
+        <tg-agent-avatar [agent]="tr.agent" [size]="24" />
+        <strong>{{ meta[tr.agent].name }}</strong>
+        <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ permLabel(tr) }} · {{ duration(tr) }}@if (tr.credits; as c) { · <span [title]="creditsTitle(tr)">{{ fmtCredits(c.turn) }} credit</span> } @else if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
+        <span class="spacer"></span>
+        <span class="pill" [attr.data-status]="turnStatus(tr)">
+          @switch (turnStatus(tr)) {
+            @case ('running') { <span class="spin" aria-hidden="true"></span> }
+            @default { <span class="pill-dot" aria-hidden="true"></span> }
+          }
+          {{ turnLabel[turnStatus(tr)] }}
+        </span>
+      </header>
+      @if (tr.progress; as p) {
+        <div class="turn-progress" [attr.title]="p.note ?? ''">
+          <span class="ellipsis">{{ p.step }}</span>
+          @if (p.pct !== null) {
+            <span class="meter" role="meter" aria-label="Tiến độ agent báo" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="p.pct"><span [style.width.%]="p.pct"></span></span>
+            <span class="mono dim">{{ p.pct }}%</span>
+          }
         </div>
-      } @else if (st.result) {
-        <div class="cl-result" [title]="st.result">└ {{ st.result }}</div>
       }
-    </li>
-  } @else {
-              <li class="cl-legacy" [attr.data-state]="st.state">
-                <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> } @case ('failed') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg> } @case ('note') { <span class="pill-dot" aria-hidden="true"></span> } @default { <span class="spin"></span> } }</span>
-                <span class="mono ellipsis" [title]="st.text">{{ st.text }}</span>
-              </li>
-  }
-</ng-template>
-@let tr = run();
-<tg-user-message [text]="tr.prompt" />
-<article class="turn">
-  <header class="turn-who">
-    <tg-agent-avatar [agent]="tr.agent" [size]="24" />
-    <strong>{{ meta[tr.agent].name }}</strong>
-    <span class="dim">{{ tr.model ? '· ' + tr.model + ' ' : '' }}· {{ permLabel(tr) }} · {{ duration(tr) }}@if (tr.credits; as c) { · <span [title]="creditsTitle(tr)">{{ fmtCredits(c.turn) }} credit</span> } @else if (costOf(tr) !== null) { · {{ usd(costOf(tr)) }} }</span>
-    <span class="spacer"></span>
-    <span class="pill" [attr.data-status]="turnStatus(tr)">
-      @switch (turnStatus(tr)) {
-        @case ('running') { <span class="spin" aria-hidden="true"></span> }
-        @default { <span class="pill-dot" aria-hidden="true"></span> }
-      }
-      {{ turnLabel[turnStatus(tr)] }}
-    </span>
-  </header>
-  @if (tr.progress; as p) {
-    <div class="turn-progress" [attr.title]="p.note ?? ''">
-      <span class="ellipsis">{{ p.step }}</span>
-      @if (p.pct !== null) {
-        <span class="meter" role="meter" aria-label="Tiến độ agent báo" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="p.pct"><span [style.width.%]="p.pct"></span></span>
-        <span class="mono dim">{{ p.pct }}%</span>
-      }
-    </div>
-  }
-  @for (seg of segments(); track $index; let last = $last) {
-    @switch (seg.kind) {
-      @case ('user') { <tg-user-message [text]="seg.text" /> }
-      @case ('text') { <tg-markdown [animate]="last && tr.status === 'running'" class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
-      @case ('work') {
-        <section class="cl-work" aria-label="Nhật ký làm việc">
-          @if (seg.steps.length > 3) {
-            <details class="cl-earlier">
-              <summary>{{ seg.steps.length - 3 }} bước trước@if (seg.failed) { · {{ seg.failed }} lỗi }</summary>
+      @for (seg of segments(); track $index; let last = $last) {
+        @switch (seg.kind) {
+          @case ('user') { <tg-user-message [text]="seg.text" /> }
+          @case ('text') { <tg-markdown [animate]="last && tr.status === 'running'" class="msg-agent" [class.typing]="last && tr.status === 'running'" [text]="seg.text" /> }
+          @case ('work') {
+            <section class="cl-work" aria-label="Nhật ký làm việc">
+              @if (seg.live) {
+                <div class="cl-live">
+                  @if (tr.permissions.length) {
+                    <span class="pill-dot wait-dot" aria-hidden="true"></span><span class="ellipsis">Chờ bạn duyệt · {{ seg.steps.at(-1)?.text }}</span>
+                  } @else {
+                    <span class="spin" aria-hidden="true"></span><span class="ellipsis">{{ seg.steps.at(-1)?.text }}</span>
+                  }
+                </div>
+              }
+              @if (seg.steps.length > 3) {
+                <details class="cl-earlier">
+                  <summary>{{ seg.steps.length - 3 }} bước trước@if (seg.failed) { · {{ seg.failed }} lỗi }</summary>
+                  <ol class="cl-list">
+                    @for (st of seg.steps.slice(0, -3); track $index) {
+                      <ng-container [ngTemplateOutlet]="step" [ngTemplateOutletContext]="{ $implicit: st }" />
+                    }
+                  </ol>
+                </details>
+              }
               <ol class="cl-list">
-                @for (st of seg.steps.slice(0, -3); track $index) {
+                @for (st of seg.steps.slice(-3); track $index) {
                   <ng-container [ngTemplateOutlet]="step" [ngTemplateOutletContext]="{ $implicit: st }" />
                 }
               </ol>
-            </details>
+            </section>
           }
-          <ol class="cl-list">
-            @for (st of seg.steps.slice(-3); track $index) {
-              <ng-container [ngTemplateOutlet]="step" [ngTemplateOutletContext]="{ $implicit: st }" />
-            }
-          </ol>
-        </section>
+          @case ('delegate') { <tg-delegations [parent]="tr" [only]="seg.refs" /> }
+        }
+        @if (answers()[$index]; as answer) {
+          <div class="answer-actions">
+            <button class="act-btn" [class.done]="copied() === tr.id + ':' + $index + ':plain'" (click)="copyAnswer(tr.id, $index, answer, false)">
+              @if (copied() === tr.id + ':' + $index + ':plain') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Đã chép } @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Chép }
+            </button>
+            <button class="act-btn" [class.done]="copied() === tr.id + ':' + $index + ':md'" (click)="copyAnswer(tr.id, $index, answer, true)">
+              @if (copied() === tr.id + ':' + $index + ':md') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Đã chép } @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Chép Markdown }
+            </button>
+          </div>
+        }
       }
-      @case ('delegate') { <tg-delegations [parent]="tr" [only]="seg.refs" /> }
-    }
-    @if (answers()[$index]; as answer) {
-      <div class="answer-actions">
-        <button class="act-btn" [class.done]="copied() === tr.id + ':' + $index + ':plain'" (click)="copyAnswer(tr.id, $index, answer, false)">
-          @if (copied() === tr.id + ':' + $index + ':plain') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Đã chép } @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Chép }
-        </button>
-        <button class="act-btn" [class.done]="copied() === tr.id + ':' + $index + ':md'" (click)="copyAnswer(tr.id, $index, answer, true)">
-          @if (copied() === tr.id + ':' + $index + ':md') { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Đã chép } @else { <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Chép Markdown }
-        </button>
-      </div>
-    }
-  }
-  <tg-delegations [parent]="tr" [except]="placed()" />
-  @if (turnStatus(tr) === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
-</article>
+      <tg-delegations [parent]="tr" [except]="placed()" />
+      @if (turnStatus(tr) === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
+    </article>
   `,
 })
 export class ChatTurn {
-  protected argParts(arg: string): [string, string] {
-    const text = middleTruncate(arg);
-    const slash = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
-    return [text.slice(0, slash + 1), text.slice(slash + 1)];
-  }
   protected readonly chat = inject(ChatState);
   protected readonly meta = AGENT_META;
   readonly run = input.required<Run>();
@@ -149,6 +151,12 @@ export class ChatTurn {
     return ends;
   });
   protected readonly copied = signal<string | null>(null);
+
+  protected argParts(arg: string): [string, string] {
+    const text = middleTruncate(arg);
+    const slash = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
+    return [text.slice(0, slash + 1), text.slice(slash + 1)];
+  }
 
   protected async copyAnswer(runId: string, index: number, markdown: string, asMarkdown: boolean): Promise<void> {
     if (!(await copyText(asMarkdown ? markdown : plainText(markdown)))) return;

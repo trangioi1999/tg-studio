@@ -791,23 +791,7 @@ tg-integrations { display: block; }
 .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
 
-/* Work log: tool calls between messages, collapsed unless live */
-.worklog { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
-.worklog summary { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; list-style: none; user-select: none; }
-.worklog summary::-webkit-details-marker { display: none; }
-.worklog summary:hover { color: var(--text); }
-.worklog summary .chev { width: 14px; height: 14px; transition: transform var(--t-fast) var(--ease); }
-.worklog[open] summary .chev { transform: rotate(90deg); }
-.worklog.live summary { color: var(--text); }
-.worklog.live summary .spin { color: var(--run); }
-.worklog:not([open]) { align-self: flex-start; max-width: 100%; }
-.worklog ol { list-style: none; margin: 0; padding: 4px 0 6px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
-.worklog li { display: flex; align-items: center; gap: 8px; padding: 4px 12px; color: var(--muted); min-width: 0; }
 .step-mark { width: 14px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--done); }
-.worklog li[data-state='failed'] .step-mark, .worklog li[data-state='failed'] { color: var(--fail); }
-.worklog li[data-state='note'] .step-mark, .worklog li[data-state='note'] { color: var(--wait); }
-.worklog li[data-state='running'] { color: var(--text); }
-.worklog li[data-state='running'] .step-mark { color: var(--run); }
 
 /* Delegated agents, nested in the parent's message */
 .dlg { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); overflow: hidden; }
@@ -1227,6 +1211,8 @@ input, textarea, select { transition: background-color var(--t-fast) var(--ease)
 .tl-add.active { color: var(--text); background: var(--hover); }
 
 /* Tool calls in the conversation, with the last three steps always visible. */
+.cl-live { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--text); font-size: var(--fs-sm); }
+.cl-live .spin { color: var(--run); }
 .cl-work { min-width: 0; max-width: 100%; }
 .cl-list { list-style: none; margin: 0; padding: 0; }
 .cl-step { min-width: 0; margin: 10px 0; font: var(--fs-sm)/1.6 var(--mono); }

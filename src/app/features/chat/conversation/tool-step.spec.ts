@@ -27,6 +27,48 @@ describe('Dòng công cụ CLI', () => {
     expect(miniDiff(change('a\ngiữ\nb\n', 'c\ngiữ\nd\n'))).toMatchObject({ added: 2, removed: 2 });
     expect(miniDiff({})).toBeNull();
   });
+  it('bỏ LCS khi phần giữa vượt ngưỡng, giới hạn dòng và đếm phần còn lại', () => {
+    const oldLines = Array.from({ length: 3000 }, (_, i) => `cũ ${i}`);
+    const newLines = Array.from({ length: 3000 }, (_, i) => `mới ${i}`);
+    oldLines[1500] = newLines[1500] = 'dòng chung giữa';
+    const diff = miniDiff(change(['đầu', ...oldLines, 'cuối'].join('\n'), ['đầu', ...newLines, 'cuối'].join('\n')))!;
+    expect(diff).toMatchObject({ added: 3000, removed: 3000, more: 5994 });
+    expect(diff.lines).toEqual(oldLines.slice(0, 6).map(text => ({ sign: '-', text })));
+  });
+  it('tái sử dụng diff trùng nội dung, tính lại khi đường dẫn hoặc nội dung đổi', () => {
+    const event = (run: Run, data: Record<string, unknown>) => applyEvent(run, { runId: 'r', agent: 'claude', kind: 'tool', atMs: 0, line: null, usage: null, code: null, data: { toolCallId: 't', ...data } as JsonValue }, { stopping: false }).run;
+    let run = event(base(), change());
+    const original = run.lines[0].diff;
+    run = event(run, { status: 'in_progress', ...change() });
+    expect(run.lines[0].diff).toBe(original);
+    run = event(run, { status: 'completed' });
+    expect(run.lines[0].diff).toBe(original);
+    for (const data of [change('khác', 'mới'), change('khác nữa', 'mới'), { content: [{ ...change('khác nữa', 'mới').content[0], path: 'khác.ts' }] }]) {
+      const previous = run.lines[0].diff;
+      run = event(run, data);
+      expect(run.lines[0].diff).not.toBe(previous);
+      expect(run.lines[0].diff).toEqual(miniDiff(data));
+    }
+  });
+  it('hiện chờ duyệt cho work live, spinner khi chạy và ẩn dòng live khi xong', () => {
+    TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
+    TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(ChatTurn);
+    const run: Run = { ...base(), status: 'running', lines: [{ text: '› Đọc tệp', tone: 'tool' }], permissions: [{ requestId: 'p', toolCall: {}, options: [], rule: null }] };
+    fixture.componentRef.setInput('run', run);
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('.cl-work')?.textContent).toContain('Chờ bạn duyệt · Đọc tệp');
+    expect(el.querySelector('.cl-live .wait-dot')).not.toBeNull();
+    fixture.componentRef.setInput('run', { ...run, permissions: [] });
+    fixture.detectChanges();
+    expect(el.querySelector('.cl-live')?.textContent).toContain('Đọc tệp');
+    expect(el.querySelector('.cl-live .spin')).not.toBeNull();
+    expect(el.querySelector('.cl-work')?.textContent).not.toContain('Chờ bạn duyệt');
+    fixture.componentRef.setInput('run', { ...run, status: 'done' });
+    fixture.detectChanges();
+    expect(el.querySelector('.cl-live')).toBeNull();
+  });
   it('lấy dòng kết quả cuối khác rỗng và giới hạn 120 ký tự', () => {
     expect(resultLine({ content: [{ type: 'content', content: { type: 'text', text: '212 dòng\n' } }] })).toBe('212 dòng');
     expect(resultLine({ content: [{ type: 'text', text: 'a\n' + 'b'.repeat(200) + '\n' }] })?.length).toBeLessThanOrEqual(120);

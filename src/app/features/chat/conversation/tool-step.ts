@@ -58,6 +58,11 @@ function changes(a: string[], b: string[], emit: (sign: '+' | '-', text: string)
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   a = a.slice(start); b = b.slice(start);
   while (a.length && b.length && a.at(-1) === b.at(-1)) { a.pop(); b.pop(); }
+  if (a.length * b.length > 2_000_000) {
+    a.forEach(text => emit('-', text));
+    b.forEach(text => emit('+', text));
+    return;
+  }
   if (!a.length) { b.forEach(text => emit('+', text)); return; }
   if (!b.length) { a.forEach(text => emit('-', text)); return; }
   if (a.length === 1) {
@@ -77,13 +82,20 @@ function changes(a: string[], b: string[], emit: (sign: '+' | '-', text: string)
   changes(a.slice(mid), b.slice(cut), emit);
 }
 
-export function miniDiff(update: Json, max = 6): MiniDiff | null {
+// Weak keys let cached source text go when its console line is discarded.
+const diffSources = new WeakMap<MiniDiff, { path: string; oldText: string; newText: string; max: number }>();
+
+export function miniDiff(update: Json, max = 6, previous?: MiniDiff): MiniDiff | null {
   const diff = content(update).find(c => c['type'] === 'diff' && typeof c['newText'] === 'string');
   if (!diff) return null;
-  const out: MiniDiff = { path: str(diff['path']) ?? '', added: 0, removed: 0, lines: [], more: 0 };
-  changes(split(typeof diff['oldText'] === 'string' ? diff['oldText'] : ''), split(diff['newText'] as string), (sign, text) => {
+  const source = { path: str(diff['path']) ?? '', oldText: typeof diff['oldText'] === 'string' ? diff['oldText'] : '', newText: diff['newText'] as string, max };
+  const cached = previous && diffSources.get(previous);
+  if (cached && cached.path === source.path && cached.oldText === source.oldText && cached.newText === source.newText && cached.max === max) return previous!;
+  const out: MiniDiff = { path: source.path, added: 0, removed: 0, lines: [], more: 0 };
+  changes(split(source.oldText), split(source.newText), (sign, text) => {
     if (sign === '+') out.added++; else out.removed++;
     if (out.lines.length < Math.max(0, Math.floor(max))) out.lines.push({ sign, text }); else out.more++;
   });
+  diffSources.set(out, source);
   return out;
 }
