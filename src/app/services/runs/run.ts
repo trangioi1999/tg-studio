@@ -1,5 +1,5 @@
 import { ConsoleLine } from '../../features/chat/conversation/describe-line';
-import { Delegation, PermissionRequest, Place, PlanEntry, AgentId, RunStatus, Usage } from '../../core/protocol';
+import { Approval, Delegation, PermissionRequest, Place, PlanEntry, AgentId, RunStatus, Usage } from '../../core/protocol';
 
 export type { RunStatus };
 
@@ -127,4 +127,15 @@ export function recapOf(run: { prompt: string; lines: ConsoleLine[] }): string {
   const body = [`Người dùng: ${run.prompt}`, ...said].join('\n');
   const kept = body.length > RECAP_LIMIT ? `…${body.slice(-RECAP_LIMIT)}` : body;
   return `Tóm tắt cuộc trò chuyện trước. Thư mục này có thể đã có các thay đổi từ cuộc trò chuyện đó:\n${kept}`;
+}
+
+/**
+ * The open session can change to `to` without a new one: Claude takes every mode live
+ * (`set_permission_mode`); the other agents only between Hỏi trước and Tự động, since
+ * their Chỉ hỏi runs apart (a read-only CLI call, or a throwaway draft).
+ */
+export function canSwitchLive(run: Run, to: Approval): boolean {
+  if (!run.task || run.restored || (run.status !== 'running' && run.status !== 'idle')) return false;
+  const from: Approval = run.perm === 'read' ? 'deny' : (run.perm ?? 'ask');
+  return run.agent === 'claude' || (from !== 'deny' && to !== 'deny');
 }

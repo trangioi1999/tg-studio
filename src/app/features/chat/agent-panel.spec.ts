@@ -230,24 +230,6 @@ describe('AgentPanel composer', () => {
     expect(backend.lastStart).toMatchObject({ approval: 'auto', place: 'draft', base: 'develop' });
   });
 
-  it('keeps the conversation when the permission changes mid-way', async () => {
-    const { backend, panel } = await setup();
-    const p = panel as unknown as Composer & { setPerm(p: string): void };
-    const runs = TestBed.inject(RunsService);
-    p.setPerm('read');
-    p.prompt.set('giải thích dự án');
-    await p.send();
-    const question = runs.selected()!;
-    // Claude's Chỉ hỏi process stays open (idle); a code task still starts its own session.
-    await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
-    p.setPerm('ask');
-    p.prompt.set('giờ sửa đi');
-    await p.send();
-    expect(backend.lastStart?.thread).toBe(question.thread);
-    expect(backend.lastStart?.recap).toContain('giải thích dự án');
-    expect(runs.selected()?.thread).toBe(question.thread);
-  });
-
   it('keeps the agent and permission the user just picked while the run streams', async () => {
     const { panel } = await setup();
     const p = panel as unknown as Composer & { pickAgent(a: string): void; setPerm(p: string): void; chosen(): string; approval(): string };
@@ -264,7 +246,7 @@ describe('AgentPanel composer', () => {
     expect([p.chosen(), p.approval()]).toEqual(['codex', 'auto']);
   });
 
-  it('carries out a Chỉ hỏi plan in the same conversation once the user says yes', async () => {
+  it('carries out a Chỉ hỏi plan in the same session once the user says yes', async () => {
     const { backend, panel } = await setup();
     const p = panel as unknown as Composer & { setPerm(p: string): void; perm(): string; actOnProposal(r: unknown): Promise<void> };
     const runs = TestBed.inject(RunsService);
@@ -274,11 +256,16 @@ describe('AgentPanel composer', () => {
     const question = runs.selected()!;
     await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
     runs.runs.update((list) => list.map((r) => (r.id === question.id ? { ...r, proposal: '# Đổi a.txt\n- Ghi đè thành xin chào' } : r)));
+    TestBed.tick();
+    const set = vi.spyOn(backend, 'setApproval');
+    const sent = vi.spyOn(backend, 'sendMessage');
+    backend.starts = 0;
     await p.actOnProposal(runs.runs().find((r) => r.id === question.id));
     expect(p.perm()).toBe('ask');
-    expect(backend.lastStart?.approval).toBe('ask');
-    expect(backend.lastStart?.thread).toBe(question.thread);
-    expect(backend.lastStart?.prompt).toContain('Ghi đè thành xin chào');
+    expect(set).toHaveBeenCalledWith(question.id, 'ask');
+    expect(sent).toHaveBeenCalledWith(question.id, expect.stringContaining('Ghi đè thành xin chào'));
+    expect(backend.starts).toBe(0);
+    expect(runs.selected()?.thread).toBe(question.thread);
   });
 
   it('continues a Codex question in its conversation, resuming the CLI session', async () => {
@@ -304,42 +291,70 @@ describe('AgentPanel composer', () => {
     expect(panel.threadRuns().map((r) => r.prompt)).toEqual(['câu một', 'câu hai']);
   });
 
-  it('asks Claude the next question in its open process', async () => {
+  it('asks Claude the next question in its open session', async () => {
     const { backend, panel } = await setup();
-    let starts = 0;
-    const start = backend.start.bind(backend);
-    backend.start = (...args) => { starts += 1; return start(...args); };
     panel.mode.set('read');
     panel.prompt.set('câu một');
     await panel.send();
     const runs = TestBed.inject(RunsService);
     const first = runs.selected()!;
+    expect(backend.lastStart).toMatchObject({ agent: 'claude', approval: 'deny', place: 'direct' });
+    expect(first.place).toBe('direct');
     await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
     TestBed.tick();
+    backend.starts = 0;
     panel.prompt.set('câu hai');
     await panel.send();
-    expect(starts).toBe(1);
+    expect(backend.starts).toBe(0);
     expect(runs.selected()!.id).toBe(first.id);
     await vi.waitFor(() => expect(runs.selected()!.lines.some((l) => l.tone === 'user' && l.text === 'câu hai')).toBe(true));
   });
 
-  it('resumes the CLI session when the open Claude process has just closed', async () => {
+  it('changes the mode of Claude\'s open session instead of starting a new one', async () => {
     const { backend, panel } = await setup();
-    const calls: (string | null | undefined)[] = [];
-    const start = backend.start.bind(backend);
-    backend.start = (agent, prompt, cwd, thread, resumeFrom) => { calls.push(resumeFrom); return start(agent, prompt, cwd); };
-    panel.mode.set('read');
-    panel.prompt.set('câu một');
-    await panel.send();
+    const p = panel as unknown as Composer & { setPerm(p: string): void };
     const runs = TestBed.inject(RunsService);
+    p.setPerm('read');
+    p.prompt.set('câu một');
+    await p.send();
     const first = runs.selected()!;
     await vi.waitFor(() => expect(runs.selected()?.status).toBe('idle'), { timeout: 4000 });
     TestBed.tick();
-    backend.sendMessage = () => Promise.reject(new Error('Phiên này đã đóng.'));
-    panel.prompt.set('câu hai');
-    await panel.send();
-    expect(calls).toEqual([null, first.id]);
-    expect(panel.error()).toBeNull();
+    const set = vi.spyOn(backend, 'setApproval');
+    backend.starts = 0;
+    p.setPerm('ask');
+    p.prompt.set('giờ sửa đi');
+    await p.send();
+    expect(set).toHaveBeenCalledWith(first.id, 'ask');
+    expect(backend.starts).toBe(0);
+    expect(runs.selected()!.id).toBe(first.id);
+    expect(runs.selected()!.perm).toBe('ask');
+    expect(runs.selected()!.lines.some((l) => l.text.includes('Đã mở phiên mới'))).toBe(false);
+  });
+
+  it('opens a new session, with a note, when Codex leaves Chỉ hỏi', async () => {
+    const { backend, panel } = await setup();
+    const p = panel as unknown as Composer & { setPerm(p: string): void };
+    const runs = TestBed.inject(RunsService);
+    const set = vi.spyOn(backend, 'setApproval');
+    p.setPerm('read');
+    p.prompt.set('@codex câu một');
+    await p.send();
+    const first = runs.selected()!;
+    await vi.waitFor(() => expect(runs.selected()?.status).toBe('done'), { timeout: 4000 });
+    // Make the read-only run look like an idle open one: only the mode switch is under test.
+    runs.runs.update((l) => l.map((r) => (r.id === first.id ? { ...r, status: 'idle' as const } : r)));
+    TestBed.tick();
+    backend.starts = 0;
+    p.setPerm('ask');
+    p.prompt.set('@codex giờ sửa đi');
+    await p.send();
+    expect(set).not.toHaveBeenCalled();
+    expect(backend.starts).toBe(1);
+    const now = runs.selected()!;
+    expect(now.id).not.toBe(first.id);
+    expect(now.thread).toBe(first.thread);
+    expect(now.lines.some((l) => l.text === 'Đã mở phiên mới để cho phép sửa code')).toBe(true);
   });
 
   it('keeps the prompt and shows why when a pipeline cannot start', async () => {

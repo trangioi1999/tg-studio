@@ -4,7 +4,7 @@ import { AGENT_META } from '../../services/agents/agent-meta';
 import { AgentBackend } from '../../core/backend';
 import { AgentCommand, AgentId, Approval, ConfigChoice, GitPlan, Place } from '../../core/protocol';
 import { DEFAULT_TEMPLATES, PipelineService, PipelineStep } from '../../services/runs/pipeline.service';
-import { Run, recapOf } from '../../services/runs/run';
+import { Run, canSwitchLive, recapOf } from '../../services/runs/run';
 import { RunsService } from '../../services/runs/runs.service';
 import { ThreadsService } from '../../services/runs/threads.service';
 import { errorText } from '../../shared/utils/errors';
@@ -332,7 +332,7 @@ export class ChatState {
     const r = this.run();
     if (!r || this.team() !== 'single' || this.agent() !== r.agent || r.status === 'running') return null;
     if (!r.restored && r.status === 'idle') return null; // still open: the next message is cheap
-    if (this.perm() === 'read' ? r.task || this.readViaAcp() : !r.task || r.perm === 'read') return null;
+    if (this.perm() === 'read' ? (r.agent === 'claude' ? !r.task : r.task || this.readViaAcp()) : !r.task || r.perm === 'read') return null;
     const turns = 1 + r.lines.filter((l) => l.tone === 'user').length;
     const chars = r.lines.reduce((n, l) => n + l.text.length, r.prompt.length);
     // Only Claude's code sessions take `/compact` as a turn (through its ACP adapter).
@@ -570,30 +570,23 @@ export class ChatState {
         const recap = current ? recapOf(current) : undefined;
         const scope = current ? current.scope : this.threads.draftScope();
         const liveSession = current?.task && current.agent === agent && current.status === 'idle';
-        // A question's throwaway draft must never receive edits: leaving Chỉ hỏi starts afresh.
-        const leavingThrowaway = current?.perm === 'read' && perm !== 'read';
-        if (liveSession && !leavingThrowaway && (perm !== 'read' || current!.perm === 'read' || this.readViaAcp())) {
+        const sameMode = (current?.perm === 'read') === (perm === 'read') && (perm === 'read' || current?.perm === perm);
+        if (liveSession && (sameMode || canSwitchLive(current!, approval))) {
           // The open session takes the message; only its approval mode changes.
-          if (current!.perm !== perm) await this.runs.setApproval(current!.id, approval);
+          if (!sameMode) await this.runs.setApproval(current!.id, approval);
           await this.runs.sendMessage(current!.id, text);
-        } else if (perm === 'read' && !this.readViaAcp() && current && !current.task && current.agent === agent && current.status === 'idle') {
-          // Claude's Chỉ hỏi process is still open: the question goes straight to it. It may
-          // have just closed (idle limit, crash) before its exit reached the UI: resume instead.
-          try {
-            await this.runs.sendMessage(current.id, text);
-          } catch (e) {
-            if (!(errorText(e)).includes('đã đóng')) throw e;
-            await this.runs.start(agent, text, cwd, thread, current.id, scope, null);
-          }
         } else if (perm === 'read' && !this.readViaAcp()) {
-          // Read-only CLI run on the real folder; the core resumes this agent's CLI session.
+          // Read-only CLI run on the real folder (Claude: a session in plan mode); the core
+          // resumes this agent's CLI session.
           const fresh = this.resumeMode() === 'fresh';
-          const resumable = !fresh && current && !current.task && current.agent === agent && current.status !== 'running' ? current : null;
+          const resumable = !fresh && current && current.agent === agent && current.status !== 'running' && (agent === 'claude' ? current.task && current.perm === 'read' : !current.task) ? current : null;
           await this.runs.start(agent, text, cwd, thread, resumable?.id ?? null, scope, resumable || !current ? null : (recap ?? null));
+          this.noteNewSession(current);
         } else {
           // A code task (or an ACP question). An earlier code task's draft or folder is reused.
           const reuse = current?.task && current.perm !== 'read' && perm !== 'read' ? current.id : undefined;
           await this.runs.startTask(agent, text, cwd, { reuse, recap, thread, scope, place, base, approval, fresh: this.resumeMode() === 'fresh', compact: this.resumeMode() === 'compact' });
+          this.noteNewSession(current);
         }
       }
       this.tab.set('thread');
@@ -611,6 +604,13 @@ export class ChatState {
     }
   }
 
+  /** An agent whose Chỉ hỏi cannot become Sửa code in place: say that the session is a new one. */
+  private noteNewSession(before: Run | null): void {
+    if (!before || before.perm !== 'read' || before.status !== 'idle' || before.restored || this.perm() === 'read') return;
+    const id = this.runs.selectedId();
+    if (id && id !== before.id) this.runs.note(id, 'Đã mở phiên mới để cho phép sửa code');
+  }
+
   /** Why the plan cannot be carried out here (code tasks need a Git repo with a commit). */
   blockedForEdit(): string | null {
     if (!this.workspace.repo()) return 'Sửa code cần một repo Git.';
@@ -624,6 +624,7 @@ export class ChatState {
     this.chosen.set(r.agent);
     this.setPerm('ask');
     this.prompt.set(`Làm theo kế hoạch đã đề xuất:\n\n${r.proposal}`);
+    // A live Claude session carries the plan out itself: `send` only changes its mode.
     await this.send();
   }
 

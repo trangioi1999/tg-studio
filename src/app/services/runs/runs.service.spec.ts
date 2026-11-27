@@ -507,6 +507,27 @@ describe('RunsService tg-bridge events', () => {
     expect(service.handoffs()).toEqual([]);
   });
 
+  it('starts Claude\'s question as a session in the folder, and the other agents through their CLI', async () => {
+    const backend = new MockBackend();
+    const tasks: { agent: string; approval: string | null; place: string | null }[] = [];
+    const starts: string[] = [];
+    const startTask = backend.startTask.bind(backend);
+    backend.startTask = (agent, prompt, repo, group = null, reuse = null, single = false, recap = null, thread = null, scope = null, prefs = null, place = null, base = null, approval = null) => {
+      tasks.push({ agent, approval, place });
+      return startTask(agent, prompt, repo, group, reuse, single, recap, thread, scope, prefs, place, base, approval);
+    };
+    const start = backend.start.bind(backend);
+    backend.start = (agent, prompt, cwd, ...rest) => { starts.push(agent); return start(agent, prompt, cwd, ...rest); };
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: backend }] });
+    const service = TestBed.inject(RunsService);
+    await service.start('claude', 'hỏi', '/repo');
+    expect(tasks).toEqual([{ agent: 'claude', approval: 'deny', place: 'direct' }]);
+    expect(service.selected()).toMatchObject({ task: true, perm: 'read', place: 'direct' });
+    await service.start('codex', 'hỏi', '/repo');
+    expect(starts).toEqual(['codex']);
+    expect(tasks.length).toBe(1);
+  });
+
   it('accepting a handoff continues in the finished run\'s worktree', async () => {
     const backend = new MockBackend();
     const calls: (string | null)[] = [];

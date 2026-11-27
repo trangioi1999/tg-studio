@@ -151,6 +151,13 @@ export class RunsService {
   }
 
   async start(agent: AgentId, prompt: string, cwd: string, thread: string = crypto.randomUUID(), resumeFrom: string | null = null, scope: string | null = null, recap: string | null = null): Promise<void> {
+    // Claude's Chỉ hỏi is a session like any other, in the folder itself, so a later switch
+    // to Hỏi trước needs no new session. The other agents answer through their CLI.
+    if (agent === 'claude') {
+      const previous = resumeFrom ? this.runs().find((r) => r.id === resumeFrom) : undefined;
+      await this.startTask(agent, prompt, cwd, { approval: 'deny', place: 'direct', thread, scope, recap: recap ?? undefined, reuse: previous?.task ? previous.id : undefined });
+      return;
+    }
     // A question that joins a conversation another session started gets its summary first.
     const sent = recap ? `${recap}\n\n${prompt}` : prompt;
     const id = await this.backend.start(agent, sent, cwd, thread, resumeFrom, scope, this.agents.prefsFor(agent));
@@ -166,7 +173,7 @@ export class RunsService {
   async startTask(agent: AgentId, prompt: string, repo: string, opts: { reuse?: string; title?: string; singleTurn?: boolean; recap?: string; thread?: string; scope?: string | null; place?: Place; base?: string | null; approval?: Approval; fresh?: boolean; compact?: boolean } = {}): Promise<string> {
     const thread = opts.thread ?? crypto.randomUUID();
     const approval = opts.approval ?? 'ask';
-    const place: Place = approval === 'deny' ? 'draft' : opts.reuse ? (this.runs().find((r) => r.id === opts.reuse)?.place ?? 'draft') : (opts.place ?? 'draft');
+    const place: Place = approval === 'deny' ? (agent === 'claude' ? 'direct' : 'draft') : opts.reuse ? (this.runs().find((r) => r.id === opts.reuse)?.place ?? 'draft') : (opts.place ?? 'draft');
     const id = await this.backend.startTask(agent, prompt, repo, null, opts.reuse ?? null, opts.singleTurn ?? false, opts.recap ?? null, thread, opts.scope ?? null, this.agents.prefsFor(agent), opts.place ?? null, opts.base ?? null, approval, opts.fresh ?? false, opts.compact ?? false);
     const model = this.agents.modelLabel(agent);
     const perm = approval === 'deny' ? 'read' : approval;
