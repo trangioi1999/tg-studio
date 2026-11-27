@@ -224,9 +224,13 @@ enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::tasks::warm::Warm>
 
 /// Only eligible direct runs can claim a session opened in their working directory.
 async fn select_adapter(store: &Store, pool: &warm::WarmPool, agent: AgentKind, place: &Place,
-    cwd: Result<PathBuf, String>, eligible: bool, command: (PathBuf, Vec<String>)) -> Adapter {
+    cwd: Result<PathBuf, String>, eligible: bool, child: bool, command: (PathBuf, Vec<String>)) -> Adapter {
     if let (Place::Direct, true, Ok(cwd)) = (place, eligible, cwd) {
-        if let Some(warm) = pool.take(&warm::key_for(store, agent, &cwd)).await {
+        let key = warm::key_for(store, agent, &cwd);
+        // tools/list is fixed at agent start: a warm bridge advertises parent-only tools.
+        // Children may reuse a warm session only when its bridge is disabled.
+        if child && key.bridge { return Adapter::Spawn(command); }
+        if let Some(warm) = pool.take(&key).await {
             return Adapter::Warm(Box::new(warm), command);
         }
     }
@@ -640,10 +644,10 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     let timeout = setup_timeout(&command.0);
     // Only a throwaway draft goes away with the session; a question in place may become a task.
     let throwaway = approval == Approval::Deny && reuse.is_none() && place != Place::Direct;
-    // Direct children share the parent's cwd; the reserved bridge token is bound to their child TaskEnv.
+    // Direct children share the parent's cwd, but select_adapter excludes warm bridges for them.
     let adapter = select_adapter(&app.state::<Store>(), &app.state::<warm::WarmPool>(), agent,
         &place, env::scoped_dir(&repo, scope.as_deref()),
-        reuse.is_none() && resumed.is_none() && warm_fits(native, approval, &prefs), command).await;
+        reuse.is_none() && resumed.is_none() && warm_fits(native, approval, &prefs), parent.is_some(), command).await;
     // A new draft of a real task gets the project's setup script; not a question's throwaway draft, not a delegated agent.
     let setup_command = if !throwaway && parent.is_none() { crate::workspace::hooks::load(&app.state::<Store>(), &repo).setup } else { String::new() };
     let setup_sink: Arc<dyn EventSink> = Arc::new(AppSink(app.clone()));

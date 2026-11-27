@@ -28,6 +28,8 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// What the tools may do inside one run. The app implements it per task; tests fake it.
 pub trait ToolEnv: Send + Sync {
+    /// Server-side identity, independent of the stdio process's advertised tools.
+    fn is_child(&self) -> bool { false }
     /// A bridge event for the UI: progress, notes, handoff proposals.
     fn emit(&self, data: Value, line: String);
     fn add_note(&self, topic: &str, text: &str) -> Result<(), String>;
@@ -93,6 +95,9 @@ fn text_arg<'a>(args: &'a Value, key: &str, max: usize) -> Result<&'a str, Strin
 
 /// Runs one tool for one run. Errors become MCP tool errors the agent can read.
 pub async fn call_tool(env: &dyn ToolEnv, tool: &str, args: &Value) -> Result<String, String> {
+    if env.is_child() && PARENT_ONLY.contains(&tool) {
+        return Err("Agent được giao việc không giao tiếp cho agent khác được.".into());
+    }
     match tool {
         "report_progress" => {
             let step = text_arg(args, "step", 200)?;
