@@ -35,6 +35,8 @@ export class MockBackend extends AgentBackend {
   readonly mode = 'mock' as const;
   private runs = new Map<string, MockRun>();
   private tasks = new Map<string, MockTask>();
+  /** A run's own subagents (`<run>~n`), stopped with it. */
+  private subagents = new Map<string, string[]>();
   private composites = new Map<string, FileDiff[]>();
   private prices: PriceRow[] = [];
   private mcp: McpServer[] = [];
@@ -245,6 +247,7 @@ export class MockBackend extends AgentBackend {
     // "chia việc" / "giao" in the request: Claude delegates the tests to Codex and waits for it.
     const delegating = run.agent === 'claude' && /chia|giao/i.test(run.prompt);
     const late = delegating ? 2300 : 0;
+    if (run.agent === 'claude') this.subagentMock(runId, 'Tìm nơi đặt tiêu đề', 60);
     if (delegating) this.delegateMock(runId, run);
     else if (run.agent === 'claude') {
       send({ kind: 'bridge', line: '◆ tg-bridge · đề xuất chuyển cho codex: Viết test cho tiêu đề mới', data: { tool: 'handoff_to', id: `handoff-${runId}`, agent: 'codex', task: 'Viết test cho tiêu đề mới', files: ['src/app/app.spec.ts'] } }, 470);
@@ -262,6 +265,25 @@ export class MockBackend extends AgentBackend {
       usage: { inputTokens: 2400, cachedInputTokens: 12000, outputTokens: 610, costUsd: run.agent === 'claude' ? 0.04 : null, source: run.agent === 'claude' ? 'reported' : 'tokens', cumulative: true },
     }, 540 + late);
     this.endTurn(runId, run, 580 + late);
+  }
+
+  /**
+   * One of Claude's own subagents, as `TaskSession::subagent_update` sends it: run `<parent>~n`,
+   * `started` naming the parent and the title, its tool calls and messages, `exit` when idle.
+   */
+  private subagentMock(parentId: string, title: string, at: number): void {
+    const subs = this.subagents.get(parentId) ?? [];
+    const id = `${parentId}~${subs.length + 1}`;
+    const sub: MockRun = { agent: 'claude', prompt: title, timers: [], active: true };
+    this.runs.set(id, sub);
+    this.subagents.set(parentId, [...subs, id]);
+    const send = (partial: Partial<AgentEvent>, delay: number) => this.later(id, sub, partial, at + delay);
+    send({ kind: 'started', line: `Subagent · ${title}`, data: { parent: parentId, subagent: true, title } }, 0);
+    send({ kind: 'tool', data: { toolCallId: 's1', title: 'Tìm "title" trong src/app', kind: 'search', status: 'pending' } }, 80);
+    send({ kind: 'tool', data: { toolCallId: 's1', status: 'completed' } }, 300);
+    send({ kind: 'tool', data: { toolCallId: 's2', title: 'Đọc src/app/app.ts', kind: 'read', status: 'completed' } }, 420);
+    send({ kind: 'message', data: { text: 'Tiêu đề nằm ở `src/app/app.ts`, dòng 11.' } }, 600);
+    send({ kind: 'exit', code: 0, data: { status: 'done' } }, 800);
   }
 
   /** Mock tg-bridge `delegate`: a Codex and a helper Claude nested in the parent, merged back when done. */
@@ -517,6 +539,14 @@ export class MockBackend extends AgentBackend {
   async stop(runId: string) {
     const run = this.runs.get(runId);
     if (!run || (!run.active && !run.open)) return;
+    // Its subagents still working end with it, as in the core.
+    for (const id of this.subagents.get(runId) ?? []) {
+      const sub = this.runs.get(id);
+      if (!sub?.active) continue;
+      sub.timers.forEach(clearTimeout);
+      sub.active = false;
+      this.emit({ runId: id, agent: sub.agent, kind: 'exit', line: null, usage: null, code: null, data: { status: 'stopped' }, atMs: Date.now() });
+    }
     run.timers.forEach(clearTimeout);
     run.active = false;
     run.open = false;

@@ -72,4 +72,31 @@ describe('Mock task contract', () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ runId: id, agent: 'kiro', kind: 'exit', code: null, data: null });
   });
+
+  it('a Claude task runs a subagent of its own as <run>~1, like the core sends it', async () => {
+    vi.useFakeTimers();
+    const backend = new MockBackend();
+    const events: AgentEvent[] = [];
+    await backend.onEvent(e => events.push(e));
+    const id = await backend.startTask('claude', 'sửa tiêu đề', '/repo', null, null, false, null, null, null, null, null, null, 'auto');
+    await vi.runAllTimersAsync();
+    const sub = events.filter(e => e.runId === `${id}~1`);
+    expect(sub[0]).toMatchObject({ agent: 'claude', kind: 'started', data: { parent: id, subagent: true, title: expect.any(String) } });
+    expect(sub.some(e => e.kind === 'tool')).toBe(true);
+    expect(sub.at(-1)).toMatchObject({ kind: 'exit', code: 0, data: { status: 'done' } });
+    expect(events.filter(e => e.runId === id && e.kind === 'started')).toHaveLength(1);
+  });
+
+  it('stopping a Claude task stops its subagent with it', async () => {
+    vi.useFakeTimers();
+    const backend = new MockBackend();
+    const events: AgentEvent[] = [];
+    await backend.onEvent(e => events.push(e));
+    const id = await backend.startTask('claude', 'sửa tiêu đề', '/repo', null, null, false, null, null, null, null, null, null, 'auto');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(events.some(e => e.runId === `${id}~1` && e.kind === 'started')).toBe(true);
+    await backend.stop(id);
+    await vi.runAllTimersAsync();
+    expect(events.filter(e => e.runId === `${id}~1` && e.kind === 'exit')).toEqual([expect.objectContaining({ data: { status: 'stopped' } })]);
+  });
 });

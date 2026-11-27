@@ -4,7 +4,7 @@ import { costOf } from '../../../services/usage/pricing';
 import { AgentId, Delegation } from '../../../core/protocol';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { RunsService } from '../../../services/runs/runs.service';
-import { Run, turnStart } from '../../../services/runs/run';
+import { Run, isSubagent, turnStart } from '../../../services/runs/run';
 import { runEnd } from './agent-terminal';
 import { WorkspaceService } from '../../../services/workspace.service';
 import { UiService } from '../../../services/app/ui.service';
@@ -62,7 +62,7 @@ const LABEL: Record<Delegation['status'], [State, string]> = {
                   {{ it.label }}
                 </span>
                 @if (it.run) { <span class="mono dim dlg-meta">{{ duration(it.run) }}@if (cost(it.run) !== null) { · {{ usd(cost(it.run)) }} }</span> }
-                @if (it.run?.status === 'running') {
+                @if (it.run?.status === 'running' && !subagent(it.run)) {
                   <button class="btn ghost sm" (click)="runs.stop(it.run!.id)">Dừng</button>
                 }
                 @if (it.delegation?.worktree && it.run) {
@@ -87,6 +87,8 @@ export class Delegations {
   /** All but these: the ones no marker placed, at the end of the run. */
   readonly except = input<readonly (string | number)[]>([]);
   protected readonly meta = AGENT_META;
+  /** Stopping one subagent alone has no command; stopping the parent stops them all. */
+  protected readonly subagent = isSubagent;
   /**
    * One agent open at a time in a message; a finished one folds back to its summary row. Kept in
    * {@link UiService} by parent, since one message can hold several of these (one per marker).
@@ -116,7 +118,7 @@ export class Delegations {
     let ord = 0;
     for (const run of saved) {
       const [state, label] = this.stateOf(run);
-      const sub = run.id.startsWith(`${parent.id}~`);
+      const sub = isSubagent(run);
       items.push({ key: run.id, ord: sub ? null : ord++, agent: run.agent, task: taskOf(run.prompt), run, delegation: null, state, label, now: this.nowOf(run, null) });
     }
     return items;

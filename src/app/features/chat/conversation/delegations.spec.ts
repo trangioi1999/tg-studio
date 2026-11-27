@@ -79,6 +79,29 @@ describe('Delegated agents', () => {
     expect([...el.querySelectorAll('button')].some((b) => b.textContent!.includes('Xem thay đổi'))).toBe(false);
   });
 
+  it('a Claude subagent is a Claude Code row titled by the subagent, opens the small terminal, and has no Dừng', async () => {
+    const { runs, send } = await setup();
+    send({ kind: 'started', line: 'Claude' });
+    send({ runId: 'p~1', kind: 'started', line: 'Subagent · Tìm cấu hình', data: { parent: 'p', subagent: true, title: 'Tìm cấu hình' } });
+    send({ runId: 'p~1', kind: 'tool', data: { toolCallId: 's1', title: 'Đọc a.json', kind: 'read', status: 'pending' } });
+    expect(runs.runs().find((r) => r.id === 'p~1')!.status).toBe('running');
+    const fixture = TestBed.createComponent(Delegations);
+    fixture.componentRef.setInput('parent', runs.runs().find((r) => r.id === 'p')!);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const rows = el.querySelectorAll('.dlg-item');
+    expect(rows.length).toBe(1);
+    expect(rows[0].querySelector('strong')!.textContent).toBe('Claude Code');
+    expect(el.querySelector('.dlg-task')!.textContent!.trim()).toBe('Tìm cấu hình');
+    const stop = () => [...el.querySelectorAll('button')].some((b) => b.textContent!.trim() === 'Dừng');
+    expect(stop()).toBe(false);
+    (el.querySelector('.dlg-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('tg-agent-terminal')).not.toBeNull();
+    expect(el.querySelector('.at-task')!.textContent!.trim()).toBe('Tìm cấu hình');
+    expect(stop()).toBe(false);
+  });
+
   it('shows a refusal and a conflict in words', async () => {
     const { runs, send } = await setup();
     send({ kind: 'started', line: 'Claude' });

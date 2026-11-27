@@ -112,6 +112,14 @@ export interface AgentUsage {
 }
 
 /** Where the shown duration of a run counts from: its current question. */
+/**
+ * One of the agent's own subagents (`<parent>~n`, from `TaskSession::subagent_update`). It has no
+ * stop of its own: stopping its parent stops it.
+ */
+export function isSubagent(r: Pick<Run, 'id'>): boolean {
+  return r.id.includes('~');
+}
+
 export function turnStart(r: Run): number {
   return r.turnAt ?? r.startedAt;
 }

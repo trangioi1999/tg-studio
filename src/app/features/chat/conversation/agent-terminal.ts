@@ -1,5 +1,5 @@
 import { afterRenderEffect, Component, computed, ElementRef, inject, input, output, signal, untracked, viewChild } from '@angular/core';
-import { Run, turnStart } from '../../../services/runs/run';
+import { Run, isSubagent, turnStart } from '../../../services/runs/run';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { RunsService } from '../../../services/runs/runs.service';
 import { UiService } from '../../../services/app/ui.service';
@@ -103,7 +103,7 @@ export function canMessage(run: Run): boolean {
         <span class="ellipsis at-task" [title]="task()">{{ task() }}</span>
         <span class="pill" [attr.data-status]="status()">{{ label() }}</span>
         <span class="mono dim at-meta">{{ elapsed() }}@if (cost() !== null) { · {{ usd(cost()) }} }@if (r.context?.percent != null) { · ctx {{ r.context!.percent }}% }</span>
-        @if (r.status === 'running') { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
+        @if (r.status === 'running' && !subagent(r)) { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
         <button class="at-icon" (click)="open($event)" aria-label="Mở to" title="Mở to">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
         </button>
@@ -151,6 +151,7 @@ export class AgentTerminal {
   readonly bare = input(false);
   readonly collapse = output<void>();
   protected readonly meta = AGENT_META;
+  protected readonly subagent = isSubagent;
   protected readonly all = signal(false);
   protected readonly fresh = signal(false);
   private readonly screen = viewChild<ElementRef<HTMLElement>>('screen');

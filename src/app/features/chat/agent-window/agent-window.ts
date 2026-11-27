@@ -2,7 +2,7 @@ import { Component, ElementRef, computed, effect, inject, signal, untracked, vie
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { UiService } from '../../../services/app/ui.service';
 import { RunsService } from '../../../services/runs/runs.service';
-import { Run, turnStart } from '../../../services/runs/run';
+import { Run, isSubagent, turnStart } from '../../../services/runs/run';
 import { costOf } from '../../../services/usage/pricing';
 import { WorkspaceService } from '../../../services/workspace.service';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
@@ -53,7 +53,7 @@ type Tab = 'live' | 'changes' | 'task';
             <button class="aw-icon" (click)="ui.pinLog(r.id)" aria-label="Ghim xuống khung dưới" title="Ghim xuống khung dưới">
               <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/></svg>
             </button>
-            @if (r.status === 'running' && !r.id.includes('~')) {
+            @if (r.status === 'running' && !subagent(r)) {
               <button class="aw-icon aw-stop" (click)="runs.stop(r.id)" [attr.aria-label]="'Dừng ' + meta[r.agent].name" title="Dừng">
                 <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>
               </button>
@@ -104,6 +104,7 @@ export class AgentWindow {
   protected readonly runs = inject(RunsService);
   private readonly workspace = inject(WorkspaceService);
   protected readonly meta = AGENT_META;
+  protected readonly subagent = isSubagent;
   protected readonly taskOf = taskOf;
   protected readonly tab = signal<Tab>('live');
   private readonly dialog = viewChild<ElementRef<HTMLElement>>('dialog');
