@@ -222,6 +222,17 @@ pub(crate) fn follow_mode(session: &TaskSession, client: &Arc<dyn AgentConn>) {
 /// `Warm` keeps the command: an adapter that died while waiting is replaced by a fresh one.
 enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::tasks::warm::Warm>, (PathBuf, Vec<String>)) }
 
+/// Only eligible direct runs can claim a session opened in their working directory.
+async fn select_adapter(store: &Store, pool: &warm::WarmPool, agent: AgentKind, place: &Place,
+    cwd: Result<PathBuf, String>, eligible: bool, command: (PathBuf, Vec<String>)) -> Adapter {
+    if let (Place::Direct, true, Ok(cwd)) = (place, eligible, cwd) {
+        if let Some(warm) = pool.take(&warm::key_for(store, agent, &cwd)).await {
+            return Adapter::Warm(Box::new(warm), command);
+        }
+    }
+    Adapter::Spawn(command)
+}
+
 #[cfg(test)]
 async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
     prepare_with(store, agent, prompt, repo, adapter, group, reuse, place, None, None).await
@@ -629,18 +640,10 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     let timeout = setup_timeout(&command.0);
     // Only a throwaway draft goes away with the session; a question in place may become a task.
     let throwaway = approval == Approval::Deny && reuse.is_none() && place != Place::Direct;
-    // A new conversation in the user's folder may find its session already open.
-    // Not for a delegated agent: a session opened ahead of time has the parent's tg-bridge tools.
-    let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
-        (Place::Direct, None, None, Ok(cwd)) if parent.is_none() && warm_fits(native, approval, &prefs) => {
-            let key = crate::tasks::warm::key_for(&app.state::<Store>(), agent, &cwd);
-            match app.state::<crate::tasks::warm::WarmPool>().take(&key).await {
-                Some(warm) => Adapter::Warm(Box::new(warm), command),
-                None => Adapter::Spawn(command),
-            }
-        }
-        _ => Adapter::Spawn(command),
-    };
+    // Direct children share the parent's cwd; the reserved bridge token is bound to their child TaskEnv.
+    let adapter = select_adapter(&app.state::<Store>(), &app.state::<warm::WarmPool>(), agent,
+        &place, env::scoped_dir(&repo, scope.as_deref()),
+        reuse.is_none() && resumed.is_none() && warm_fits(native, approval, &prefs), command).await;
     // A new draft of a real task gets the project's setup script; not a question's throwaway draft, not a delegated agent.
     let setup_command = if !throwaway && parent.is_none() { crate::workspace::hooks::load(&app.state::<Store>(), &repo).setup } else { String::new() };
     let setup_sink: Arc<dyn EventSink> = Arc::new(AppSink(app.clone()));
