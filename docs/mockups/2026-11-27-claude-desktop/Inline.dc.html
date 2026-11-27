@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Agent con chạy ngay trong chat</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0b0d}
+a{color:#a3c0ff}a:hover{color:#c8d8ff}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; display: flex; flex-wrap: wrap; background: #0b0b0d; color: #ececee; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+  <nav aria-label="Cuộc trò chuyện" style="flex: 1 1 240px; max-width: 100%; display: flex; flex-direction: column; gap: 4px; padding: 14px 10px; border-right: 1px solid #1f1f25; background: #0e0e11; box-sizing: border-box">
+    <div style="padding: 0 6px 6px; color: #9a9aa5; font-size: 11px; letter-spacing: .06em; text-transform: uppercase">website</div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; background: #1e1e24">
+      <img src="../../../public/agents/claude.svg" alt="" style="width: 16px; height: 16px">
+      <span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Đổi nhãn Plugins → Marketplace</span>
+      <span style="font-size: 11px; color: #a3c0ff">3 đang chạy</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 7px 8px; color: #c4c4cc">
+      <img src="../../../public/agents/gemini.svg" alt="" style="width: 16px; height: 16px">
+      <span style="flex: 1">Viết docs cho API mới</span>
+      <span style="font-size: 11px; color: #7fddb4">xong</span>
+    </div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+    <div style="flex: 1; padding: 24px 24px 84px">
+      <div style="max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px">
+
+        <div style="align-self: flex-end; max-width: 80%; padding: 10px 14px; border: 1px solid #27272e; border-radius: 14px; background: #1d1d24; line-height: 1.5">Đổi nhãn Plugins thành Marketplace, giữ URL /plugins/. Nhờ review và chạy test.</div>
+
+        <div style="display: flex; align-items: center; gap: 8px">
+          <img src="../../../public/agents/claude.svg" alt="" style="width: 18px; height: 18px">
+          <strong style="font-weight: 600">Claude Code</strong>
+          <span style="color: #9a9aa5">· Sửa code · 1:24</span>
+        </div>
+        <p style="margin: 0; line-height: 1.6">Đã đổi nhãn ở hai tệp. Giao Codex review, một Claude phụ chạy test:</p>
+        <div class="mono" style="font-size: 12.5px; color: #9a9aa5"><span style="color: #7fddb4">●</span> <span style="color: #ececee">Update</span>(SiteLayout.astro) └ +3 −3 · <span style="color: #7fddb4">●</span> <span style="color: #ececee">Update</span>(SiteTitle.astro) └ +1 −1</div>
+
+        <section aria-label="Codex đang review, mở tại chỗ" style="border: 1px solid #2b3d5e; border-radius: 12px; overflow: hidden; background: #0f1422">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #1c2740">
+            <button type="button" aria-expanded="true" aria-label="Thu gọn" style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #c4c4cc; padding: 0"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+            <img src="../../../public/mascot/coding.webp" alt="" style="width: 22px; height: 24px">
+            <img src="../../../public/agents/codex.svg" alt="" style="width: 16px; height: 16px">
+            <strong style="font-weight: 600">Codex</strong>
+            <span style="flex: 1; min-width: 0; color: #c4c4cc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Review thay đổi</span>
+            <span style="padding: 2px 8px; border-radius: 99px; font-size: 11px; color: #a3c0ff; background: rgba(110,155,245,.16)">Đang chạy</span>
+            <span class="mono" style="color: #9a9aa5; font-size: 12px">0:42 · $0,03 · ctx 31%</span>
+            <button type="button" aria-label="Dừng Codex" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 1px solid #5a322d; border-radius: 8px; background: transparent; color: #f6a999"><svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg></button>
+            <a href="Popup.dc.html" title="Mở to" aria-label="Mở to" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border: 1px solid #43434c; border-radius: 8px; color: #ececee; text-decoration: none"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></a>
+          </div>
+          <div class="mono" style="height: 210px; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: 10px 14px; background: #070709; font-size: 12px; line-height: 1.7; color: #9a9aa5">
+            <div><span style="color: #7fddb4">●</span> <span style="color: #ececee">Read</span>(src/components/SiteLayout.astro) <span>└ 212 dòng</span></div>
+            <div><span style="color: #7fddb4">●</span> <span style="color: #ececee">Bash</span>(git diff --stat) <span>└ 2 files changed, 4(+), 4(-)</span></div>
+            <div><span style="color: #7fddb4">●</span> <span style="color: #ececee">Grep</span>("Plugins", src/) <span>└ 3 kết quả</span></div>
+            <div style="padding-left: 14px">src/components/Footer.astro:22</div>
+            <div><span style="color: #7fddb4">●</span> <span style="color: #ececee">Read</span>(src/components/Footer.astro) <span>└ 64 dòng</span></div>
+            <div style="color: #ececee; font-family: Inter, system-ui, sans-serif; font-size: 13px; margin-top: 4px">Footer.astro dòng 22 vẫn ghi "Plugins", đề xuất đổi luôn…</div>
+            <div style="margin-top: 4px"><span style="color: #ff8a3d">✻</span> <span style="color: #ececee">Đang soạn nhận xét…</span> (0:42 · ↓ ~1,1k token)</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid #1c2740">
+            <label for="dmc" style="color: #9a9aa5; white-space: nowrap; font-size: 12px">Nhắn riêng Codex</label>
+            <input id="dmc" type="text" placeholder="Ví dụ: kiểm tra cả bản mobile" style="flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid #23232a; border-radius: 8px; background: #0b0b0d; color: #ececee; font: inherit">
+          </div>
+        </section>
+
+        <a href="Popup.dc.html" style="display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #5c4526; border-radius: 12px; background: #1a150d; color: #ececee; text-decoration: none">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c4c4cc" stroke-width="2.2" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+          <img src="../../../public/mascot/thinking.webp" alt="" style="width: 22px; height: 24px">
+          <img src="../../../public/agents/claude.svg" alt="" style="width: 16px; height: 16px">
+          <strong style="font-weight: 600">Claude phụ</strong>
+          <span class="mono" style="flex: 1; min-width: 0; color: #9a9aa5; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">└ muốn chạy bun test</span>
+          <span style="padding: 2px 8px; border-radius: 99px; font-size: 11px; color: #e8b672; background: rgba(232,182,114,.14)">Cần bạn</span>
+        </a>
+
+        <div style="margin-top: 6px; padding: 12px 14px; border: 1px dashed #43434c; border-radius: 12px; color: #9a9aa5; line-height: 1.6">
+          Terminal nhỏ cao cố định (~10 dòng), luôn cuộn theo dòng mới. Chỉ một agent con mở cùng lúc; mở cái khác thì cái cũ thu lại thành một dòng. Agent con xong thì tự thu lại, giữ dòng tóm tắt. <strong style="color: #ececee">Mở to</strong> chuyển sang cửa sổ lớn (khung 2), <strong style="color: #ececee">Esc</strong> trong cửa sổ quay lại đúng chỗ này.
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 0 24px 16px">
+      <div style="max-width: 760px; margin: 0 auto; position: relative">
+        <div style="border: 1px solid #2c2c34; border-radius: 20px; background: #17171c; box-shadow: 0 8px 24px rgba(0,0,0,.35); overflow: hidden">
+          <div class="mono" role="status" style="display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid #23232a; background: #141418; font-size: 12.5px; flex-wrap: wrap">
+            <span style="color: #ff8a3d">✻</span>
+            <span style="color: #ececee">Đang chờ 2 agent con…</span>
+            <span style="color: #7c7c87">1:24 · ↓ ~3,4k token</span>
+            <span style="flex: 1"></span>
+            <span style="color: #7c7c87">Esc để dừng</span>
+          </div>
+          <div style="padding: 14px 18px 14px; color: #7c7c87; font-size: 14px">Nhắn thêm cho Claude Code…</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

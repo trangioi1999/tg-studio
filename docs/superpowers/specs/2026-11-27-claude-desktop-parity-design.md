@@ -1,8 +1,8 @@
 # TG Studio — Làm việc như Claude desktop (đợt 3)
 
 - **Ngày:** 2026-11-27
-- **Trạng thái:** bản nháp, chờ chủ repo duyệt.
-- **Mockup:** canvas "TG Studio Mockups" (6 khung: cuộc trò chuyện đang chạy, cửa sổ xem agent con, bảng context, bảng agent, ô chat ba phương án, agent con chạy ngay trong chat). Link do chủ repo giữ; mô tả từng khung ở mục 5.
+- **Trạng thái:** chủ repo đã duyệt (2026-11-27: "oke duyệt, giao agent làm luôn đi"); mọi mục **[Đề xuất]** coi như đã chốt. Quyết định sau khi soát ở mục 11.
+- **Mockup:** `docs/mockups/2026-11-27-claude-desktop/` (6 khung, nguồn HTML của canvas chủ repo đã duyệt; bảng tệp ↔ mục spec trong README ở đó).
 - **Code tham chiếu:** `main` tại `ca5c649` (v0.7.0 + mèo TG).
 
 Quy ước: **[Chủ repo]** là điều chủ repo đã nói hoặc đã chốt. **[Đề xuất]** là quyết định của người viết, chủ repo đổi được khi duyệt. **[Cần kiểm chứng]** phải chạy thử với CLI thật trước khi code dựa vào nó. **[Đã kiểm chứng]** đã chạy thử, ghi rõ với gì.
@@ -241,3 +241,14 @@ Rủi ro lớn nhất trước. Mỗi đợt build, test xong mới sang đợt 
 3. Codex/Gemini/Kiro: mode chỉ đọc qua `session/set_mode`; `deny` có chặn được mọi đường ghi.
 4. Lệnh compact của Codex/Gemini/Kiro qua ACP.
 5. Kiro CLI v3 còn gửi `_kiro.dev/metadata` không (tài liệu nói chuyển sang `_kiro.dev/session/update`).
+
+## 11. Quyết định sau khi soát (2026-11-27)
+
+Người viết quyết, theo phạm vi chủ repo đã giao:
+
+1. **Cổng kiểm chứng cho Claude.** Đợt A bắt đầu bằng một bước thử (`ClaudeDriver` với agent giả + test thật đánh dấu `#[ignore]`). Test thật cần tài khoản Claude nên **chủ repo chạy trên máy mình** (`TG_LIVE_ACP=1 … live_claude_native_*`). Nếu `can_use_tool` không đi về host ở `plan`/`manual`, hoặc không dùng được với `--resume`: Claude giữ `claude-agent-acp` cho Sửa code (sau cùng trait, đổi một dòng), `ClaudeDriver` chỉ dùng cho Chỉ hỏi như `headless.rs` hôm nay, và không xoá đường cũ. Code cũ chỉ bị xoá sau khi chủ repo báo test thật qua.
+2. **Tệp kế hoạch của Claude ở Chỉ hỏi.** Host cho phép đúng một ngoại lệ: ghi vào `~/.claude/plans/` (đường dẫn chuẩn hoá, không theo symlink ra ngoài). Mọi ghi khác bị từ chối. "Làm luôn" (`features/chat/dock/proposal.ts`) giữ cách bắt lần ghi đó; khi bấm, thay vì mở run mới, đổi chế độ của **cùng phiên** sang Hỏi trước rồi gửi kế hoạch.
+3. **Codex ở Chỉ hỏi.** Nếu `codex-acp` không có mode chỉ đọc chắc chắn (mục 10.3), Codex giữ `codex exec --sandbox read-only` trên thư mục thật (thấy cả phần chưa commit). Khi đó `headless.rs` chỉ còn phần Codex, và đổi chế độ của Codex là phiên mới kèm recap (như hôm nay), có dòng ghi chú. Không đưa Codex về bản nháp tạm.
+4. **Nơi làm việc của cuộc trò chuyện bắt đầu ở Chỉ hỏi:** `direct` trong thư mục của người dùng, như mặc định của UI. Sổ `tg-direct/` tạo lúc bắt đầu như mọi run direct (chỉ là tệp sổ sách trong git dir). Thư mục chưa phải repo git: Chỉ hỏi vẫn chạy, chuyển sang Hỏi trước/Tự làm thì báo cần repo như hôm nay.
+5. **Bảng agent: phạm vi và "Đang ngủ".** Đọc từ `RunsService.runs` (gồm lịch sử đã nạp từ SQLite), không cần truy vấn mới. Hiện: mọi run đang chạy / chờ duyệt, cộng run kết thúc trong 24 giờ qua, mỗi cuộc trò chuyện một thẻ (run mới nhất + agent con của nó). Trạng thái thẻ theo `mascotPose`: "Đang ngủ" = phiên đã đóng (`restored`) hoặc 5 phút không có event; "Xong" = `idle`/`done` gần đây.
+6. **Mockup** nằm trong repo (đầu tài liệu); mục 5 là mô tả, tệp `.dc.html` là bố cục chuẩn.

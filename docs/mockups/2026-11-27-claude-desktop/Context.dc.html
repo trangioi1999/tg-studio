@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Bảng context</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0b0d}
+a{color:#a3c0ff}a:hover{color:#c8d8ff}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; box-sizing: border-box; padding: 40px 24px; display: flex; flex-wrap: wrap; gap: 32px; justify-content: center; align-items: flex-start; background: #0b0b0d; color: #ececee; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+
+  <section aria-label="Context của Claude Code" style="flex: 0 1 460px; display: flex; flex-direction: column; gap: 14px; padding: 18px; border: 1px solid #43434c; border-radius: 14px; background: #17171c; box-shadow: 0 16px 40px rgba(0,0,0,.55)">
+    <header style="display: flex; align-items: center; gap: 8px">
+      <img src="../../../public/agents/claude.svg" alt="" style="width: 18px; height: 18px">
+      <strong style="font-weight: 600">Context</strong>
+      <span style="color: #9a9aa5">· Claude Code · Sonnet 5.5</span>
+      <span style="flex: 1"></span>
+      <a href="Main.dc.html" aria-label="Đóng" style="color: #c4c4cc; text-decoration: none">✕</a>
+    </header>
+
+    <div style="display: flex; align-items: baseline; gap: 8px">
+      <span style="font-size: 28px; font-weight: 600">18%</span>
+      <span style="color: #9a9aa5">đã dùng</span>
+      <span style="flex: 1"></span>
+      <span class="mono" style="color: #c4c4cc">184k / 1M</span>
+    </div>
+
+    <div aria-hidden="true" style="height: 10px; border-radius: 99px; overflow: hidden; display: flex; background: #27272e">
+      <sc-for list="{{ used }}" as="c" hint-placeholder-count="7">
+        <span style="width: {{ c.pct }}; background: {{ c.color }}"></span>
+      </sc-for>
+      <span style="width: 3.3%; background: repeating-linear-gradient(45deg,#43434c 0 3px,#27272e 3px 6px)"></span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="9">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: 6px">
+          <span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: {{ r.color }}"></span>
+          <span style="flex: 1; color: {{ r.ink }}">{{ r.name }}</span>
+          <span class="mono" style="color: #c4c4cc; font-size: 12px">{{ r.tokens }}</span>
+          <span class="mono" style="width: 46px; text-align: right; color: #9a9aa5; font-size: 12px">{{ r.share }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <details open="open" style="border-top: 1px solid #27272e; padding-top: 10px">
+      <summary style="cursor: pointer; color: #c4c4cc">Tệp ghi nhớ · 2</summary>
+      <div class="mono" style="display: flex; flex-direction: column; gap: 4px; padding: 8px 4px 0 20px; font-size: 12px; color: #9a9aa5">
+        <div style="display: flex"><span style="flex: 1">CLAUDE.md</span><span>9,1k</span></div>
+        <div style="display: flex"><span style="flex: 1">AGENTS.md</span><span>6,6k</span></div>
+      </div>
+    </details>
+    <details style="border-top: 1px solid #27272e; padding-top: 10px">
+      <summary style="cursor: pointer; color: #c4c4cc">Tool MCP · 91 (tg-bridge 12, github 41, …)</summary>
+    </details>
+
+    <footer style="display: flex; align-items: center; gap: 10px; border-top: 1px solid #27272e; padding-top: 12px; flex-wrap: wrap">
+      <span style="flex: 1; color: #7c7c87; font-size: 12px">Cập nhật sau mỗi lượt · tự thu gọn ở 90%</span>
+      <button type="button" style="height: 32px; padding: 0 12px; border: 1px solid #43434c; border-radius: 8px; background: transparent; color: #ececee; font: inherit">Thu gọn ngay (/compact)</button>
+    </footer>
+  </section>
+
+  <div style="flex: 0 1 420px; display: flex; flex-direction: column; gap: 16px">
+    <div style="color: #9a9aa5; font-size: 11px; letter-spacing: .06em; text-transform: uppercase">Agent khác: hiện những gì agent đó báo</div>
+
+    <sc-for list="{{ others }}" as="o" hint-placeholder-count="3">
+      <section style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid #27272e; border-radius: 12px; background: #101014">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <img src="{{ o.logo }}" alt="" style="width: 16px; height: 16px">
+          <strong style="font-weight: 600">{{ o.name }}</strong>
+          <span style="flex: 1"></span>
+          <span class="mono" style="color: #c4c4cc">{{ o.value }}</span>
+        </div>
+        <div aria-hidden="true" style="height: 6px; border-radius: 99px; background: #27272e; overflow: hidden; display: flex"><span style="width: {{ o.pct }}; background: {{ o.color }}"></span></div>
+        <div style="color: #9a9aa5; font-size: 12px; line-height: 1.5">{{ o.note }}</div>
+      </section>
+    </sc-for>
+
+    <div style="color: #9a9aa5; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-top: 8px">Chip ở ô chat theo mức đầy</div>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="3">
+        <span style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; background: #1e1e24; color: {{ c.ink }}">
+          <span aria-hidden="true" style="width: 14px; height: 14px; border-radius: 99px; background: {{ c.ring }}"></span>
+          <span class="mono" style="font-size: 12px">{{ c.label }}</span>
+        </span>
+      </sc-for>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid #5c4526; border-radius: 12px; background: #1a150d">
+      <img src="../../../public/mascot/thinking.webp" alt="" style="width: 44px; height: 49px">
+      <span style="flex: 1; line-height: 1.5">Context đã dùng 86%. Thu gọn để agent nhớ tiếp mà không bị cắt ngang?</span>
+      <button type="button" style="height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #e8b672; color: #1a1205; font: inherit; font-weight: 600">Thu gọn</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var cats = [
+      { name: 'Tin nhắn', tokens: '99,3k', share: '9,9%', pct: '9.9%', color: '#6e9bf5', ink: '#ececee' },
+      { name: 'Tool MCP', tokens: '32,9k', share: '3,3%', pct: '3.3%', color: '#ff8a3d', ink: '#ececee' },
+      { name: 'Tool hệ thống', tokens: '22,7k', share: '2,3%', pct: '2.3%', color: '#3fbfa0', ink: '#ececee' },
+      { name: 'Tệp ghi nhớ', tokens: '15,7k', share: '1,6%', pct: '1.6%', color: '#e8b672', ink: '#ececee' },
+      { name: 'Skills', tokens: '6,9k', share: '0,7%', pct: '0.7%', color: '#b48cf0', ink: '#ececee' },
+      { name: 'System prompt', tokens: '5,9k', share: '0,6%', pct: '0.6%', color: '#9a9aa5', ink: '#ececee' },
+      { name: 'Hướng dẫn MCP server', tokens: '1,3k', share: '0,1%', pct: '0.1%', color: '#7c7c87', ink: '#ececee' }
+    ];
+    return {
+      used: cats,
+      rows: cats.concat([
+        { name: 'Vùng đệm tự thu gọn', tokens: '33k', share: '3,3%', color: '#43434c', ink: '#c4c4cc' },
+        { name: 'Còn trống', tokens: '782,3k', share: '78,2%', color: '#27272e', ink: '#c4c4cc' }
+      ]),
+      others: [
+        { logo: '../../../public/agents/codex.svg', name: 'Codex', value: '31% · 81k / 258k', pct: '31%', color: '#a3c0ff', note: 'Codex chỉ báo tổng đang dùng, không chia theo loại.' },
+        { logo: '../../../public/agents/gemini.svg', name: 'Gemini CLI', value: '12% · 120k / 1M', pct: '12%', color: '#a3c0ff', note: 'Chỉ có tổng, cập nhật sau mỗi phản hồi.' },
+        { logo: '../../../public/agents/kiro.svg', name: 'Kiro CLI', value: '7%', pct: '7%', color: '#a3c0ff', note: 'Kiro chỉ báo phần trăm. Kiro tự tóm tắt khi tới 80%.' }
+      ],
+      chips: [
+        { label: '18% · 184k/1M', ring: 'conic-gradient(#a3c0ff 0 18%, #27272e 18% 100%)', ink: '#c4c4cc' },
+        { label: '62%', ring: 'conic-gradient(#e8b672 0 62%, #27272e 62% 100%)', ink: '#e8b672' },
+        { label: '86% · nên thu gọn', ring: 'conic-gradient(#f6a999 0 86%, #27272e 86% 100%)', ink: '#f6a999' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

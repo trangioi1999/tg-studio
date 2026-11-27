@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Bảng agent</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0b0b0d}
+a{color:#a3c0ff}a:hover{color:#c8d8ff}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 900px; box-sizing: border-box; padding: 32px 24px 40px; background: #0b0b0d; color: #ececee; font-family: Inter, system-ui, sans-serif; font-size: 13px">
+  <div style="max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px">
+
+    <header style="display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap">
+      <div style="flex: 1; min-width: 260px">
+        <h1 style="margin: 0; font-size: 20px; font-weight: 500">Bảng agent</h1>
+        <p style="margin: 4px 0 0; color: #9a9aa5">Mọi agent đang chạy trên các dự án. Bấm một thẻ để mở cửa sổ xem nó làm gì.</p>
+      </div>
+      <a href="Main.dc.html" style="padding: 8px 12px; border: 1px solid #43434c; border-radius: 8px; color: #ececee; text-decoration: none">← Về cuộc trò chuyện</a>
+    </header>
+
+    <div role="tablist" aria-label="Lọc theo trạng thái" style="display: flex; gap: 6px; flex-wrap: wrap">
+      <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+        <button type="button" role="tab" aria-selected="{{ f.sel }}" style="height: 32px; padding: 0 12px; border: 1px solid {{ f.line }}; border-radius: 99px; background: {{ f.bg }}; color: {{ f.ink }}; font: inherit">{{ f.label }}</button>
+      </sc-for>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px">
+      <sc-for list="{{ cards }}" as="c" hint-placeholder-count="5">
+        <a href="Popup.dc.html" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid {{ c.line }}; border-radius: 14px; background: {{ c.bg }}; color: #ececee; text-decoration: none">
+          <div style="display: flex; align-items: flex-start; gap: 12px">
+            <img src="{{ c.cat }}" alt="{{ c.catAlt }}" style="width: 54px; height: 60px; flex: none">
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+              <div style="display: flex; align-items: center; gap: 6px">
+                <img src="{{ c.logo }}" alt="" style="width: 16px; height: 16px">
+                <strong style="font-weight: 600">{{ c.agent }}</strong>
+                <span style="color: #7c7c87; font-size: 12px">{{ c.parent }}</span>
+              </div>
+              <div style="font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.title }}</div>
+              <div style="color: #9a9aa5; font-size: 12px">{{ c.project }}</div>
+            </div>
+            <span style="padding: 2px 8px; border-radius: 99px; font-size: 11px; color: {{ c.ink }}; background: {{ c.pill }}; white-space: nowrap">{{ c.status }}</span>
+          </div>
+          <div class="mono" style="padding: 10px 12px; border: 1px solid #1f1f25; border-radius: 8px; background: #070709; font-size: 11.5px; line-height: 1.7; color: #9a9aa5; white-space: pre-line; min-height: 58px">{{ c.tail }}</div>
+          <sc-if value="{{ c.ask }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; gap: 8px">
+              <span style="flex: 1; padding: 7px 10px; border: 1px solid #43434c; border-radius: 8px; text-align: center">Từ chối</span>
+              <span style="flex: 1; padding: 7px 10px; border-radius: 8px; background: #e8b672; color: #1a1205; text-align: center; font-weight: 600">Cho phép lần này</span>
+            </div>
+          </sc-if>
+          <div class="mono" style="display: flex; align-items: center; gap: 10px; color: #9a9aa5; font-size: 11.5px">
+            <span>{{ c.meta }}</span>
+            <span style="flex: 1"></span>
+            <span>ctx</span>
+            <span aria-hidden="true" style="width: 64px; height: 5px; border-radius: 99px; background: #27272e; overflow: hidden; display: flex"><span style="width: {{ c.ctx }}; background: #a3c0ff"></span></span>
+            <span>{{ c.ctx }}</span>
+          </div>
+        </a>
+      </sc-for>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var C = '../../../public/agents/claude.svg', X = '../../../public/agents/codex.svg', G = '../../../public/agents/gemini.svg', K = '../../../public/agents/kiro.svg';
+    var cat = { coding: '../../../public/mascot/coding.webp', thinking: '../../../public/mascot/thinking.webp', success: '../../../public/mascot/success.webp', sleep: '../../../public/mascot/sleep.webp' };
+    var run = { ink: '#a3c0ff', pill: 'rgba(110,155,245,.16)', line: '#27272e', bg: '#101014' };
+    function card(o, s) { return Object.assign({ parent: '', ask: false }, s, o); }
+    return {
+      filters: [
+        { label: 'Tất cả · 5', sel: 'true', bg: '#ececee', ink: '#0b0b0d', line: '#ececee' },
+        { label: 'Cần bạn · 1', sel: 'false', bg: 'transparent', ink: '#e8b672', line: '#5c4526' },
+        { label: 'Đang chạy · 2', sel: 'false', bg: 'transparent', ink: '#a3c0ff', line: '#2b3d5e' },
+        { label: 'Xong · 1', sel: 'false', bg: 'transparent', ink: '#7fddb4', line: '#1f4a3a' },
+        { label: 'Đang ngủ · 1', sel: 'false', bg: 'transparent', ink: '#9a9aa5', line: '#27272e' }
+      ],
+      cards: [
+        card({ cat: cat.thinking, catAlt: 'Mèo đang suy nghĩ', logo: C, agent: 'Claude Code', title: 'Đổi nhãn Plugins → Marketplace', project: 'website · thư mục hiện tại', status: 'Chờ agent con', tail: '● Update(SiteTitle.astro) └ +1 −1\n● delegate(codex, "Review thay đổi")\n✻ Đang chờ Codex review… (1:24)', meta: '1:24 · $0,38 · 2 agent con', ctx: '18%' }, { ink: '#e8b672', pill: 'rgba(232,182,114,.14)', line: '#27272e', bg: '#101014' }),
+        card({ cat: cat.coding, catAlt: 'Mèo đang gõ code', logo: X, agent: 'Codex', parent: '↳ của Claude Code', title: 'Review thay đổi', project: 'website', status: 'Đang chạy', tail: '● Grep("Plugins", src/) └ 3 kết quả\n● Read(src/components/Footer.astro)\n✻ Đang soạn nhận xét… (0:42 · ↓ 1,1k)', meta: '0:42 · $0,03', ctx: '31%' }, run),
+        card({ cat: cat.thinking, catAlt: 'Mèo đang chờ bạn', logo: C, agent: 'Claude phụ', parent: '↳ của Claude Code', title: 'Chạy bun test', project: 'website', status: 'Cần bạn', ask: true, tail: 'Muốn chạy lệnh:\n$ bun test', meta: '0:18 · $0,01', ctx: '6%' }, { ink: '#e8b672', pill: 'rgba(232,182,114,.14)', line: '#5c4526', bg: '#1a150d' }),
+        card({ cat: cat.success, catAlt: 'Mèo ăn mừng', logo: G, agent: 'Gemini CLI', title: 'Viết docs cho API mới', project: 'tg-studio', status: 'Xong', tail: '● Write(docs/api.md) └ +184\nĐã viết docs cho 6 endpoint.\n✓ Xong sau 3:10', meta: '3:10 · $0,12 · 1 tệp', ctx: '12%' }, { ink: '#7fddb4', pill: 'rgba(111,211,168,.14)', line: '#27272e', bg: '#101014' }),
+        card({ cat: cat.sleep, catAlt: 'Mèo đang ngủ', logo: K, agent: 'Kiro CLI', title: 'Refactor đăng nhập', project: 'backend', status: 'Đang ngủ', tail: 'Phiên đã đóng 2 giờ trước.\nNhắn tiếp để nạp lại phiên.', meta: '12:40 · 41 credit', ctx: '7%' }, { ink: '#9a9aa5', pill: 'rgba(154,154,165,.14)', line: '#27272e', bg: '#101014' })
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
