@@ -17,7 +17,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, sync::oneshot};
-use crate::{acp::{client::AcpClient, conn::AgentConn}, tasks::session::{Approval, TaskSession, EventSink, RuleMemory}, agents::adapters::{AgentKind, setup_timeout}, workspace::diff::{self, FileDiff}, system::env, integrations::bridge::{self, BridgeHub, ToolEnv}, integrations::mcp::{self, McpServer}, agents::options::{self, SessionPrefs}, tasks::headless::{AgentEvent, Runs}, store::{NewRun, Store}, workspace::files, workspace::worktree::{self, Worktree}};
+use crate::{acp::{client::AcpClient, claude_conn::ClaudeConn, conn::AgentConn}, tasks::session::{Approval, TaskSession, EventSink, RuleMemory}, agents::adapters::{AgentKind, setup_timeout}, workspace::diff::{self, FileDiff}, system::env, integrations::bridge::{self, BridgeHub, ToolEnv}, integrations::mcp::{self, McpServer}, agents::options::{self, SessionPrefs}, tasks::headless::{AgentEvent, Runs}, store::{NewRun, Store}, workspace::files, workspace::worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -93,12 +93,21 @@ impl RuleMemory for RepoRules {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Place { Direct, Draft(Option<String>), Snapshot(String) }
 
+/// Claude runs as `claude -p` driven in-process (`ClaudeConn`) instead of through
+/// claude-agent-acp, unless `TG_CLAUDE_ACP=1` brings the adapter back.
+pub(crate) fn uses_native(agent: AgentKind) -> bool {
+    agent == AgentKind::Claude && std::env::var("TG_CLAUDE_ACP").as_deref() != Ok("1")
+}
+
 /// Where a task works. A delegated agent (`child`: its snapshot, or `None` in place) follows
-/// its parent; a question to an agent without a read-only CLI flag runs in a throwaway draft.
-fn place_for(approval: Approval, place: Option<&str>, base: Option<String>, child: Option<Option<String>>) -> Result<Place, String> {
+/// its parent. A question works in place when the CLI itself blocks writing (Claude's `plan`
+/// mode, on top of the app refusing every request), so it can switch to Sửa code in the same
+/// session; to any other agent it runs in a throwaway draft.
+fn place_for(agent: AgentKind, approval: Approval, place: Option<&str>, base: Option<String>, child: Option<Option<String>>) -> Result<Place, String> {
     Ok(match (child, approval, place) {
         (Some(Some(snapshot)), _, _) => Place::Snapshot(snapshot),
         (Some(None), _, _) => Place::Direct,
+        (None, Approval::Deny, _) if uses_native(agent) => Place::Direct,
         (None, Approval::Deny, _) => Place::Draft(None),
         (None, _, Some("draft")) => Place::Draft(base.filter(|b| !b.is_empty())),
         (None, _, Some("direct")) => Place::Direct,
@@ -107,15 +116,76 @@ fn place_for(approval: Approval, place: Option<&str>, base: Option<String>, chil
     })
 }
 
-/// The ACP adapter process, with piped stdio, started in `dir`.
+/// The ACP adapter process (or `claude -p`), with piped stdio, started in `dir`.
 pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Result<Child, String> {
     let mut process = env::command(&command.0);
     process.args(&command.1).current_dir(dir)
         .env("PATH", env::login_path()).stdin(Stdio::piped()).stdout(Stdio::piped())
         .stderr(Stdio::piped()).kill_on_drop(true);
     env::isolate(&mut process);
-    env::adapter_env(&mut process);
+    // `CLAUDE_CODE_EXECUTABLE` is for claude-agent-acp; `claude` itself needs nothing.
+    if !is_claude_cli(&command.0) { env::adapter_env(&mut process); }
     process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", command.0.display()))
+}
+
+fn is_claude_cli(program: &Path) -> bool {
+    Path::new(&program.to_string_lossy().replace('\\', "/")).file_stem().is_some_and(|s| s.eq_ignore_ascii_case("claude"))
+}
+
+/// What a `claude -p` task launches with, besides its arguments: the MCP config file (alive
+/// until the run ends) and the tg-bridge token it names (bound once the run exists). The
+/// token is released if the run never takes it.
+pub(crate) struct NativeLaunch { pub file: Option<mcp::ConfigFile>, token: Option<String>, hub: Arc<BridgeHub> }
+
+impl NativeLaunch {
+    pub fn take_token(&mut self) -> Option<String> { self.token.take() }
+}
+
+impl Drop for NativeLaunch {
+    fn drop(&mut self) { if let Some(t) = self.token.take() { self.hub.unregister(&t); } }
+}
+
+/// The user's MCP servers and tg-bridge (reserved, `child`: without the tools to delegate),
+/// written to a private config file for `claude --mcp-config`. Problems that only cost
+/// tg-bridge come back as notes.
+pub(crate) async fn native_launch(hub: Arc<BridgeHub>, mut servers: Vec<McpServer>, bridge_on: bool, child: bool, dir: &Path, notes: &mut Vec<String>) -> Result<NativeLaunch, String> {
+    let mut launch = NativeLaunch { file: None, token: None, hub: hub.clone() };
+    if bridge_on {
+        match (hub.address().await, bridge::executable()) {
+            (Ok(addr), Some(exe)) => {
+                let t = hub.reserve();
+                servers.push(bridge_server(AgentKind::Claude, exe, addr, t.clone(), child));
+                launch.token = Some(t);
+            }
+            (Err(e), _) => notes.push(format!("tg-bridge không bật được: {e}")),
+            (_, None) => notes.push("tg-bridge không bật được: không xác định được đường dẫn của app.".into()),
+        }
+    }
+    launch.file = mcp::ConfigFile::write(&servers, dir)?;
+    Ok(launch)
+}
+
+/// `claude -p` with these settings (`AgentKind::native_args`); effort goes right after `-p`.
+pub(crate) fn native_command(approval: Approval, resume: Option<&str>, launch: &NativeLaunch, prefs: &SessionPrefs) -> Result<(PathBuf, Vec<String>), String> {
+    let program = env::which(AgentKind::Claude.binary()).ok_or("Không tìm thấy `claude` trong PATH.")?;
+    let mut args = AgentKind::Claude.native_args(approval, resume, launch.file.as_ref().map(|f| f.path()), prefs.model.as_deref())
+        .expect("Claude có lệnh chạy trực tiếp");
+    if let Some(effort) = prefs.effort.as_deref().filter(|e| !e.is_empty() && *e != "default") {
+        args.splice(1..1, ["--effort".to_string(), effort.to_string()]);
+    }
+    Ok((program, args))
+}
+
+/// Where the app keeps private files (MCP configs): its data folder, else the temp folder.
+pub(crate) fn private_dir(app: &AppHandle) -> PathBuf {
+    app.path().app_data_dir().ok().filter(|d| std::fs::create_dir_all(d).is_ok()).unwrap_or_else(std::env::temp_dir)
+}
+
+/// The session's mode changes (`set_approval`) reach the connection: Claude switches its
+/// permission mode; ACP does nothing. Weak: the connection already holds the session.
+pub(crate) fn follow_mode(session: &TaskSession, client: &Arc<dyn AgentConn>) {
+    let conn = Arc::downgrade(client);
+    session.set_mode_hook(Arc::new(move |approval| conn.upgrade().map_or(Ok(()), |c| c.set_mode(approval))));
 }
 
 /// How a task gets its adapter: start one, or take a session opened ahead of time.
@@ -124,7 +194,7 @@ enum Adapter { Spawn((PathBuf, Vec<String>)), Warm(Box<crate::tasks::warm::Warm>
 
 #[cfg(test)]
 async fn prepare(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
-    prepare_with(store, agent, prompt, repo, adapter, group, reuse, place, None).await
+    prepare_with(store, agent, prompt, repo, adapter, group, reuse, place, None, None).await
 }
 
 /// The project's setup script, run in a new draft before its agent starts.
@@ -180,8 +250,10 @@ async fn setup_draft(store: &Store, id: &str, agent: AgentKind, repo: &Path, wt:
     }
 }
 
+/// `spawn_in`: start the process in this subfolder of the worktree (`claude -p`, whose
+/// working directory is its session's); an ACP adapter gets its folder in `session/new`.
 #[allow(clippy::too_many_arguments)]
-async fn prepare_with(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place, setup: Option<Setup<'_>>) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
+async fn prepare_with(store: &Store, agent: AgentKind, prompt: &str, repo: &Path, adapter: Adapter, group: Option<&str>, reuse: Option<Worktree>, place: Place, setup: Option<Setup<'_>>, spawn_in: Option<&str>) -> Result<(String, Worktree, Child, Option<crate::tasks::warm::Claimed>), String> {
     let id = uuid::Uuid::new_v4().to_string();
     // Only a new draft lacks the user's ignored files (.env, local settings).
     let setup = setup.filter(|s| reuse.is_none() && matches!(place, Place::Draft(_)) && !s.command.trim().is_empty());
@@ -233,7 +305,7 @@ async fn prepare_with(store: &Store, agent: AgentKind, prompt: &str, repo: &Path
     };
     let (mut child, warm) = match adapter {
         Ok((child, claimed)) => (child, Some(claimed)),
-        Err(command) => match spawn_adapter(&command, &wt.path) {
+        Err(command) => match spawn_adapter(&command, &env::scoped_dir(&wt.path, spawn_in).unwrap_or_else(|_| wt.path.clone())) {
             Ok(child) => (child, None),
             Err(e) if saved_early => {
                 // The run and its prepared draft stay, as for any failed run.
@@ -468,7 +540,9 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         Some(c) => (Some((c.parent, c.snapshot)), Some(c.done)),
         None => (None, None),
     };
-    let place = place_for(approval, place.as_deref(), base, parent.as_ref().map(|(_, s)| s.clone()))?;
+    let place = place_for(agent, approval, place.as_deref(), base, parent.as_ref().map(|(_, s)| s.clone()))?;
+    let native = uses_native(agent);
+    let prefs = prefs.unwrap_or_default();
     if group.as_deref().is_some_and(|g| g.is_empty() || g.len() > 64 || !g.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err("Mã nhóm lượt chạy không hợp lệ.".into());
     }
@@ -476,7 +550,9 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     let root = worktree::git(Path::new(&repo), &["rev-parse", "--show-toplevel"], None)
         .map_err(|e| format!("Thư mục không phải kho Git. {e}"))?;
     let repo = dunce::canonicalize(root.trim()).map_err(|e| format!("Không mở được kho Git: {e}"))?;
-    let command = agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {} hoặc npx trong PATH.", agent.display_name()))?;
+    let acp_command = if native { None } else {
+        Some(agent.acp_command(env::which).ok_or_else(|| format!("Không tìm thấy adapter cho {} hoặc npx trong PATH.", agent.display_name()))?)
+    };
     let previous_run = reuse.clone();
     // A later pipeline step continues in the worktree of a finished earlier step.
     let reuse = match reuse {
@@ -490,7 +566,6 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
             Some(wt)
         }
     };
-    let timeout = setup_timeout(&command.0);
     // Back to the same agent: reopen its session instead of starting over, unless asked not to.
     let resumed = match previous_run.as_deref().filter(|_| !fresh.unwrap_or(false)) {
         Some(previous) => {
@@ -500,11 +575,36 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
         None => None,
     };
-    let throwaway = approval == Approval::Deny && reuse.is_none();
+    // Notes for the run's log, once it exists.
+    let mut notes = Vec::new();
+    // `claude --resume` of a conversation that is not on this machine exits at once; a new
+    // session told the recap is what the user gets anyway (as when `session/load` fails).
+    let resumed = match resumed {
+        Some((session, _)) if native && !crate::acp::claude_conn::session_saved(&session) => {
+            notes.push("Không tìm thấy phiên Claude cũ trên máy này. Mở phiên mới và gửi kèm tóm tắt.".to_string());
+            None
+        }
+        other => other,
+    };
+    // `claude -p` takes its MCP servers, tg-bridge, session and modes on the command line.
+    let (command, mut launch) = match acp_command {
+        Some(command) => (command, None),
+        None => {
+            let (servers, bridge_on) = { let store = app.state::<Store>(); (crate::tasks::warm::user_servers(&store), bridge_enabled(&store)) };
+            let hub = app.state::<Arc<BridgeHub>>().inner().clone();
+            let launch = native_launch(hub, servers, bridge_on, parent.is_some(), &private_dir(&app), &mut notes).await?;
+            (native_command(approval, resumed.as_ref().map(|(s, _)| s.as_str()), &launch, &prefs)?, Some(launch))
+        }
+    };
+    let timeout = setup_timeout(&command.0);
+    // Only a throwaway draft goes away with the session; a question in place may become a task.
+    let throwaway = approval == Approval::Deny && reuse.is_none() && place != Place::Direct;
+    // A warm `claude -p` was started without `--effort`: an effort pick needs its own launch.
+    let warm_fits = !native || prefs.effort.as_deref().is_none_or(|e| e.is_empty() || e == "default");
     // A new conversation in the user's folder may find its session already open.
     // Not for a delegated agent: a session opened ahead of time has the parent's tg-bridge tools.
     let adapter = match (&place, &reuse, &resumed, env::scoped_dir(&repo, scope.as_deref())) {
-        (Place::Direct, None, None, Ok(cwd)) if parent.is_none() => {
+        (Place::Direct, None, None, Ok(cwd)) if parent.is_none() && warm_fits => {
             let key = crate::tasks::warm::key_for(&app.state::<Store>(), agent, &cwd);
             match app.state::<crate::tasks::warm::WarmPool>().take(&key).await {
                 Some(warm) => Adapter::Warm(Box::new(warm), command),
@@ -517,7 +617,8 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     let setup_command = if !throwaway && parent.is_none() { crate::workspace::hooks::load(&app.state::<Store>(), &repo).setup } else { String::new() };
     let setup_sink: Arc<dyn EventSink> = Arc::new(AppSink(app.clone()));
     let setup = Some(Setup { command: &setup_command, sink: setup_sink, stops: &app.state::<Runs>() });
-    let (id, wt, mut child, warm) = prepare_with(&app.state::<Store>(), agent, &prompt, &repo, adapter, group.as_deref(), reuse, place, setup).await?;
+    let spawn_in = if native { scope.as_deref() } else { None };
+    let (id, wt, mut child, warm) = prepare_with(&app.state::<Store>(), agent, &prompt, &repo, adapter, group.as_deref(), reuse, place, setup, spawn_in).await?;
     let pid = warm.as_ref().and_then(|w| w.pid).or(child.id());
     if let Some(thread) = &thread {
         if let Err(e) = app.state::<Store>().set_run_thread(&id, thread, scope.as_deref()) { eprintln!("Không lưu được cuộc trò chuyện: {e}"); }
@@ -546,18 +647,23 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
     };
     let sink_dyn: Arc<dyn EventSink> = sink.clone();
-    let (client, stderr, opened) = match warm {
-        Some(warm) => {
+    let (client, stderr, opened, config_file): (Arc<dyn AgentConn>, _, _, _) = match warm {
+        Some(mut warm) => {
             if let Err(e) = warm.late.attach(session.clone()) { eprintln!("Không gắn được phiên mở sẵn: {e}"); }
             warm.relay_to(sink_dyn.clone(), &id, agent);
-            (warm.client, Err(warm.stderr_task), Some((warm.session_id, warm.token, warm.notes)))
+            // Its own MCP file and tg-bridge token serve the run; this launch's are not needed.
+            launch = None;
+            let file = warm.mcp_file.take();
+            (warm.client, Err(warm.stderr_task), Some((warm.session_id, warm.token, warm.notes)), file)
         }
         None => {
             let stdout = child.stdout.take().expect("piped stdout");
             let stdin = child.stdin.take().expect("piped stdin");
-            (AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout), Ok(child.stderr.take().expect("piped stderr")), None)
+            let client: Arc<dyn AgentConn> = if native { ClaudeConn::start(stdout, stdin, session.clone()) } else { Arc::new(AcpClient::start_with_timeout(stdout, stdin, session.clone(), timeout)) };
+            (client, Ok(child.stderr.take().expect("piped stderr")), None, launch.as_mut().and_then(|l| l.file.take()))
         }
     };
+    follow_mode(&session, &client);
     app.state::<TaskRuns>().0.lock().unwrap().insert(id.clone(), session.clone());
     let next = if single_turn.unwrap_or(false) { None } else {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -568,6 +674,11 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     started.line = Some(format!("{} · {}", agent.display_name(), wt.path.display()));
     if let Some((parent, _)) = &parent { started.data = Some(json!({ "parent": parent })); }
     sink.emit(started);
+    for note in notes { session.note(note); }
+    // A warm `claude -p` was opened asking (Hỏi trước); this run may want another mode.
+    if opened.is_some() && approval != Approval::Ask {
+        if let Err(e) = client.set_mode(approval) { session.note(format!("Không đổi được chế độ của {}: {e}", agent.display_name())); }
+    }
     if opened.is_none() && timeout == Duration::from_secs(300) {
         session.note("Đang chuẩn bị adapter. Lần đầu có thể mất vài phút để tải.".into());
     }
@@ -592,18 +703,23 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     let env = TaskEnv { app: app.clone(), run_id: id.clone(), agent, scope, prompt: prompt.clone(), group: group.clone(), wt: wt.clone(), sink: sink.clone(), session: session.clone(),
         repo: repo.clone(), thread: thread.clone(), subfolder: scope_name.clone(), child: is_child };
     tauri::async_runtime::spawn(async move {
-        let mut servers: Vec<McpServer> = crate::tasks::warm::user_servers(&app.state::<Store>());
+        // Alive until the run ends: `claude -p` reads it, and MCP servers it restarts too.
+        let _config_file = config_file;
+        // `claude -p` got its servers on the command line; an ACP session gets them in `session/new`.
+        let mut servers: Vec<McpServer> = if native { Vec::new() } else { crate::tasks::warm::user_servers(&app.state::<Store>()) };
         let hub = app.state::<Arc<BridgeHub>>().inner().clone();
         let mut token = None;
         let mut opened_id = None;
-        if let Some((session_id, reserved, notes)) = opened {
+        let reserved = match &opened { Some((_, reserved, _)) => reserved.clone(), None => launch.as_mut().and_then(NativeLaunch::take_token) };
+        drop(launch);
+        if let Some((session_id, _, notes)) = opened {
             for note in notes { session.note(note); }
-            if let Some(t) = reserved {
-                if let Err(e) = hub.bind(&t, Arc::new(env)) { session.note(format!("tg-bridge không bật được: {e}")); }
-                token = Some(t);
-            }
             opened_id = Some(session_id);
-        } else if bridge_enabled(&app.state::<Store>()) {
+        }
+        if let Some(t) = reserved {
+            if let Err(e) = hub.bind(&t, Arc::new(env)) { session.note(format!("tg-bridge không bật được: {e}")); }
+            token = Some(t);
+        } else if opened_id.is_none() && !native && bridge_enabled(&app.state::<Store>()) {
             match (hub.address().await, bridge::executable()) {
                 (Ok(addr), Some(exe)) => {
                     let t = hub.register(Arc::new(env));
@@ -616,7 +732,9 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
         }
         let (resume, base) = resumed.map_or((None, 0.0), |(s, c)| (Some(s), c));
         session.set_cost_base(base);
-        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, opened: opened_id, next, idle_limit: IDLE_LIMIT, prefs: prefs.unwrap_or_default(), compact: compact.unwrap_or(false) };
+        // `claude -p` was launched with the model and effort, except a warm one (no effort, see `warm_fits`).
+        let prefs = if native && opened_id.is_none() { SessionPrefs::default() } else { prefs };
+        let plan = SessionPlan { cwd: &start_dir, prompt: prompt.clone(), recap, servers: &servers, resume, opened: opened_id, next, idle_limit: IDLE_LIMIT, prefs, compact: compact.unwrap_or(false) };
         let next_stop = || {
             let (tx, rx) = oneshot::channel();
             if let Ok(mut runs) = app.state::<Runs>().0.lock() { runs.insert(task_id.clone(), tx); }
@@ -636,7 +754,7 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
             event.data = Some(json!({"status": end.status}));
             sink.emit(event);
         };
-        let (status, error) = drive_session(&client, &session, plan, next_stop, on_opened, on_turn, async { let _ = child.wait().await; }).await;
+        let (status, error) = drive_session(&*client, &session, plan, next_stop, on_opened, on_turn, async { let _ = child.wait().await; }).await;
         app.state::<SessionInboxes>().0.lock().unwrap().remove(&task_id);
         client.close();
         if let Some(t) = token { hub.unregister(&t); }

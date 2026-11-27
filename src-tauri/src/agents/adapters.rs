@@ -59,6 +59,25 @@ impl AgentKind {
             .or_else(|| which("npx").map(|path| (path, vec!["-y".into(), package.into()])))
     }
 
+    /// `claude -p` driven in-process (`acp::claude_conn::ClaudeConn`) for every mode of a task.
+    /// The permission mode and `--permission-prompts host` are always set: the CLI's defaults
+    /// come from the user's settings, where approvals may be off. `--permission-prompt-tool
+    /// stdio` is what the Agent SDK sends for the same thing; CLI 2.1.332 accepts both.
+    /// MCP servers come as a file (`mcp::ConfigFile`), never as JSON. `None`: ACP only.
+    pub fn native_args(self, approval: crate::tasks::session::Approval, resume: Option<&str>, mcp_config: Option<&Path>, model: Option<&str>) -> Option<Vec<String>> {
+        if self != AgentKind::Claude { return None; }
+        let mut args: Vec<String> = [
+            "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "--include-partial-messages", "--permission-prompt-tool", "stdio", "--permission-prompts", "host",
+            "--permission-mode", crate::acp::claude_conn::permission_mode(approval),
+        ].into_iter().map(String::from).collect();
+        if let Some(session) = resume { args.extend(["--resume".into(), session.into()]); }
+        if let Some(model) = model.filter(|m| !m.is_empty() && *m != "default") { args.extend(["--model".into(), model.into()]); }
+        // Last: `--mcp-config` takes several values, so nothing that is not a flag may follow it.
+        if let Some(config) = mcp_config { args.extend(["--mcp-config".into(), config.to_string_lossy().into_owned()]); }
+        Some(args)
+    }
+
     /// Continues the CLI's own session. Writing stays blocked, as in `headless_args`.
     pub fn resume_args(self, args: Vec<String>, session: &str) -> Vec<String> {
         match self {
@@ -180,6 +199,40 @@ mod tests {
         assert_eq!(args.last().map(String::as_str), Some("một\nhai"));
         assert_eq!(stdin, None);
         assert_eq!(AgentKind::Kiro.headless_invocation("một\nhai", Path::new("kiro.cmd")), None);
+    }
+
+    /// Review Focus 1: the user's own settings may approve everything (`defaultMode:
+    /// bypassPermissions`). Every launch pins the mode and sends prompts to the app, so Hỏi
+    /// trước still shows cards and Chỉ hỏi still cannot write.
+    #[test]
+    fn native_args_always_pin_mode_and_host() {
+        use crate::tasks::session::Approval;
+        let has = |args: &[String], pair: [&str; 2]| args.windows(2).any(|w| w == pair);
+        for (approval, mode) in [(Approval::Deny, "plan"), (Approval::Ask, "default"), (Approval::Auto, "acceptEdits")] {
+            for resume in [None, Some("s1")] {
+                let args = AgentKind::Claude.native_args(approval, resume, None, None).unwrap();
+                assert_eq!(args[0], "-p", "{args:?}");
+                for pair in [["--input-format", "stream-json"], ["--output-format", "stream-json"], ["--permission-prompts", "host"], ["--permission-prompt-tool", "stdio"], ["--permission-mode", mode]] {
+                    assert!(has(&args, pair), "{approval:?}: thiếu {pair:?} trong {args:?}");
+                }
+                assert!(args.iter().any(|a| a == "--verbose") && args.iter().any(|a| a == "--include-partial-messages"), "{args:?}");
+                assert_eq!(args.iter().filter(|a| *a == "--permission-mode").count(), 1, "{args:?}");
+                assert_eq!(has(&args, ["--resume", "s1"]), resume.is_some(), "{args:?}");
+            }
+        }
+        let config = Path::new("/tmp/tg-mcp-1.json");
+        let args = AgentKind::Claude.native_args(Approval::Ask, Some("s1"), Some(config), Some("sonnet")).unwrap();
+        assert!(has(&args, ["--resume", "s1"]) && has(&args, ["--model", "sonnet"]), "{args:?}");
+        assert!(has(&args, ["--mcp-config", "/tmp/tg-mcp-1.json"]), "{args:?}");
+        // Never MCP JSON (it carries tokens) on the command line, which anyone can read with `ps`.
+        assert!(!args.iter().any(|a| a.contains("mcpServers")), "{args:?}");
+        // The default model is no flag at all.
+        for model in ["default", ""] {
+            assert!(!AgentKind::Claude.native_args(Approval::Ask, None, None, Some(model)).unwrap().iter().any(|a| a == "--model"));
+        }
+        for agent in [AgentKind::Codex, AgentKind::Gemini, AgentKind::Kiro] {
+            assert_eq!(agent.native_args(Approval::Ask, None, None, None), None, "{agent:?} chạy qua ACP");
+        }
     }
 
     #[test]

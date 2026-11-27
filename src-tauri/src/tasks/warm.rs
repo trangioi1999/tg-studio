@@ -1,4 +1,5 @@
-//! An ACP session opened before the user sends the first message of a conversation.
+//! An ACP session (or a `claude -p` one, `ClaudeConn`) opened before the user sends the
+//! first message of a conversation.
 //! Starting the adapter and `session/new` take ~5 s (most of it the agent's own start);
 //! doing it while the user types makes the first answer as quick as an open CLI.
 //! Warming is an optimization: every failure here is logged, never shown, and
@@ -7,7 +8,7 @@
 use std::{collections::VecDeque, path::{Path, PathBuf}, sync::{Arc, Mutex}, time::Duration};
 use tauri::{AppHandle, Manager};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, task::JoinHandle};
-use crate::{acp::{client::AcpClient, late::LateHandler}, tasks::session::EventSink, agents::adapters::{setup_timeout, AgentKind}, integrations::bridge::{self, BridgeHub}, system::env, integrations::mcp::{self, McpServer}, tasks::headless::AgentEvent, store::Store};
+use crate::{acp::{client::AcpClient, claude_conn::ClaudeConn, conn::AgentConn, late::LateHandler}, tasks::session::Approval, tasks::session::EventSink, agents::adapters::{setup_timeout, AgentKind}, integrations::bridge::{self, BridgeHub}, system::env, integrations::mcp::{self, McpServer}, tasks::headless::AgentEvent, store::Store};
 
 /// Unclaimed sessions are closed after this long.
 pub const WARM_TTL: Duration = Duration::from_secs(10 * 60);
@@ -57,7 +58,9 @@ pub struct Warm {
 
 /// A warm session handed to its run; the run owns the adapter process separately.
 pub struct Claimed {
-    pub client: AcpClient,
+    pub client: Arc<dyn AgentConn>,
+    /// `claude -p`'s MCP config file, kept until the run that claims it ends.
+    pub mcp_file: Option<mcp::ConfigFile>,
     pub late: Arc<LateHandler>,
     pub session_id: String,
     pub pid: Option<u32>,
@@ -147,9 +150,19 @@ impl WarmPool {
     }
 }
 
-/// Opens adapter + session for `key` with exactly the servers it was keyed on.
-async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -> Result<Warm, String> {
-    let command = key.agent.acp_command(env::which).ok_or("Không tìm thấy adapter.")?;
+/// Opens adapter + session for `key` with exactly the servers it was keyed on. `private`:
+/// where `claude -p`'s MCP config file goes.
+async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>, private: &Path) -> Result<Warm, String> {
+    let native = crate::tasks::uses_native(key.agent);
+    let mut notes = Vec::new();
+    // `claude -p` takes servers and tg-bridge at launch, and asks (Hỏi trước) until its run sets the mode.
+    let mut launch = if native {
+        Some(crate::tasks::native_launch(hub.clone(), std::mem::take(&mut servers), key.bridge, false, private, &mut notes).await?)
+    } else { None };
+    let command = match &launch {
+        Some(launch) => crate::tasks::native_command(Approval::Ask, None, launch, &Default::default())?,
+        None => key.agent.acp_command(env::which).ok_or("Không tìm thấy adapter.")?,
+    };
     let timeout = setup_timeout(&command.0);
     let mut child = crate::tasks::spawn_adapter(&command, &key.cwd)?;
     let pid = child.id();
@@ -173,10 +186,11 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
         })
     };
     let late = LateHandler::new();
-    let client = AcpClient::start_with_timeout(child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"), late.clone(), timeout);
-    let mut notes = Vec::new();
-    let mut token = None;
-    if key.bridge {
+    let (stdout, stdin) = (child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"));
+    let client: Arc<dyn AgentConn> = if native { ClaudeConn::start(stdout, stdin, late.clone()) } else { Arc::new(AcpClient::start_with_timeout(stdout, stdin, late.clone(), timeout)) };
+    let mut token = launch.as_mut().and_then(crate::tasks::NativeLaunch::take_token);
+    let mcp_file = launch.as_mut().and_then(|l| l.file.take());
+    if key.bridge && !native {
         match (hub.address().await, bridge::executable()) {
             (Ok(addr), Some(exe)) => {
                 let t = hub.reserve();
@@ -195,7 +209,7 @@ async fn open(hub: Arc<BridgeHub>, key: &WarmKey, mut servers: Vec<McpServer>) -
     };
     let result = tokio::time::timeout(timeout + Duration::from_secs(5), opened).await.unwrap_or_else(|_| Err("Adapter không trả lời kịp.".into()));
     let session_id = result.as_ref().cloned().unwrap_or_default();
-    let warm = Warm { child, pid, parts: Claimed { client, late, session_id, pid, token, notes, relay, stderr_task, hub } };
+    let warm = Warm { child, pid, parts: Claimed { client, mcp_file, late, session_id, pid, token, notes, relay, stderr_task, hub } };
     match result {
         Ok(_) => Ok(warm),
         Err(e) => { warm.close().await; Err(e) }
@@ -212,8 +226,9 @@ pub async fn warm_task(app: AppHandle, agent: AgentKind, repo: String, scope: Op
     let key = key_of(agent, &cwd, &servers, bridge);
     let Some((generation, mut guard)) = app.state::<WarmPool>().install(&key) else { return Ok(()) };
     let hub = app.state::<Arc<BridgeHub>>().inner().clone();
+    let private = crate::tasks::private_dir(&app);
     tauri::async_runtime::spawn(async move {
-        match open(hub, &key, servers).await {
+        match open(hub, &key, servers, &private).await {
             Ok(warm) => *guard = Some(warm),
             Err(e) => eprintln!("Không mở sẵn được phiên {}: {e}", key.agent.display_name()),
         }
@@ -238,9 +253,9 @@ mod tests {
         let child = sleep.spawn().unwrap();
         let (reader, writer, _) = crate::acp::fake::spawn(vec![]);
         let late = LateHandler::new();
-        let client = AcpClient::start(reader, writer, late.clone());
+        let client = Arc::new(AcpClient::start(reader, writer, late.clone()));
         let pid = child.id();
-        Warm { child, pid, parts: Claimed { client, late, session_id: "s".into(), pid, token: None, notes: vec![], relay: Default::default(), stderr_task: tokio::spawn(async {}), hub: Arc::new(BridgeHub::default()) } }
+        Warm { child, pid, parts: Claimed { client, mcp_file: None, late, session_id: "s".into(), pid, token: None, notes: vec![], relay: Default::default(), stderr_task: tokio::spawn(async {}), hub: Arc::new(BridgeHub::default()) } }
     }
 
     fn entry(pool: &WarmPool, key: WarmKey, generation: u64, ready: Option<Warm>) -> Arc<tokio::sync::Mutex<Option<Warm>>> {

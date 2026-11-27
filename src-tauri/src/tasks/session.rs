@@ -78,8 +78,7 @@ impl TaskSession {
         let hook = self.mode_hook.lock().unwrap().clone();
         if let Some(Err(e)) = hook.map(|hook| hook(approval)) { self.note(format!("Không đổi được chế độ của {}: {e}", self.agent.display_name())); }
     }
-    // Wired by `start_task` once it spawns Claude through `ClaudeConn`.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Set by `start_task` (`follow_mode`) once the connection exists.
     pub fn set_mode_hook(&self, hook:ModeHook) { *self.mode_hook.lock().unwrap() = Some(hook); }
     pub fn approval(&self) -> Approval { *self.approval.lock().unwrap() }
     /// The agent's latest message: a delegated agent's summary for its parent.

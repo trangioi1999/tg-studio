@@ -7,10 +7,11 @@ Angular UI (signals, src/app/)
    ▼
 Rust core (Tauri 2, src-tauri/src/)
    ├─ agents/        danh sách agent (adapters), dò CLI (detect), model và lệnh (options)
-   ├─ tasks/         headless.rs: Chỉ hỏi qua CLI · mod.rs: vòng đời task ACP · session.rs: TaskSession
+   ├─ tasks/         headless.rs: Chỉ hỏi qua CLI (Codex) · mod.rs: vòng đời task · session.rs: TaskSession
    │                 (định tuyến yêu cầu của agent, thẻ duyệt, subagent) · changes.rs: diff, commit, tệp
    │                 bridge_env.rs: tool tg-bridge · delegate.rs: agent con · warm.rs: phiên mở sẵn
-   ├─ acp/           JSON-RPC, phiên ACP, fs + terminal cho agent
+   ├─ acp/           conn.rs: trait AgentConn · client.rs: phiên ACP (JSON-RPC, fs + terminal cho agent)
+   │                 claude_conn.rs: ClaudeConn, nói stream-json của `claude -p`, dịch sang ACP
    ├─ workspace/     project, worktree (bản nháp và ảnh chụp thư mục), diff, compose (ghép), files
    ├─ integrations/  tg-bridge, MCP, skills, policy (lệnh nào tự cho phép, tự từ chối, hay hỏi)
    ├─ usage/         dòng JSON → Usage chuẩn hóa, hạn mức Claude, sổ usage
@@ -18,8 +19,21 @@ Rust core (Tauri 2, src-tauri/src/)
    └─ system/        PATH từ login shell, tài nguyên, chẩn đoán, phiên bản
    │  spawn (stdio)
    ▼
-Agent CLI: claude · codex · gemini · kiro-cli   (Sửa code: adapter ACP, kể cả claude-agent-acp, codex-acp)
+Agent CLI: claude · codex · gemini · kiro-cli
 ```
+
+Đường chạy của một task (mọi chế độ: Chỉ hỏi, Hỏi trước, Tự làm):
+
+```
+start_task ─ uses_native(agent)? ─ có (Claude) ─► claude -p --input-format stream-json … --permission-prompts host
+   │                                                 --permission-mode plan|default|acceptEdits [--resume] [--mcp-config]
+   │                                                 └─ ClaudeConn ─┐
+   └─ không (Codex, Gemini, Kiro; Claude khi TG_CLAUDE_ACP=1) ─► adapter ACP ─ AcpClient ─┤
+                                                                                         ▼
+                                       drive_session(&dyn AgentConn) ─ TaskSession (quyền, policy, SQLite, usage, agent con)
+```
+
+Chỉ hỏi của Codex vẫn là `codex exec` qua `tasks/headless.rs` (`start_agent`); của Gemini/Kiro là task ACP `deny` trong bản nháp tạm.
 
 ## Hợp đồng sự kiện `agent-event`
 
@@ -58,16 +72,18 @@ Nguồn số liệu từng agent:
 3. Thêm vào `AgentId`, `AGENT_META` và `AGENT_IDS` (`src/app/core/protocol.ts`), `PRICES` (`services/usage/pricing.ts`), `MockBackend.detectAgents`, và nhánh trong `features/chat/conversation/describe-line.ts`. Thêm vào `AgentKind::ALL` ở bước 1.
 4. Ghi output thật của CLI vào `src-tauri/tests/fixtures/<agent>/<version>/` và thêm contract test.
 
-## Task sửa code (ACP)
+## Task (ACP và `claude -p`)
 
-Mỗi task có một tiến trình adapter ACP và một nơi làm việc (`Worktree`):
+Mỗi task có một tiến trình agent (adapter ACP, hoặc `claude -p` với Claude) và một nơi làm việc (`Worktree`):
 
 - **Thư mục hiện tại** (`direct`, mặc định): agent sửa thẳng thư mục của người dùng. `branch` rỗng, `base` là tree chụp thư mục lúc bắt đầu (`worktree::direct`, index tạm trong git dir `tg-direct/`), nên diff chỉ có phần agent sửa, không lẫn phần người dùng đang làm dở.
 - **Bản nháp** (`draft`): git worktree riêng trong `<repo>/.tg/worktrees/<run-id>`, nhánh `tg/<agent>/…`, tạo từ nhánh người dùng chọn.
 
 Tab Thay đổi làm việc theo tệp như Git. `diff::pending` so nơi làm việc với tree "đã nhận" (`tg-accepted`, hoặc `tg-direct/<run>.accepted`) vì agent có thể tự `git add`/`commit`. `commit_files` commit đúng các tệp đã chọn (`git commit --only`, giữ phần người dùng tự stage) rồi `mark_committed` cập nhật tree đã nhận của mọi run direct trong repo. `revert_files` trả tệp về tree đó (trước khi agent sửa, không về HEAD). `own_changes` là tệp chưa commit mà agent không đụng. Bản nháp thì "Áp vào thư mục" (`accept_all`) một lần rồi commit.
 
-Adapter Claude (`claude-agent-acp`) tự sửa file và chạy lệnh bằng tool của Claude Code, không gọi `fs/*` hay `terminal/*` của app. File vẫn chỉ được ghi trong worktree vì `cwd` của phiên là worktree, và mọi lần sửa đều qua thẻ duyệt. Claude tự cho phép lệnh chỉ-đọc (`cat`, `ls`…) mà không hỏi app.
+Claude chạy thẳng `claude -p` (`ClaudeConn`, `acp/claude_conn.rs`): `AgentKind::native_args` luôn kèm `--permission-mode` theo quyền và `--permission-prompts host` (cùng `--permission-prompt-tool stdio`), nên mọi lần dùng tool cần duyệt đến app thành `can_use_tool` dù thiết lập của người dùng là tự duyệt. Chỉ hỏi là task `deny` làm thẳng trong thư mục (`plan` + app từ chối mọi yêu cầu), đổi quyền giữa phiên là `set_permission_mode` (`TaskSession::set_mode_hook`). MCP và tg-bridge (token `reserve` rồi `bind`) đi vào `--mcp-config <tệp 0600>`. Nối lại phiên là `--resume <id>`; tệp phiên không còn trong `~/.claude/projects/*/` thì mở phiên mới kèm tóm tắt. `TG_CLAUDE_ACP=1` cho Claude chạy lại qua `claude-agent-acp`.
+
+Adapter Claude (`claude-agent-acp`, khi `TG_CLAUDE_ACP=1`) tự sửa file và chạy lệnh bằng tool của Claude Code, không gọi `fs/*` hay `terminal/*` của app. File vẫn chỉ được ghi trong worktree vì `cwd` của phiên là worktree, và mọi lần sửa đều qua thẻ duyệt. Claude tự cho phép lệnh chỉ-đọc (`cat`, `ls`…) mà không hỏi app.
 
 Usage của task: `usage_update` chỉ có chi phí (và độ đầy context), token nằm trong `usage` của kết quả `session/prompt`. `TaskSession::turn_finished` ghép hai nguồn thành một event `usage` cumulative.
 
@@ -91,7 +107,7 @@ Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh kh�
 
 ## MCP và Skills
 
-`integrations/mcp.rs`: server lưu trong bảng `mcp_servers` (JSON). Khi một task ACP bắt đầu, `drive` lấy các server bật cho agent đó và gửi trong `session/new`; server http chỉ gửi khi `initialize` của agent báo `mcpCapabilities.http`, nếu không thì ghi một dòng vào log. Claude headless nhận `--mcp-config <tệp>`: `mcp::ConfigFile` ghi JSON (có token, header) vào tệp quyền 0600 trong app data, xoá khi tiến trình kết thúc, vì ai trên máy cũng đọc được argv qua `ps` (không dùng `--strict-mcp-config`, nên cấu hình riêng của người dùng vẫn chạy). `integrations/skills.rs`: thư viện ở `<app data>/skills/<tên>/SKILL.md`; cài vào `<repo>/.claude/skills` hoặc `~/.claude/skills`, bản khác sẵn có được chép thành `SKILL.md.bak-<ms>` trước.
+`integrations/mcp.rs`: server lưu trong bảng `mcp_servers` (JSON). Khi một task ACP bắt đầu, `drive` lấy các server bật cho agent đó và gửi trong `session/new`; server http chỉ gửi khi `initialize` của agent báo `mcpCapabilities.http`, nếu không thì ghi một dòng vào log. Claude (headless và task `claude -p`) nhận `--mcp-config <tệp>`: `mcp::ConfigFile` ghi JSON (có token, header) vào tệp quyền 0600 trong app data, xoá khi tiến trình kết thúc, vì ai trên máy cũng đọc được argv qua `ps` (không dùng `--strict-mcp-config`, nên cấu hình riêng của người dùng vẫn chạy). `integrations/skills.rs`: thư viện ở `<app data>/skills/<tên>/SKILL.md`; cài vào `<repo>/.claude/skills` hoặc `~/.claude/skills`, bản khác sẵn có được chép thành `SKILL.md.bak-<ms>` trước.
 
 ## tg-bridge
 
@@ -122,7 +138,7 @@ Agent và mọi thứ nó đọc (repo, README, trang web) là không tin cậy:
 - **`terminal/create`:** quyền `deny` và danh sách cấm áp cả ở đây, phòng adapter chạy lệnh mà không xin quyền trước. Phiên không có mode `default` để xin duyệt thì log một dòng cảnh báo (`client::NO_ASKING_MODE`).
 - **tg-bridge tự cho phép** chỉ khi `_meta.claudeCode.toolName` của adapter là tool `mcp__tg-bridge__…`, không dựa vào `title` (model viết được).
 - **Git của app:** mọi lệnh git app tự chạy kèm `worktree::SAFE_GIT` (`-c core.fsmonitor=false`), vì thư mục mở ra có thể mang `.git/config` lạ. Hook vẫn bật (commit từ app là của người dùng). `Sandbox::resolve` (`fs/*` và `cwd` của terminal) từ chối mọi thành phần `.git`. Còn lại: filter `clean`/`smudge` trong `.git/config` của một repo lạ vẫn chạy khi git đọc tệp; chỉ mở thư mục bạn tin.
-- **Bí mật:** cấu hình MCP của Claude headless đi qua tệp 0600 (`mcp::ConfigFile`), không qua argv. Gói chẩn đoán lọc token (`diagnostics::redact`) và rút gọn thư mục home thành `~`. Cổng loopback của tg-bridge giới hạn dòng 256 KiB, chờ tối đa 15 s, 64 kết nối.
+- **Bí mật:** cấu hình MCP của Claude đi qua tệp 0600 (`mcp::ConfigFile`), không qua argv. Gói chẩn đoán lọc token (`diagnostics::redact`) và rút gọn thư mục home thành `~`. Cổng loopback của tg-bridge giới hạn dòng 256 KiB, chờ tối đa 15 s, 64 kết nối.
 - **Thiết lập Claude ở cấp dự án (chưa xử lý):** `.claude/settings.json` của một repo lạ có thể có `permissions.allow` (ví dụ `Bash(touch *)`); Claude Code áp nó nên adapter có thể không xin quyền và thẻ duyệt, danh sách cấm của app đều bị vượt. Chưa có cờ rẻ để tắt riêng phần này: `--setting-sources` cũng bỏ skill và lệnh của dự án. Với repo không rõ nguồn, đọc `.claude/settings.json` trước khi giao việc.
 
 ## Đổi frontend sau này

@@ -3,13 +3,28 @@
 #[test] fn a_delegated_agent_works_where_its_parent_does() {
     use super::{place_for, Place};
     // The user's folder: the child works right there, no `.tg/` draft.
-    assert_eq!(place_for(Approval::Auto, None, None, Some(None)).unwrap(), Place::Direct);
+    let codex = AgentKind::Codex;
+    assert_eq!(place_for(codex, Approval::Auto, None, None, Some(None)).unwrap(), Place::Direct);
     // A conversation in a draft: the child gets a draft from the parent's snapshot.
-    assert_eq!(place_for(Approval::Auto, None, None, Some(Some("abc".into()))).unwrap(), Place::Snapshot("abc".into()));
-    assert_eq!(place_for(Approval::Ask, Some("direct"), None, None).unwrap(), Place::Direct);
-    assert_eq!(place_for(Approval::Deny, Some("direct"), None, None).unwrap(), Place::Draft(None));
-    assert_eq!(place_for(Approval::Ask, Some("draft"), Some("dev".into()), None).unwrap(), Place::Draft(Some("dev".into())));
-    assert!(place_for(Approval::Ask, Some("x"), None, None).is_err());
+    assert_eq!(place_for(codex, Approval::Auto, None, None, Some(Some("abc".into()))).unwrap(), Place::Snapshot("abc".into()));
+    assert_eq!(place_for(codex, Approval::Ask, Some("direct"), None, None).unwrap(), Place::Direct);
+    assert_eq!(place_for(codex, Approval::Deny, Some("direct"), None, None).unwrap(), Place::Draft(None));
+    assert_eq!(place_for(codex, Approval::Ask, Some("draft"), Some("dev".into()), None).unwrap(), Place::Draft(Some("dev".into())));
+    assert!(place_for(codex, Approval::Ask, Some("x"), None, None).is_err());
+}
+
+/// Claude's questions run in the user's folder: `claude -p` blocks writing itself (`plan`
+/// mode, and the app refuses every `can_use_tool`), so the session can later switch to
+/// Hỏi trước in place. Agents without such a guarantee keep their throwaway draft.
+#[test] fn claude_question_works_in_place() {
+    use super::{place_for, Place};
+    if std::env::var("TG_CLAUDE_ACP").as_deref() == Ok("1") { return; }
+    assert!(super::uses_native(AgentKind::Claude));
+    assert!(!super::uses_native(AgentKind::Codex));
+    assert_eq!(place_for(AgentKind::Claude, Approval::Deny, Some("direct"), None, None).unwrap(), Place::Direct);
+    assert_eq!(place_for(AgentKind::Claude, Approval::Deny, None, None, None).unwrap(), Place::Direct);
+    assert_eq!(place_for(AgentKind::Gemini, Approval::Deny, Some("direct"), None, None).unwrap(), Place::Draft(None));
+    assert_eq!(place_for(AgentKind::Codex, Approval::Deny, Some("direct"), None, None).unwrap(), Place::Draft(None));
 }
 
 use super::*;
@@ -282,6 +297,56 @@ async fn claude_permission_routes_through_task_session() {
         }
         conn.close();
     }
+}
+
+/// `start_task` hooks the session's mode to the connection: Chỉ hỏi → Hỏi trước → Tự làm
+/// on an open Claude session becomes `set_permission_mode` on the same process.
+#[tokio::test]
+async fn claude_session_follows_mode_changes() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use crate::acp::fake_claude::fake_claude;
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+    let (reader, writer, log) = fake_claude(vec![]);
+    let client: Arc<dyn AgentConn> = ClaudeConn::start(reader, writer, session.clone());
+    client.initialize().await.unwrap();
+    follow_mode(&session, &client);
+    for approval in [Approval::Ask, Approval::Auto, Approval::Deny] { session.set_approval(approval); }
+    let modes = || -> Vec<serde_json::Value> {
+        log.lock().unwrap().iter().filter(|m| m["request"]["subtype"] == "set_permission_mode").map(|m| m["request"]["mode"].clone()).collect()
+    };
+    tokio::time::timeout(Duration::from_secs(3), async { while modes().len() < 3 { tokio::task::yield_now().await; } }).await.unwrap();
+    assert_eq!(modes(), ["default", "acceptEdits", "plan"]);
+    // The hook holds the connection weakly: once it is gone, changing the mode is harmless.
+    client.close();
+    drop(client);
+    session.set_approval(Approval::Ask);
+    assert_eq!(session.approval(), Approval::Ask);
+}
+
+/// Claude opened a different session than the one asked to resume: the run says so and goes
+/// on in that session with the recap, as when an ACP adapter's `session/load` fails.
+#[tokio::test]
+async fn claude_resume_mismatch_falls_back_to_recap() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use crate::acp::fake_claude::{fake_claude, ClaudeStep, SESSION_ID};
+    let sink = Arc::new(Recorder::default());
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+    let (reader, writer, log) = fake_claude(vec![ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 }]);
+    let client: Arc<dyn AgentConn> = ClaudeConn::start(reader, writer, session.clone());
+    let cwd = std::env::temp_dir();
+    let plan = SessionPlan { cwd: &cwd, prompt: "câu mới".into(), recap: Some("Tóm tắt: đã hỏi về A.".into()), servers: &[], resume: Some("phien-cu".into()), opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
+    let (_keep, rx) = oneshot::channel();
+    let mut stop = Some(rx);
+    let mut opened = String::new();
+    let (status, error) = tokio::time::timeout(Duration::from_secs(5), drive_session(&*client, &session, plan, || stop.take().unwrap(), |id| opened = id.to_string(), |_| {}, std::future::pending())).await.unwrap();
+    assert_eq!(status, "done", "{error:?}");
+    assert_eq!(opened, SESSION_ID);
+    let notes: Vec<String> = sink.0.lock().unwrap().iter().filter_map(|e| e.line.clone()).collect();
+    assert!(notes.iter().any(|l| l.contains("phien-cu") && l.contains("Mở phiên mới và gửi kèm tóm tắt")), "{notes:?}");
+    let sent: Vec<serde_json::Value> = log.lock().unwrap().iter().filter(|m| m["type"] == "user").cloned().collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["message"]["content"], "Tóm tắt: đã hỏi về A.\n\ncâu mới");
+    client.close();
 }
 
 /// A sink that also notes the nested runs.
@@ -968,6 +1033,174 @@ async fn live_two_turns_probe() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+struct NativeRun { status: &'static str, error: Option<String>, events: Vec<AgentEvent>, asked: Vec<serde_json::Value> }
+
+/// `claude -p` launched as `start_task` launches it (`native_command`, `ClaudeConn`,
+/// `follow_mode`) in `dir`, with each of `questions` sent once the turn before ends;
+/// `between` runs on the session before every later question. Plays the user: every card is
+/// allowed once. Needs network and a logged-in `claude`.
+async fn live_native(dir: &Path, approval: Approval, questions: &[&str], between: impl Fn(&TaskSession)) -> NativeRun {
+    use crate::acp::claude_conn::ClaudeConn;
+    let sink = Arc::new(Recorder::default());
+    let session = Arc::new(TaskSession::new("live", AgentKind::Claude, dir, sink.clone(), Arc::new(Rules)).unwrap());
+    session.set_approval(approval);
+    let launch = native_launch(Arc::new(BridgeHub::default()), vec![], false, false, &std::env::temp_dir(), &mut Vec::new()).await.unwrap();
+    let command = native_command(approval, None, &launch, &SessionPrefs::default()).unwrap();
+    eprintln!("[lệnh] {} {}", command.0.display(), command.1.join(" "));
+    let mut child = spawn_adapter(&command, dir).unwrap();
+    let pid = child.id();
+    let stderr = child.stderr.take().unwrap();
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await { eprintln!("[claude] {line}"); }
+    });
+    let client: Arc<dyn AgentConn> = ClaudeConn::start(child.stdout.take().unwrap(), child.stdin.take().unwrap(), session.clone());
+    follow_mode(&session, &client);
+    let approver = {
+        let (sink, session) = (sink.clone(), session.clone());
+        tokio::spawn(async move {
+            let mut seen = std::collections::HashSet::new();
+            let mut asked = Vec::new();
+            while !sink.0.lock().unwrap().iter().any(|e| e.kind == "exit") && seen.len() <= 20 {
+                let cards: Vec<_> = sink.0.lock().unwrap().iter().filter(|e| e.kind == "permission").filter_map(|e| e.data.clone()).collect();
+                for card in cards {
+                    let id = card["requestId"].as_str().unwrap().to_string();
+                    if !seen.insert(id.clone()) { continue; }
+                    eprintln!("[duyệt] {}", card["toolCall"]["title"]);
+                    asked.push(card["toolCall"].clone());
+                    let _ = session.respond_permission(&id, "allow", false);
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            asked
+        })
+    };
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let tx = Mutex::new(Some(tx));
+    let rest = Mutex::new(questions[1..].iter().map(|q| q.to_string()).collect::<std::collections::VecDeque<_>>());
+    let plan = SessionPlan { cwd: dir, prompt: questions[0].into(), recap: None, servers: &[], resume: None, opened: None, next: Some(rx), idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
+    // Every phase gets a stop signal nobody sends (a dropped sender would read as a stop).
+    let senders = Mutex::new(Vec::new());
+    let next_stop = || { let (tx, rx) = oneshot::channel(); senders.lock().unwrap().push(tx); rx };
+    let on_turn = |end: &TurnEnd| {
+        eprintln!("[lượt] {} {:?}", end.status, end.error);
+        match rest.lock().unwrap().pop_front() {
+            Some(question) => {
+                between(&session);
+                assert!(start_turn(&session));
+                tx.lock().unwrap().as_ref().unwrap().send(question).unwrap();
+            }
+            None => { tx.lock().unwrap().take(); }
+        }
+    };
+    let (status, error) = tokio::time::timeout(Duration::from_secs(300), drive_session(&*client, &session, plan, next_stop, |_| {}, on_turn, async { std::future::pending::<()>().await })).await.expect("quá 5 phút");
+    client.close();
+    terminate_adapter(&mut child, pid).await;
+    drop(launch);
+    sink.emit(AgentEvent::new("live", AgentKind::Claude, "exit"));
+    let asked = approver.await.unwrap();
+    let events = sink.0.lock().unwrap().clone();
+    eprintln!("status={status} error={error:?}\nmessage={}", message_of(&events));
+    NativeRun { status, error, events, asked }
+}
+
+fn live_dir(name: &str) -> PathBuf {
+    let dir = dunce::canonicalize(std::env::temp_dir()).unwrap().join(format!("tg-{name}-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    dir
+}
+
+/// The launch itself against the real CLI, without a prompt (0 tokens, no login needed):
+/// the flags are accepted, the session id arrives, modes switch; `--resume` of a conversation
+/// that is not on the machine fails to open instead of passing for that session.
+/// `TG_LIVE_ACP=1 cargo test live_claude_native_opens -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn live_claude_native_opens_without_tokens() {
+    use crate::acp::claude_conn::ClaudeConn;
+    if std::env::var("TG_LIVE_ACP").is_err() { return; }
+    let dir = live_dir("native-open");
+    let open = |resume: Option<&'static str>| {
+        let dir = dir.clone();
+        async move {
+            let launch = native_launch(Arc::new(BridgeHub::default()), vec![], false, false, &std::env::temp_dir(), &mut Vec::new()).await.unwrap();
+            let command = native_command(Approval::Deny, resume, &launch, &SessionPrefs::default()).unwrap();
+            let mut child = spawn_adapter(&command, &dir).unwrap();
+            let session = Arc::new(TaskSession::new("live", AgentKind::Claude, &dir, Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+            let client: Arc<dyn AgentConn> = ClaudeConn::start(child.stdout.take().unwrap(), child.stdin.take().unwrap(), session.clone());
+            (child, session, client)
+        }
+    };
+    let (mut child, session, client) = open(None).await;
+    let init = client.initialize().await.unwrap();
+    assert_eq!(init["agentCapabilities"]["loadSession"], true);
+    let id = client.new_session(&dir, json!([])).await.unwrap();
+    assert!(!id.is_empty());
+    follow_mode(&session, &client);
+    session.set_approval(Approval::Ask);
+    session.set_approval(Approval::Auto);
+    assert!(client.config_options().is_array(), "model lấy từ initialize: {}", client.config_options());
+    client.close();
+    let pid = child.id();
+    terminate_adapter(&mut child, pid).await;
+
+    let (mut child, _session, client) = open(Some("00000000-0000-4000-8000-000000000000")).await;
+    let error = client.initialize().await.unwrap_err();
+    eprintln!("resume thiếu: {error}");
+    assert!(client.load_session("00000000-0000-4000-8000-000000000000", &dir, json!([])).await.is_err());
+    client.close();
+    let pid = child.id();
+    terminate_adapter(&mut child, pid).await;
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// One `claude -p` for a whole conversation: the second question remembers the first.
+/// `TG_LIVE_ACP=1 cargo test live_claude_native -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn live_claude_native_two_questions() {
+    if std::env::var("TG_LIVE_ACP").is_err() { return; }
+    let dir = live_dir("native-two");
+    let run = live_native(&dir, Approval::Deny, &["Remember the word PINEAPPLE. Reply with exactly: ok", "Which word did I ask you to remember? Reply with that word only."], |_| {}).await;
+    assert_eq!(run.status, "done", "{:?}", run.error);
+    assert!(message_of(&run.events).contains("PINEAPPLE"), "câu hai phải nhớ câu một");
+    let usage = run.events.iter().rev().find_map(|e| e.usage.clone()).expect("phải có usage");
+    assert!(usage.output_tokens > 0 && usage.cost_usd.is_some(), "{usage:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Chỉ hỏi in the user's real folder: `plan` mode and the app's refusals keep it from writing,
+/// whatever the CLI's own settings say.
+/// `TG_LIVE_ACP=1 cargo test live_claude_native_read_only -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn live_claude_native_read_only_cannot_write() {
+    if std::env::var("TG_LIVE_ACP").is_err() { return; }
+    let dir = live_dir("native-read-only");
+    let run = live_native(&dir, Approval::Deny, &["Create a file named x.txt containing x in the current directory using your tools, then run the shell command `echo y > y.txt`."], |_| {}).await;
+    assert!(run.asked.is_empty(), "Chỉ hỏi không hiện thẻ duyệt: {:?}", run.asked);
+    assert!(!dir.join("x.txt").exists() && !dir.join("y.txt").exists(), "Chỉ hỏi đã ghi được vào thư mục thật (status {}, {:?})", run.status, run.error);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Chỉ hỏi → Hỏi trước in the same session: the agent remembers the question, the first
+/// write shows a card, and once allowed the file is there.
+/// `TG_LIVE_ACP=1 cargo test live_claude_native_mode_switch -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn live_claude_native_mode_switch_keeps_memory() {
+    if std::env::var("TG_LIVE_ACP").is_err() { return; }
+    let dir = live_dir("native-switch");
+    let questions = ["Remember the word PINEAPPLE. Do not use any tools. Reply with exactly: ok", "Now create a file named word.txt in the current directory whose only content is the word I asked you to remember. Use your file writing tool."];
+    let run = live_native(&dir, Approval::Deny, &questions, |session| session.set_approval(Approval::Ask)).await;
+    assert_eq!(run.status, "done", "{:?}", run.error);
+    assert!(run.events.iter().any(|e| e.kind == "permission"), "Hỏi trước phải hiện thẻ duyệt");
+    assert!(!run.asked.is_empty());
+    let written = std::fs::read_to_string(dir.join("word.txt")).expect("tệp phải có sau khi cho phép");
+    assert!(written.contains("PINEAPPLE"), "agent phải nhớ câu trước: {written:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// Read-only runs happen in the real folder, even with approvals off in the CLI's settings.
 /// `TG_LIVE_ACP=1 TG_LIVE_AGENT=claude|codex cargo test live_read_only -- --ignored`.
 #[tokio::test(flavor = "multi_thread")]
@@ -1183,7 +1416,7 @@ async fn setup_runs_before_agent_spawn() {
     let stops = crate::tasks::headless::Runs::default();
     let adapter = Adapter::Spawn((PathBuf::from("sh"), vec!["-c".into(), "test -f ready && touch seen".into()]));
     let (id, wt, mut child, _) = prepare_with(&store, AgentKind::Codex, "task", &repo.0, adapter, None, None, Place::Draft(None),
-        setup("echo hi > ready", &sink, &stops)).await.unwrap();
+        setup("echo hi > ready", &sink, &stops), None).await.unwrap();
     let _ = child.wait().await;
     assert!(wt.path.join("seen").exists(), "adapter must start after the setup script");
     let lines: Vec<String> = sink.0.lock().unwrap().iter().filter_map(|e| e.line.clone()).collect();
@@ -1200,7 +1433,7 @@ async fn failed_setup_never_spawns_agent() {
     let stops = crate::tasks::headless::Runs::default();
     let missing = repo.0.join("missing-adapter");
     let error = prepare_with(&store, AgentKind::Codex, "task", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Draft(None),
-        setup("echo broken; exit 3", &sink, &stops)).await.err().unwrap();
+        setup("echo broken; exit 3", &sink, &stops), None).await.err().unwrap();
     assert!(error.contains("mã 3"), "{error}");
     assert!(!error.contains("Không chạy được"), "the adapter must not be started: {error}");
     let events = sink.0.lock().unwrap();
@@ -1227,7 +1460,7 @@ async fn stop_during_setup_never_spawns_agent() {
     let started = std::time::Instant::now();
     let missing = repo.0.join("missing-adapter");
     let error = prepare_with(&store, AgentKind::Codex, "task", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Draft(None),
-        setup("sleep 30", &sink, &stops)).await.err().unwrap();
+        setup("sleep 30", &sink, &stops), None).await.err().unwrap();
     assert!(error.contains("Đã dừng"), "{error}");
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert_eq!(store.list_runs(10).unwrap()[0].status, "stopped");
@@ -1242,7 +1475,7 @@ async fn direct_and_reuse_skip_setup() {
     let stops = crate::tasks::headless::Runs::default();
     let missing = repo.0.join("missing-adapter");
     let error = prepare_with(&store, AgentKind::Codex, "fix", &repo.0, Adapter::Spawn((missing, vec![])), None, None, Place::Direct,
-        setup("exit 3", &sink, &stops)).await.err().unwrap();
+        setup("exit 3", &sink, &stops), None).await.err().unwrap();
     assert!(error.contains("Không chạy được"), "direct runs must not run the setup script: {error}");
     assert!(sink.0.lock().unwrap().is_empty());
 }

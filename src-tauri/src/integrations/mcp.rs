@@ -1,5 +1,5 @@
 //! MCP server registry. Servers enabled for an agent are handed to every session it
-//! starts (ACP `session/new`, Claude headless `--mcp-config`), so nothing is written
+//! starts (ACP `session/new`, Claude `--mcp-config`), so nothing is written
 //! into the agents' own config files.
 
 use serde::{Deserialize, Serialize};
@@ -89,7 +89,7 @@ pub fn claude_config(servers: &[McpServer]) -> Option<String> {
     (!entries.is_empty()).then(|| json!({"mcpServers": entries}).to_string())
 }
 
-/// The `--mcp-config` of a headless Claude run, as a file readable only by this user and
+/// The `--mcp-config` of a Claude run (headless or task), as a file readable only by this user and
 /// removed when dropped: the JSON holds tokens and headers, and every user on the machine
 /// can read a process's arguments. Keep it alive until the process exits.
 pub struct ConfigFile(std::path::PathBuf);
@@ -107,6 +107,7 @@ impl ConfigFile {
         Ok(Some(file))
     }
     pub fn arg(&self) -> String { self.0.to_string_lossy().into_owned() }
+    pub fn path(&self) -> &std::path::Path { &self.0 }
 }
 impl Drop for ConfigFile {
     fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }

@@ -43,8 +43,14 @@
 //!   `usage_update._meta["_claude/rateLimit"]` (`usage::parse_rate_limit` reads both).
 //!   Fields that are missing are ignored, never an error.
 
-// Only tests use it until `start_task` spawns Claude this way.
-#![cfg_attr(not(test), allow(dead_code))]
+//! `--resume <id>`, checked the same way (CLI 2.1.332, an `initialize` only, 0 tokens): for a
+//! conversation saved under `~/.claude/projects/*/<id>.jsonl` (any project folder, not only
+//! the one of the working directory), every line reports `session_id` `<id>`, so
+//! `load_session` can compare. For one that is not there, Claude prints an error `result`
+//! (`errors: ["No conversation found with session ID: <id>"]`, `session_id` `<id>`) and exits
+//! 1; that is a failure to start, never an opened session. A new process cannot be asked to
+//! fall back, so `start_task` checks the file first (`session_saved`) and, when it is
+//! missing, opens a new session told the recap instead.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -71,9 +77,39 @@ const TOOL_TEXT_LIMIT: usize = 20_000;
 /// Claude's permission mode that asks before running a tool (`Approval::Ask`).
 const ASK_MODE: &str = "default";
 
-/// The session id Claude reports on its first lines, and whether stdout has closed.
+/// Claude's permission mode for the app's: Chỉ hỏi is `plan`, Tự động `acceptEdits`. Used at
+/// launch (`--permission-mode`) and between turns (`set_permission_mode`).
+pub fn permission_mode(approval: Approval) -> &'static str {
+    match approval { Approval::Deny => "plan", Approval::Auto => "acceptEdits", Approval::Ask => ASK_MODE }
+}
+
+/// Claude's settings folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`.
+fn config_dir() -> Option<std::path::PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        Some(dir) => Some(dir.into()),
+        None => crate::agents::detect::home_dir().map(|home| Path::new(&home).join(".claude")),
+    }
+}
+
+/// Whether `claude --resume <id>` can find this conversation on this machine. When the
+/// settings folder is unknown, Claude itself decides.
+pub fn session_saved(id: &str) -> bool {
+    config_dir().is_none_or(|config| session_saved_in(&config, id))
+}
+
+/// `<config>/projects/<any project>/<id>.jsonl` exists: Claude finds a session by id in
+/// every project folder, not only the working directory's.
+fn session_saved_in(config: &Path, id: &str) -> bool {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') { return false; }
+    let Ok(projects) = std::fs::read_dir(config.join("projects")) else { return false };
+    projects.flatten().any(|project| project.path().join(format!("{id}.jsonl")).is_file())
+}
+
+/// The session id Claude reports on its first lines, whether stdout has closed, and why
+/// Claude gave up before any turn (an error `result` while none was asked, e.g. `--resume`
+/// of a conversation it cannot find).
 #[derive(Clone, Default)]
-struct SessionState { id: Option<String>, closed: bool }
+struct SessionState { id: Option<String>, closed: bool, failed: Option<String> }
 
 pub struct ClaudeConn {
     /// Lines for stdin; `None` once `close()` dropped it, which closes stdin.
@@ -186,8 +222,12 @@ impl ClaudeConn {
             .map_err(|_| format!("Claude không báo mã phiên sau {} giây.", SETUP_TIMEOUT.as_secs()))?
             .map_err(|_| "Claude đã dừng trước khi mở phiên.".to_string())?
             .clone();
+        if let Some(failed) = seen.failed { return Err(failed); }
         seen.id.ok_or_else(|| "Claude đã dừng trước khi mở phiên.".to_string())
     }
+
+    /// Why Claude stopped before any turn, if it said.
+    fn startup_error(&self) -> Option<String> { self.session.borrow().failed.clone() }
 
     fn update(&self, update: Value) { self.update_in(None, update) }
 
@@ -198,11 +238,16 @@ impl ClaudeConn {
     }
 
     fn dispatch(self: &Arc<Self>, message: Value) {
-        if let Some(id) = message["session_id"].as_str().filter(|id| !id.is_empty()) {
+        // Recorded with the id it carries, in one change: whoever waits for the id sees both.
+        let failed = (message["type"] == "result" && message["is_error"] == true && self.turn.lock().unwrap().is_none())
+            .then(|| startup_failure(&message));
+        let id = message["session_id"].as_str().filter(|id| !id.is_empty());
+        if id.is_some() || failed.is_some() {
             self.session.send_if_modified(|s| {
-                if s.id.is_some() { return false; }
-                s.id = Some(id.to_string());
-                true
+                let mut changed = false;
+                if let (None, Some(id)) = (&s.id, id) { s.id = Some(id.to_string()); changed = true; }
+                if let (None, Some(failed)) = (&s.failed, &failed) { s.failed = Some(failed.clone()); changed = true; }
+                changed
             });
         }
         match message["type"].as_str() {
@@ -405,6 +450,13 @@ impl Drop for TurnSlot<'_> {
     }
 }
 
+/// What an error `result` that came before any turn says, for the run's log.
+fn startup_failure(result: &Value) -> String {
+    let detail = result["errors"].as_array().and_then(|e| e.first()).and_then(Value::as_str)
+        .or_else(|| result["result"].as_str()).unwrap_or("lỗi không rõ");
+    format!("Claude dừng khi đang mở phiên: {detail}")
+}
+
 /// The content blocks of one type in a message (`message.content` may also be a plain string).
 fn blocks<'a>(message: &'a Value, kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
     message["content"].as_array().into_iter().flatten().filter(move |b| b["type"] == kind)
@@ -556,8 +608,10 @@ fn model_options(models: &Value) -> Value {
 impl AgentConn for ClaudeConn {
     fn initialize(&self) -> BoxFuture<'_, Result<Value, String>> {
         Box::pin(async move {
+            // No hooks and no SDK MCP servers: Claude would then send `hook_callback`,
+            // `mcp_message` or `elicitation` requests, which this connection does not answer.
             let init = self.control(json!({ "subtype": "initialize" })).await
-                .map_err(|e| format!("Claude không khởi tạo được: {e}"))?;
+                .map_err(|e| self.startup_error().unwrap_or_else(|| format!("Claude không khởi tạo được: {e}")))?;
             *self.config.lock().unwrap() = model_options(&init["models"]);
             self.update(commands_update(&init["commands"]));
             Ok(json!({ "agentCapabilities": { "loadSession": true, "promptCapabilities": { "image": true, "embeddedContext": true } } }))
@@ -569,7 +623,10 @@ impl AgentConn for ClaudeConn {
         Box::pin(self.session_id())
     }
 
-    /// The session was reopened at launch (`--resume`): nothing to send, only to check.
+    /// The session was reopened at launch (`--resume`): nothing to send, only to check that
+    /// Claude reports the very id (it does for a saved conversation; see the header). A
+    /// different id leaves the process open on that session: `drive_session` notes it and
+    /// goes on with `new_session` and the recap.
     fn load_session<'a>(&'a self, session_id: &'a str, _cwd: &'a Path, _mcp: Value) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             let running = self.session_id().await?;
@@ -620,10 +677,9 @@ impl AgentConn for ClaudeConn {
         })
     }
 
-    /// Claude's permission mode follows the app's: Chỉ hỏi is `plan`, Tự động `acceptEdits`.
+    /// Claude's permission mode follows the app's (`permission_mode`).
     fn set_mode(&self, approval: Approval) -> Result<(), String> {
-        let mode = match approval { Approval::Deny => "plan", Approval::Auto => "acceptEdits", Approval::Ask => ASK_MODE };
-        self.fire(json!({ "subtype": "set_permission_mode", "mode": mode }))
+        self.fire(json!({ "subtype": "set_permission_mode", "mode": permission_mode(approval) }))
     }
 
     /// Closes stdin: Claude exits, and stdout closing ends any running turn.
@@ -884,6 +940,49 @@ mod tests {
         let error = tokio::time::timeout(std::time::Duration::from_secs(2), conn.new_session(Path::new("/tmp"), json!([]))).await.unwrap().unwrap_err();
         assert!(error.contains("đã dừng"), "{error}");
         assert!(conn.initialize().await.is_err());
+    }
+
+    /// `claude -p --resume <id>` for a conversation that is not on this machine prints an error
+    /// `result` carrying that very id, then exits (CLI 2.1.332, 0 tokens). The id must not
+    /// pass for an opened session.
+    #[tokio::test]
+    async fn claude_conn_reports_a_session_that_cannot_open() {
+        use tokio::io::AsyncWriteExt;
+        let (io, agent) = tokio::io::duplex(4096);
+        let (_agent_in, mut agent_out) = tokio::io::split(agent);
+        let line = json!({"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"s-old",
+            "errors":["No conversation found with session ID: s-old"]});
+        agent_out.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        agent_out.shutdown().await.unwrap();
+        let (reader, writer) = tokio::io::split(io);
+        let conn = ClaudeConn::start(reader, writer, Arc::new(Recorder::default()));
+        let loaded = tokio::time::timeout(Duration::from_secs(2), conn.load_session("s-old", Path::new("/tmp"), json!([]))).await.unwrap();
+        let error = loaded.unwrap_err();
+        assert!(error.contains("No conversation found"), "{error}");
+        let error = conn.initialize().await.unwrap_err();
+        assert!(error.contains("No conversation found"), "{error}");
+    }
+
+    /// The CLI only sends `hook_callback`, `mcp_message` or `elicitation` requests for hooks
+    /// and SDK MCP servers registered in `initialize`; this connection answers none of them.
+    #[tokio::test]
+    async fn initialize_registers_no_hooks_or_sdk_servers() {
+        let (_conn, _id, log) = open_logged(vec![]).await;
+        let init = controls(&log, "initialize");
+        assert_eq!(init.len(), 1);
+        assert_eq!(init[0]["request"], json!({ "subtype": "initialize" }));
+    }
+
+    #[test]
+    fn a_saved_session_is_found_in_any_project() {
+        let config = std::env::temp_dir().join(format!("tg-claude-config-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(config.join("projects").join("-other-folder")).unwrap();
+        std::fs::write(config.join("projects").join("-other-folder").join("s-1.jsonl"), "{}\n").unwrap();
+        assert!(session_saved_in(&config, "s-1"));
+        assert!(!session_saved_in(&config, "s-2"));
+        assert!(!session_saved_in(&config, "../-other-folder/s-1"), "mã phiên lạ không được thành đường dẫn");
+        assert!(!session_saved_in(&config.join("missing"), "s-1"));
+        std::fs::remove_dir_all(config).unwrap();
     }
 
     async fn open_logged(steps: Vec<ClaudeStep>) -> (Arc<ClaudeConn>, String, fake_claude::Log) {
