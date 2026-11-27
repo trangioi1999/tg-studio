@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::acp::client::{method_not_found, AcpClient, ClientHandler, HandlerFuture};
+use crate::acp::conn::AgentConn;
 use crate::agents::adapters::{setup_timeout, AgentKind};
 use crate::system::env;
 
@@ -201,7 +202,7 @@ pub fn parse(config: &Value) -> AgentOptions {
 
 /// Applies the picks to an open session. The model goes first because it decides which
 /// effort levels exist. Returns notes for the user about picks the agent does not offer.
-pub async fn apply(client: &AcpClient, session_id: &str, prefs: &SessionPrefs) -> Vec<String> {
+pub async fn apply(client: &dyn AgentConn, session_id: &str, prefs: &SessionPrefs) -> Vec<String> {
     let mut notes = Vec::new();
     for (wanted, kind) in [(&prefs.model, "model"), (&prefs.effort, "effort")] {
         let Some(wanted) = wanted else { continue };

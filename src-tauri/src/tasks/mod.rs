@@ -17,7 +17,7 @@ use std::{collections::HashMap, path::{Path, PathBuf}, process::Stdio, sync::{Ar
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 use tokio::{io::{AsyncBufReadExt, BufReader}, process::Child, sync::oneshot};
-use crate::{acp::client::AcpClient, tasks::session::{Approval, TaskSession, EventSink, RuleMemory}, agents::adapters::{AgentKind, setup_timeout}, workspace::diff::{self, FileDiff}, system::env, integrations::bridge::{self, BridgeHub, ToolEnv}, integrations::mcp::{self, McpServer}, agents::options::{self, SessionPrefs}, tasks::headless::{AgentEvent, Runs}, store::{NewRun, Store}, workspace::files, workspace::worktree::{self, Worktree}};
+use crate::{acp::{client::AcpClient, conn::AgentConn}, tasks::session::{Approval, TaskSession, EventSink, RuleMemory}, agents::adapters::{AgentKind, setup_timeout}, workspace::diff::{self, FileDiff}, system::env, integrations::bridge::{self, BridgeHub, ToolEnv}, integrations::mcp::{self, McpServer}, agents::options::{self, SessionPrefs}, tasks::headless::{AgentEvent, Runs}, store::{NewRun, Store}, workspace::files, workspace::worktree::{self, Worktree}};
 
 #[derive(Default)]
 pub struct TaskRuns(Mutex<HashMap<String, Arc<TaskSession>>>);
@@ -301,7 +301,7 @@ const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
 
 struct TurnEnd { status: &'static str, error: Option<String>, alive: bool }
 
-async fn run_turn(client: &AcpClient, session: &TaskSession, id: &str, prompt: &str, stop: &mut oneshot::Receiver<()>, dead: &mut std::pin::Pin<&mut impl std::future::Future<Output = ()>>) -> TurnEnd {
+async fn run_turn(client: &dyn AgentConn, session: &TaskSession, id: &str, prompt: &str, stop: &mut oneshot::Receiver<()>, dead: &mut std::pin::Pin<&mut impl std::future::Future<Output = ()>>) -> TurnEnd {
     session.reopen();
     let turn = client.prompt_turn(id, prompt);
     tokio::pin!(turn);
@@ -333,7 +333,7 @@ async fn run_turn(client: &AcpClient, session: &TaskSession, id: &str, prompt: &
 /// One agent session from setup to the end. `next_stop` arms the stop signal for each
 /// phase, since a stop during a turn only ends that turn. `on_opened` gets the session id,
 /// `on_turn` each finished turn of a session that stays open.
-async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: SessionPlan<'_>, mut next_stop: impl FnMut() -> oneshot::Receiver<()>, mut on_opened: impl FnMut(&str), mut on_turn: impl FnMut(&TurnEnd), dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
+async fn drive_session(client: &dyn AgentConn, session: &TaskSession, mut plan: SessionPlan<'_>, mut next_stop: impl FnMut() -> oneshot::Receiver<()>, mut on_opened: impl FnMut(&str), mut on_turn: impl FnMut(&TurnEnd), dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     tokio::pin!(dead);
     let mut stop = next_stop();
     // A commit may be running in this folder; wait for it (at most a second or so).
@@ -413,7 +413,7 @@ async fn drive_session(client: &AcpClient, session: &TaskSession, mut plan: Sess
 
 // No AppHandle or real adapter required to exercise cancellation and failure status.
 #[cfg(test)]
-async fn drive(client: &AcpClient, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
+async fn drive(client: &dyn AgentConn, session: &TaskSession, cwd: &Path, prompt: &str, servers: &[McpServer], stop: oneshot::Receiver<()>, dead: impl std::future::Future<Output = ()>) -> (&'static str, Option<String>) {
     let mut stop = Some(stop);
     let plan = SessionPlan { cwd, prompt: prompt.into(), recap: None, servers, resume: None, opened: None, next: None, idle_limit: IDLE_LIMIT, prefs: SessionPrefs::default(), compact: false };
     drive_session(client, session, plan, || stop.take().expect("một lượt chỉ có một tín hiệu dừng"), |_| {}, |_| {}, dead).await
