@@ -133,7 +133,7 @@ export class ChatState {
   /** Every installed agent takes every permission; questions to agents without a read-only
    * CLI flag run through ACP in a throwaway draft. */
   readonly choices = computed(() => this.agents.agents().filter((a) => a.path));
-  /** Hỏi trước or Tự động, for code tasks. */
+  /** Hỏi trước or Tự làm, for code tasks. */
   readonly approval = signal<'ask' | 'auto'>('ask');
   readonly perm = computed<'read' | 'ask' | 'auto'>(() => (this.mode() === 'read' ? 'read' : this.approval()));
   /** Where a new code task works: the user's folder (default) or a draft from `base`. */
@@ -329,7 +329,7 @@ export class ChatState {
   });
   readonly placeholder = computed(() => {
     const r = this.run();
-    if (r?.status === 'running') return 'Nhắn thêm, agent đọc sau bước này…';
+    if (r?.status === 'running') return this.blocked() ? 'Agent đang làm… (Esc để dừng)' : 'Nhắn thêm, agent đọc sau bước này…';
     if (this.mode() === 'read' && r && isReadRun(r)) return `Hỏi tiếp ${AGENT_META[r.agent].name}`;
     if (this.mode() === 'task' && r?.task) return `Nhắn tiếp cho ${AGENT_META[r.agent].name}`;
     return 'Giao việc hoặc hỏi agent';

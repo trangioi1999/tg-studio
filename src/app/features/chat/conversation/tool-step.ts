@@ -1,3 +1,4 @@
+/** One edited file as a few changed lines: counts, the first `max` +/- rows, and how many more were left out. */
 export interface MiniDiff { path: string; added: number; removed: number; lines: { sign: '+' | '-'; text: string }[]; more: number }
 export interface ToolHead { name: string; arg: string | null }
 
@@ -6,6 +7,7 @@ const obj = (v: unknown): Json => v !== null && typeof v === 'object' ? v as Jso
 const str = (v: unknown): string | null => typeof v === 'string' && v.trim() ? v : null;
 const names: Record<string, string> = { execute: 'Bash', read: 'Read', edit: 'Update', delete: 'Delete', move: 'Move', search: 'Search', fetch: 'Fetch', think: 'Think' };
 
+/** The tool's display name (Bash, Read, Update…) and its main argument (command, path, pattern, url), if any. */
 export function toolHead(update: Json): ToolHead {
   const raw = obj(update['rawInput']);
   const command = Array.isArray(raw['command']) ? raw['command'].filter(v => typeof v === 'string').join(' ') : raw['command'];
@@ -16,6 +18,7 @@ export function toolHead(update: Json): ToolHead {
   };
 }
 
+/** Shortens a long path to `max` characters with a middle ellipsis, keeping the file name readable. */
 export function middleTruncate(path: string, max = 48): string {
   max = Math.max(1, Math.floor(max));
   if (path.length <= max) return path;
@@ -28,11 +31,19 @@ function content(update: Json): Json[] {
   return Array.isArray(update['content']) ? update['content'].map(obj) : [];
 }
 
-export function resultLine(update: Json): string | null {
+/**
+ * The one-line result under a tool step: the last non-empty output line, cut to 120 characters.
+ * For Read it is the line count instead ("212 dòng"), since a file's last line says nothing.
+ */
+export function resultLine(update: Json, tool?: string): string | null {
   const texts = content(update).flatMap(c => {
     const block = c['type'] === 'content' ? obj(c['content']) : c;
     return block['type'] === 'text' && typeof block['text'] === 'string' ? [block['text']] : [];
   });
+  if (tool === 'Read') {
+    const count = split(texts.join('\n')).length;
+    return count ? `${count} dòng` : null;
+  }
   const last = texts.join('\n').split(/\r?\n/).map(s => s.trim()).filter(Boolean).at(-1);
   return last ? (last.length > 120 ? last.slice(0, 119) + '…' : last) : null;
 }

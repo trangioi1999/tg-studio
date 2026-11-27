@@ -80,7 +80,7 @@ import { runningRows } from './running-group';
           @for (r of running().rows; track r.id) {
             <button class="rn-row" [class.rn-child]="r.child"
               [title]="r.title + ' · ' + r.project + ' · ' + (r.status === 'needs_you' ? 'Cần bạn' : 'Đang chạy')"
-              (click)="ui.openRun(r.id)">
+              (click)="ui.openRun(r.open)">
               <tg-agent-avatar [agent]="r.agent" [size]="20" />
               <span class="rn-title">{{ r.title }}</span>
               <span class="rn-dot" [attr.data-status]="r.status" role="img"

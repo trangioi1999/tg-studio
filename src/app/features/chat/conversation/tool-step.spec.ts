@@ -74,6 +74,46 @@ describe('Dòng công cụ CLI', () => {
     expect(resultLine({ content: [{ type: 'text', text: 'a\n' + 'b'.repeat(200) + '\n' }] })?.length).toBeLessThanOrEqual(120);
     expect(resultLine(change())).toBeNull();
   });
+  it('Read hiện số dòng, không hiện dòng cuối của tệp', () => {
+    const text = { content: [{ type: 'content', content: { type: 'text', text: 'a\nb\nc\n' } }] };
+    expect(resultLine(text, 'Read')).toBe('3 dòng');
+    expect(resultLine(text, 'Bash')).toBe('c');
+    expect(resultLine({ content: [] }, 'Read')).toBeNull();
+    const run = applyEvent(base(), { runId: 'r', agent: 'claude', kind: 'tool', atMs: 0, line: null, usage: null, code: null, data: { toolCallId: 't', kind: 'read', status: 'completed', locations: [{ path }], content: [{ type: 'content', content: { type: 'text', text: 'x\ny\n' } }] } as JsonValue }, { stopping: false }).run;
+    expect(run.lines[0].result).toBe('2 dòng');
+  });
+  it('permLabel dùng tên trên menu quyền', () => {
+    TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
+    TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(ChatTurn);
+    const label = (perm: 'ask' | 'auto', place: 'direct' | 'draft') => {
+      fixture.componentRef.setInput('run', { ...base(), perm, place });
+      fixture.detectChanges();
+      return fixture.nativeElement.querySelector('.turn-who .dim')?.textContent;
+    };
+    expect(label('auto', 'direct')).toContain('Tự làm · thư mục hiện tại');
+    expect(label('ask', 'draft')).toContain('Hỏi trước · bản nháp');
+  });
+  it('chỉ tách tên tệp đậm cho đối số dạng đường dẫn, dấu đóng ngoài phần bị cắt', () => {
+    TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
+    TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(ChatTurn);
+    const step = (name: string, arg: string) => ({ text: '› x', tone: 'tool' as const, head: { name, arg } });
+    const render = (name: string, arg: string) => {
+      fixture.componentRef.setInput('run', { ...base(), lines: [step(name, arg)] });
+      fixture.detectChanges();
+      return fixture.nativeElement as HTMLElement;
+    };
+    let el = render('Read', path);
+    expect(el.querySelector('.cl-arg-file')?.textContent).toBe('SiteLayout.astro)');
+    el = render('Bash', 'cat src/a/b.ts');
+    expect(el.querySelector('.cl-arg-prefix')?.textContent).toBe('cat src/a/b.ts');
+    expect(el.querySelector('.cl-arg-file')?.textContent).toBe(')');
+    el = render('Fetch', 'https://example.com/a/b');
+    expect(el.querySelector('.cl-arg-file')?.textContent).toBe(')');
+    el = render('Grep', 'foo bar/baz');
+    expect(el.querySelector('.cl-arg-file')?.textContent).toBe(')');
+  });
   it('long_path_is_middle_truncated', () => {
     const text = middleTruncate(path, 40);
     expect(text.length).toBeLessThanOrEqual(40);

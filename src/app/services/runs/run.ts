@@ -53,7 +53,7 @@ export interface Run {
   lastTurn?: 'done' | 'failed' | 'stopped' | null;
   /** Model picked when it started, if not the agent's default. Live runs only. */
   model?: string | null;
-  /** Chỉ hỏi / Hỏi trước / Tự động, as last set. Live runs only. */
+  /** Chỉ hỏi / Hỏi trước / Tự làm, as last set. Live runs only. */
   perm?: 'read' | 'ask' | 'auto';
   /** Code tasks: the user's folder or a draft. Live runs only. */
   place?: Place;
@@ -135,7 +135,7 @@ export function recapOf(run: { prompt: string; lines: ConsoleLine[] }): string {
 
 /**
  * The open session can change to `to` without a new one: Claude takes every mode live
- * (`set_permission_mode`); the other agents only between Hỏi trước and Tự động, since
+ * (`set_permission_mode`); the other agents only between Hỏi trước and Tự làm, since
  * their Chỉ hỏi runs apart (a read-only CLI call, or a throwaway draft).
  */
 export function canSwitchLive(run: Run, to: Approval): boolean {

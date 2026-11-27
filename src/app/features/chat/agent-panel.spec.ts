@@ -407,6 +407,17 @@ describe('AgentPanel composer', () => {
       expect(el.querySelector('section.cx tg-dock-mascot')).not.toBeNull();
       expect(el.querySelector('.cx-row button[aria-label="Thêm tệp, lệnh hoặc skill"]')).not.toBeNull();
       expect(el.querySelector('.cx-row tg-agent-menu')).not.toBeNull();
+      // Task runs block sending mid-turn, so the hint must not promise a queue.
+      expect(el.querySelector('textarea#prompt')?.getAttribute('placeholder')).toBe('Agent đang làm… (Esc để dừng)');
+    });
+
+    it('promises a follow-up only when sending is open mid-turn', async () => {
+      const { fixture, el, patch } = await running();
+      // A read-only run viewed with the code-task mode picked is not blocked, so a message goes through.
+      patch({ task: false });
+      fixture.debugElement.injector.get(ChatState).mode.set('task');
+      patch({});
+      expect(fixture.debugElement.injector.get(ChatState).blocked()).toBeNull();
       expect(el.querySelector('textarea#prompt')?.getAttribute('placeholder')).toBe('Nhắn thêm, agent đọc sau bước này…');
     });
   });

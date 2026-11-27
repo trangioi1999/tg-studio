@@ -26,7 +26,7 @@ import { ChatState } from '../chat.state';
         <li class="cl-step" [attr.data-state]="st.state">
           <div class="cl-head">
             <svg class="cl-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3"/></svg>
-            <b>{{ head.name }}</b>@if (head.arg !== null) {<span class="cl-arg" [title]="head.arg">(@let parts = argParts(head.arg);<span class="cl-arg-prefix">{{ parts[0] }}</span><span class="cl-arg-file">{{ parts[1] }}</span>)</span>}
+            <b>{{ head.name }}</b>@if (head.arg !== null) {<span class="cl-arg" [title]="head.arg">(@let parts = argParts(head.arg, head.name);<span class="cl-arg-prefix">{{ parts[0] }}</span><span class="cl-arg-file">{{ parts[1] }})</span></span>}
           </div>
           @if (st.diff; as diff) {
             <div class="cl-result">└ +{{ diff.added }} −{{ diff.removed }}</div>
@@ -152,7 +152,9 @@ export class ChatTurn {
   });
   protected readonly copied = signal<string | null>(null);
 
-  protected argParts(arg: string): [string, string] {
+  /** Path-like arguments split into a clipped folder prefix and a bold file name; anything else stays whole. */
+  protected argParts(arg: string, tool: string): [string, string] {
+    if (tool === 'Bash' || /\s|:\/\//.test(arg)) return [arg, ''];
     const text = middleTruncate(arg);
     const slash = Math.max(text.lastIndexOf('/'), text.lastIndexOf('\\'));
     return [text.slice(0, slash + 1), text.slice(slash + 1)];
@@ -168,7 +170,7 @@ export class ChatTurn {
   protected permLabel(r: Run): string {
     if (!r.task || r.perm === 'read') return 'Chỉ hỏi';
     const where = r.place === 'direct' ? 'thư mục hiện tại' : 'bản nháp';
-    return `${r.perm === 'auto' ? 'Tự động' : 'Sửa code'} · ${where}`;
+    return `${r.perm === 'auto' ? 'Tự làm' : 'Hỏi trước'} · ${where}`;
   }
 
   protected failureOf(r: Run): string {

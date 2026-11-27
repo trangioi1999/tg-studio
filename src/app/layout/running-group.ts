@@ -5,6 +5,8 @@ import { withoutAttachments } from '../shared/utils/attachments';
 
 export interface RunningRow {
   id: string;
+  /** Run to open on click: the parent when it is listed, so the composer targets the session. */
+  open: string;
   agent: AgentId;
   title: string;
   child: boolean;
@@ -16,6 +18,7 @@ export interface RunningRow {
 export function runningRows(runs: Run[], max = 8): { rows: RunningRow[]; more: number } {
   const active = runs.filter((r) => r.status === 'running' || r.permissions.length > 0);
   const ids = new Set(active.map((r) => r.id));
+  const all = new Set(runs.map((r) => r.id));
   const parentOf = (r: Run): string | undefined => r.parent || /^(.*)~\d+$/.exec(r.id)?.[1];
   const children = new Map<string, Run[]>();
   for (const r of active) {
@@ -29,7 +32,7 @@ export function runningRows(runs: Run[], max = 8): { rows: RunningRow[]; more: n
     seen.add(r.id);
     const title = (withoutAttachments(r.prompt).trim() || 'Cuộc trò chuyện').slice(0, 80);
     rows.push({
-      id: r.id, agent: r.agent, project: r.project, child,
+      id: r.id, open: all.has(parentOf(r) ?? '') ? parentOf(r)! : r.id, agent: r.agent, project: r.project, child,
       title: parentOf(r) ? `↳ ${AGENT_META[r.agent].name} · ${title}` : title,
       status: r.permissions.length ? 'needs_you' : 'running',
     });

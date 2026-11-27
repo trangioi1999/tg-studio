@@ -205,7 +205,7 @@ export class MockBackend extends AgentBackend {
     ] } }, 140);
     send({ kind: 'tool', data: { toolCallId: 't1', title: 'npm test', kind: 'execute', status: 'pending' } }, 180);
     if (approval === 'auto') {
-      // Tự động: no card; the run goes on as if allowed.
+      // Tự làm: no card; the run goes on as if allowed.
       setTimeout(() => void this.respondPermission(runId, `perm-${runId}`, 'allow', false).catch(() => {}), 220);
       return runId;
     }

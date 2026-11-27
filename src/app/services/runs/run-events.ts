@@ -182,13 +182,14 @@ function applyTool(lines: ConsoleLine[], update: Json): ConsoleLine[] {
   const previous = lines[index];
   const head = toolHead(update);
   const hasName = update['_meta'] != null || update['kind'] != null;
-  const result = resultLine(update) ?? previous?.result;
+  const tool = hasName ? head.name : previous?.head?.name ?? head.name;
+  const result = resultLine(update, tool) ?? previous?.result;
   const diff = miniDiff(update, 6, previous?.diff) ?? previous?.diff;
   // Older title-only events retain the original ConsoleLine shape.
   const rich = previous?.head || hasName || head.arg !== null || result || diff;
   const line: ConsoleLine = {
     key, label, text: `› ${label}${suffix}`, tone: failed ? 'error' : 'tool',
-    ...(rich ? { head: { name: hasName ? head.name : previous?.head?.name ?? head.name, arg: head.arg ?? previous?.head?.arg ?? null } } : {}),
+    ...(rich ? { head: { name: tool, arg: head.arg ?? previous?.head?.arg ?? null } } : {}),
     ...(result ? { result } : {}),
     ...(diff ? { diff } : {}),
   };

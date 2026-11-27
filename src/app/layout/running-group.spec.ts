@@ -23,6 +23,7 @@ describe('runningRows', () => {
     expect(rows.map((r) => r.id)).toEqual(['A', 'A~1', 'A-child', 'B']);
     expect(rows.map((r) => r.child)).toEqual([false, true, true, false]);
     expect(rows[2].title).toBe('↳ Codex · Kiểm tra');
+    expect(rows.map((r) => r.open)).toEqual(['A', 'A', 'A', 'B']);
     expect(rows[3].project).toBe('/b');
     expect(more).toBe(0);
     const many = Array.from({ length: 12 }, (_, i) => run(`${i}`));
@@ -36,6 +37,7 @@ describe('runningRows', () => {
     const { rows } = runningRows([run('A~1'), run('A', { status: 'idle' }),
       run('con', { parent: 'vắng', agent: 'codex' })]);
     expect(rows.map((r) => r.id)).toEqual(['A~1', 'con']);
+    expect(rows.map((r) => r.open)).toEqual(['A', 'con']);
     expect(rows.every((r) => !r.child)).toBe(true);
     expect(rows[1].title).toBe('↳ Codex · Sửa giao diện');
   });

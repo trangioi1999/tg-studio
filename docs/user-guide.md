@@ -23,7 +23,7 @@ Màn chào mừng có nút **Mở thư mục dự án…** và, ngay dưới, c�
 | Vùng | Nội dung |
 |---|---|
 | Thanh trên | Nút thu gọn thanh bên, tên dự án và nhánh (bấm để gõ đường dẫn), nút **Tệp & thay đổi** |
-| Cột trái | **Trò chuyện mới**, rồi nhóm **Dự án** (nút thư mục bên cạnh để mở thêm dự án) với các cuộc trò chuyện của từng dự án. Dưới cùng là **Giám sát**, **Chi phí**, **Cài đặt**. Thu gọn thành dải biểu tượng bằng ⌘B / Ctrl+B; cửa sổ hẹp hơn 1200 px thì tự thu gọn, ⌘B mở danh sách đè lên khung chat |
+| Cột trái | **Trò chuyện mới**, rồi nhóm **Dự án** (nút thư mục bên cạnh để mở thêm dự án) với các cuộc trò chuyện của từng dự án. Trên cùng có nhóm **Đang chạy** liệt kê các lượt đang làm hoặc chờ duyệt ở mọi dự án (bấm để mở). Dưới cùng là **Giám sát**, **Chi phí**, **Cài đặt**. Thu gọn thành dải biểu tượng bằng ⌘B / Ctrl+B; cửa sổ hẹp hơn 1200 px thì tự thu gọn, ⌘B mở danh sách đè lên khung chat |
 | Giữa | Cuộc trò chuyện và ô chat. Thẻ duyệt luôn ghim ngay trên ô chat |
 | Bên phải | **Tệp & thay đổi**: tab **Thay đổi** (và **So sánh** khi chạy nhiều agent) luôn đứng đầu, sau đó là tệp đang mở; nút thư mục bật/tắt cây tệp, nút × hoặc Esc đóng panel. Mỗi cuộc trò chuyện giữ tab riêng. Tự mở một lần khi có thay đổi đầu tiên; panel nằm cạnh khung chat, không che thẻ duyệt |
 | Thanh dưới | Số agent đang chạy, **hạn mức 5 giờ và 7 ngày** của từng agent, chi phí hôm nay |
@@ -53,7 +53,7 @@ Dưới ô chat có hai nút:
 - **Chip quyền** (mọi agent đều có đủ 3 mức):
   - **Chỉ hỏi**: agent đọc code rồi trả lời, không sửa tệp nào. Nếu Claude lên kế hoạch sửa code, trên ô chat hiện thẻ **Làm luôn**: bấm thì cuộc trò chuyện chuyển sang Hỏi trước và Claude làm theo kế hoạch đó.
   - **Sửa code · hỏi trước** (mặc định): agent vẫn trả lời câu hỏi như thường; khi cần sửa hay chạy lệnh nhạy cảm thì hiện thẻ duyệt, bạn đồng ý là agent làm.
-  - **Tự động**: agent tự sửa và chạy lệnh, không xin phép (`git push`, `merge` vẫn bị chặn).
+  - **Tự làm**: agent tự sửa và chạy lệnh, không xin phép (`git push`, `merge` vẫn bị chặn).
 - **Chip nơi làm việc** (khi sửa code):
   - **Thư mục hiện tại** (mặc định): agent sửa thẳng code của bạn. Tab Thay đổi liệt kê các tệp agent sửa như Source Control: chọn tệp rồi **Commit**, hoặc **Hoàn tác** về như trước khi agent sửa.
   - **Bản nháp từ nhánh…**: agent làm trong bản sao riêng tạo từ nhánh bạn chọn; code thật chỉ đổi khi bạn bấm **Áp vào thư mục**.
@@ -67,7 +67,7 @@ Dưới ô chat có hai nút:
 
 ![Danh sách skill khi gõ /](images/skills.png)
 
-Đính kèm ảnh và tệp: dán ảnh chụp màn hình vào ô chat (Ctrl+V / ⌘V), kéo thả tệp vào ô chat, hoặc bấm nút kẹp giấy để chọn. Tối đa 10 tệp, mỗi tệp 25 MB; bấm × để bỏ. Ảnh (PNG, JPG, GIF, WebP) được gửi thẳng cho agent nhận ảnh (Claude, Codex và các agent qua ACP có báo nhận ảnh); tệp chữ nhỏ được gửi kèm nội dung; tệp khác và ảnh cho agent không nhận ảnh được gửi kèm đường dẫn để agent tự mở. Tệp lưu trong thư mục dữ liệu của app, không ghi vào repo, và vẫn hiện trong tin nhắn khi mở lại cuộc trò chuyện.
+Đính kèm ảnh và tệp: dán ảnh chụp màn hình vào ô chat (Ctrl+V / ⌘V), kéo thả tệp vào ô chat, hoặc bấm **+ → Đính kèm tệp** để chọn. Tối đa 10 tệp, mỗi tệp 25 MB; bấm × để bỏ. Ảnh (PNG, JPG, GIF, WebP) được gửi thẳng cho agent nhận ảnh (Claude, Codex và các agent qua ACP có báo nhận ảnh); tệp chữ nhỏ được gửi kèm nội dung; tệp khác và ảnh cho agent không nhận ảnh được gửi kèm đường dẫn để agent tự mở. Tệp lưu trong thư mục dữ liệu của app, không ghi vào repo, và vẫn hiện trong tin nhắn khi mở lại cuộc trò chuyện.
 
 Gọi skill: gõ `/` ở đầu ô chat để mở danh sách skill và lệnh của agent đang chọn, chia nhóm **Skill của dự án**, **Skill trên máy**, **Plugin**, **Lệnh**. Gõ tiếp để lọc, ↑/↓ để chọn, Enter hoặc Tab để chèn, Esc để đóng. Với Codex, skill gọi bằng `$` ở bất kỳ đâu trong câu. App đọc danh sách từ chính agent (mở phiên không gửi prompt, không tốn token), nên skill trong `.claude/skills/` (Claude) hay `.agents/skills/` (Codex) của dự án đều hiện ra. Mục **Cài đặt → Kết nối** có phần *Skill agent đang thấy* liệt kê đủ cho dự án đang mở.
 
@@ -75,7 +75,7 @@ Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm bi�
 
 ![Xác nhận xoá ngay tại dòng](images/delete.png)
 
-Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) gom vào một dòng **Nhật ký làm việc**: mở ra khi agent đang làm, tự thu gọn khi xong. Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
+Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) hiện thành từng dòng kiểu CLI (tên công cụ, đối số, kết quả, thay đổi ngắn); luôn thấy 3 bước gần nhất, các bước trước đó gập lại thành "N bước trước". Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
 
 Sửa code cần thư mục là repo Git có ít nhất một commit; nếu chưa có, app có nút **Khởi tạo Git** hoặc **Tạo commit đầu tiên**, xem trước rồi mới làm. Tệp chưa commit không có trong bản nháp, app sẽ cảnh báo trước.
 
@@ -161,7 +161,7 @@ Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cun
 
 **Agent con.** Khi task có phần làm độc lập được, agent đang làm (ví dụ Claude) có thể tự giao phần đó cho Codex hoặc một Claude khác:
 
-- Ở **Tự động**, agent tự chia việc, tự giao, tự đợi và tự gộp kết quả, không hỏi gì. Ở **Hỏi trước**, app hiện thẻ "Giao cho Codex: …" để bạn cho phép. Ở **Chỉ hỏi** không giao được.
+- Ở **Tự làm**, agent tự chia việc, tự giao, tự đợi và tự gộp kết quả, không hỏi gì. Ở **Hỏi trước**, app hiện thẻ "Giao cho Codex: …" để bạn cho phép. Ở **Chỉ hỏi** không giao được.
 - Mỗi agent con là một dòng lồng trong tin nhắn của agent đã giao: avatar, việc được giao, trạng thái, thời gian, chi phí và bước đang làm. Bấm vào dòng để xem nhật ký của nó ngay tại chỗ; có nút **Dừng** khi đang chạy. Dừng agent cha thì các agent con cũng dừng.
 - Agent con làm trong bản nháp riêng chụp từ thư mục của agent cha, nên không đè tệp agent cha đang sửa. Xong việc, các tệp của nó được gộp về thư mục của agent cha (gộp từng dòng khi cả hai cùng sửa một tệp) và hiện trong tab Thay đổi như mọi thay đổi khác. Tệp xung đột thì agent cha tự gộp; dòng của agent con ghi rõ tệp nào.
 - Tối đa 3 agent con chạy cùng lúc; agent con không giao tiếp được cho agent khác. Agent chưa cài thì agent cha tự làm phần đó.
