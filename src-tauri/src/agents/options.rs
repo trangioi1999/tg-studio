@@ -302,7 +302,7 @@ where F: FnOnce(Arc<AcpClient>, PathBuf) -> Fut, Fut: std::future::Future<Output
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     env::isolate(&mut process);
     env::adapter_env(&mut process);
-    let mut child = process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", program.display()))?;
+    let mut child = process.spawn().map_err(|e| format!("Không chạy được {}: {e}", program.display()))?;
     let pid = child.id();
     // "Internal error" alone says nothing; the adapter's own log says why. Keep its tail.
     let stderr = child.stderr.take().expect("piped stderr");

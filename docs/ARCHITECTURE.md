@@ -99,7 +99,7 @@ Quyền: `git push`, merge và `gh pr merge` luôn bị từ chối. Lệnh kh�
 
 ## Hạn mức gói (Claude)
 
-`claude -p --output-format stream-json` phát `rate_limit_event`; `rate_limit_info.unifiedWindows` có `five_hour`, `seven_day`… với `utilization` (0–1) và `resetsAt` (giây). `usage::parse_limits` đổi thành `LimitWindow`, `tasks/headless.rs` phát event `limits`, `store/` giữ bản mới nhất mỗi agent (bảng `account_limits`, schema v3) và `account_limits` trả lại khi mở app. Adapter ACP chỉ chuyển tiếp event này (trong `usage_update._meta["_claude/rateLimit"]`) khi nó đến sau phản hồi đầu tiên của model, nên thực tế task Sửa code chưa có số. Đăng nhập bằng API key thì không có cửa sổ nào, UI không hiện số.
+`claude -p --output-format stream-json` phát `rate_limit_event`; `rate_limit_info.unifiedWindows` có `five_hour`, `seven_day`… với `utilization` (0–1) và `resetsAt` (giây). `usage::parse_limits` đổi thành `LimitWindow`, `tasks/headless.rs` phát event `limits`, `store/` giữ bản mới nhất mỗi agent (bảng `account_limits`, schema v3) và `account_limits` trả lại khi mở app. Task của Claude (mọi chế độ) chạy qua `ClaudeConn` (`claude -p` stream-json), đọc `rate_limit_event` ngay trên stdout và chuyển thành `usage_update._meta["_claude/rateLimit"]`, nên task Sửa code cũng có số. Chỉ đường adapter cũ (`TG_CLAUDE_ACP=1`) mới thiếu: adapter ACP chỉ chuyển tiếp event này khi nó đến sau phản hồi đầu tiên của model. Đăng nhập bằng API key thì không có cửa sổ nào, UI không hiện số.
 
 ## Usage ledger, giá và ngân sách
 

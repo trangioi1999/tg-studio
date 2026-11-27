@@ -386,6 +386,29 @@ async fn claude_refused_resume_goes_on_fresh_with_recap() {
     client.close();
 }
 
+/// The CLI may answer `initialize` before it prints its refusal: the run still notices.
+#[tokio::test]
+async fn claude_refused_resume_after_initialize_is_noticed() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Rules)).unwrap());
+    let (io, agent) = tokio::io::duplex(1 << 16);
+    let (agent_in, mut agent_out) = tokio::io::split(agent);
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(agent_in).lines();
+        let init: serde_json::Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        assert_eq!(init["request"]["subtype"], "initialize");
+        let answer = json!({"type":"control_response","response":{"subtype":"success","request_id":init["request_id"],"response":crate::acp::fake_claude::init_response()}});
+        let refusal = json!({"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"phien-cu","errors":["No conversation found with session ID: phien-cu"]});
+        agent_out.write_all(format!("{answer}\n{refusal}\n").as_bytes()).await.unwrap();
+        agent_out.shutdown().await.unwrap();
+    });
+    let (reader, writer) = tokio::io::split(io);
+    let conn = ClaudeConn::start(reader, writer, session);
+    let why = tokio::time::timeout(Duration::from_secs(3), refused_resume(&conn)).await.unwrap().expect("Claude đã từ chối phiên cũ");
+    assert!(why.contains("No conversation found"), "{why}");
+}
+
 /// A resumed process that opened fine is left alone, and `drive_session`'s own `initialize`
 /// does not ask Claude a second time.
 #[tokio::test]
@@ -762,6 +785,8 @@ async fn process_death_with_open_stdio_does_not_hang() {
     let dead = async { wait_permission(&sink).await; };
     let result = drive(&client, &session, &std::env::temp_dir(), "p", &[], rx, dead).await;
     assert_eq!(result.0, "failed");
+    // Agent-neutral wording: Claude no longer runs through an adapter.
+    assert_eq!(result.1.as_deref(), Some("Codex đã dừng trước khi hoàn tất yêu cầu."));
     assert!(sink.0.lock().unwrap().iter().any(|e| e.kind == "permission_resolved"));
 }
 #[tokio::test]

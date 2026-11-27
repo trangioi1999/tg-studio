@@ -43,6 +43,8 @@ pub struct TaskSession {
     muted: AtomicBool,
     busy: AtomicBool,
     approval: Mutex<Approval>,
+    /// A question in a throwaway draft: it may never leave `Deny` (its draft goes away).
+    throwaway: AtomicBool,
     /// Tells the connection about a new `approval` (Claude's own permission mode follows it).
     mode_hook: Mutex<Option<ModeHook>>,
     /// The agent's latest message, and whether a tool call ended it (the next chunk starts anew).
@@ -68,7 +70,7 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),mode_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default()})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default()})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     /// Changes how requests are answered, and tells the connection through the hook if there is one.
@@ -77,6 +79,17 @@ impl TaskSession {
         *self.approval.lock().unwrap() = approval;
         let hook = self.mode_hook.lock().unwrap().clone();
         if let Some(Err(e)) = hook.map(|hook| hook(approval)) { self.note(format!("Không đổi được chế độ của {}: {e}", self.agent.display_name())); }
+    }
+    /// The session is a question in a throwaway draft, deleted when it ends.
+    pub fn set_throwaway(&self) { self.throwaway.store(true, Ordering::SeqCst); }
+    /// The user's switch of mode in an open session. A throwaway question refuses to allow
+    /// edits: they would land in a draft that goes away with the session.
+    pub fn switch_approval(&self, approval:Approval) -> Result<(),String> {
+        if approval != Approval::Deny && self.throwaway.load(Ordering::SeqCst) {
+            return Err(format!("{} trả lời Chỉ hỏi trong một bản nháp tạm, sẽ bị xoá khi phiên kết thúc, nên phiên này không sửa code được. Hãy mở phiên mới.", self.agent.display_name()));
+        }
+        self.set_approval(approval);
+        Ok(())
     }
     /// Set by `start_task` (`follow_mode`) once the connection exists.
     pub fn set_mode_hook(&self, hook:ModeHook) { *self.mode_hook.lock().unwrap() = Some(hook); }
@@ -707,6 +720,25 @@ mod tests {
         session.set_mode_hook(Arc::new(|_| Err("không đổi được".into())));
         session.set_approval(Approval::Ask);
         assert_eq!(session.approval(), Approval::Ask);
+    }
+    /// A question in a throwaway draft (Gemini, Kiro, Claude with `TG_CLAUDE_ACP=1`) cannot
+    /// become Sửa code: its edits would go away with the draft when the session ends.
+    #[test]
+    fn a_throwaway_question_keeps_refusing_edits() {
+        let session = TaskSession::new("r", AgentKind::Gemini, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Memory::default())).unwrap();
+        session.set_approval(Approval::Deny);
+        session.set_throwaway();
+        for to in [Approval::Ask, Approval::Auto] {
+            let error = session.switch_approval(to).unwrap_err();
+            assert!(error.contains("bản nháp tạm"), "{error}");
+        }
+        assert_eq!(session.approval(), Approval::Deny);
+        assert!(session.switch_approval(Approval::Deny).is_ok());
+        // A question in place switches freely.
+        let in_place = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), Arc::new(Recorder::default()), Arc::new(Memory::default())).unwrap();
+        in_place.set_approval(Approval::Deny);
+        assert!(in_place.switch_approval(Approval::Ask).is_ok());
+        assert_eq!(in_place.approval(), Approval::Ask);
     }
     #[tokio::test]
     async fn deny_allows_only_claude_plan_files() {

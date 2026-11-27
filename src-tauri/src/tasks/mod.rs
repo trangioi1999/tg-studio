@@ -125,7 +125,7 @@ pub(crate) fn spawn_adapter(command: &(PathBuf, Vec<String>), dir: &Path) -> Res
     env::isolate(&mut process);
     // `CLAUDE_CODE_EXECUTABLE` is for claude-agent-acp; `claude` itself needs nothing.
     if !is_claude_cli(&command.0) { env::adapter_env(&mut process); }
-    process.spawn().map_err(|e| format!("Không chạy được adapter {}: {e}", command.0.display()))
+    process.spawn().map_err(|e| format!("Không chạy được {}: {e}", command.0.display()))
 }
 
 fn is_claude_cli(program: &Path) -> bool {
@@ -186,8 +186,10 @@ fn warm_fits(native: bool, approval: Approval, prefs: &SessionPrefs) -> bool {
 /// Claude may refuse `--resume` of a conversation even when its file is there (corrupt, from
 /// another version): it prints an error `result` and exits. `Some(why)`: the launch is dead
 /// and the run should go on in a new one. Any other failure is left to `drive_session`.
+/// It may answer `initialize` first, so the session id (or that error) is awaited too.
 async fn refused_resume(conn: &ClaudeConn) -> Option<String> {
-    match conn.initialize().await { Ok(_) => None, Err(_) => conn.startup_error() }
+    if conn.initialize().await.is_err() { return conn.startup_error(); }
+    match conn.session_id().await { Ok(_) => None, Err(_) => conn.startup_error() }
 }
 
 /// An agent's stderr lines as the run's `stderr` events.
@@ -422,9 +424,9 @@ async fn run_turn(client: &dyn AgentConn, session: &TaskSession, id: &str, promp
                 let (status, error) = turn_outcome(&result);
                 TurnEnd { status, error, alive: true }
             }
-            Err(e) => TurnEnd { status: "failed", error: Some(format!("Phiên ACP thất bại: {e}")), alive: true },
+            Err(e) => TurnEnd { status: "failed", error: Some(format!("Phiên agent thất bại: {e}")), alive: true },
         },
-        _ = dead.as_mut() => TurnEnd { status: "failed", error: Some("Adapter đã dừng trước khi hoàn tất yêu cầu.".into()), alive: false },
+        _ = dead.as_mut() => TurnEnd { status: "failed", error: Some(format!("{} đã dừng trước khi hoàn tất yêu cầu.", session.agent().display_name())), alive: false },
     }
 }
 
@@ -458,7 +460,7 @@ async fn drive_session(client: &dyn AgentConn, session: &TaskSession, mut plan: 
     let (session_id, loaded) = tokio::select! {
         biased;
         _ = &mut stop => { session.finish().await; return ("stopped", None); }
-        _ = dead.as_mut() => { session.finish().await; return ("failed", Some("Adapter đã dừng khi đang khởi tạo.".into())); }
+        _ = dead.as_mut() => { session.finish().await; return ("failed", Some(format!("{} đã dừng khi đang khởi tạo.", session.agent().display_name()))); }
         result = setup => match result {
             Ok(opened) => opened,
             Err(e) => { session.finish().await; return ("failed", Some(e)); }
@@ -662,7 +664,11 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
     let sink = Arc::new(AppSink(app.clone()));
     let rules = Arc::new(RepoRules { app: app.clone(), repo: repo.to_string_lossy().into_owned(), agent });
     let session = match TaskSession::new(&id, agent, &wt.path, sink.clone(), rules) {
-        Ok(session) => { session.set_approval(approval); Arc::new(session) }
+        Ok(session) => {
+            session.set_approval(approval);
+            if throwaway { session.set_throwaway(); }
+            Arc::new(session)
+        }
         Err(e) => {
             terminate_adapter(&mut child, pid).await;
             if let Some(warm) = warm { warm.release(); }
@@ -835,8 +841,7 @@ pub(crate) async fn start_task_with(app: AppHandle, request: TaskRequest) -> Res
 #[tauri::command(async)]
 pub fn set_approval(tasks: State<'_, TaskRuns>, run_id: String, approval: Approval) -> Result<(), String> {
     let session = tasks.0.lock().map_err(|_| "Không đọc được phiên ACP.")?.get(&run_id).cloned();
-    session.ok_or("Phiên này đã đóng.")?.set_approval(approval);
-    Ok(())
+    session.ok_or("Phiên này đã đóng.")?.switch_approval(approval)
 }
 
 /// Branches a draft can start from.

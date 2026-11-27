@@ -222,7 +222,7 @@ impl ClaudeConn {
     }
 
     /// The session id from Claude's first lines, waiting up to `SETUP_TIMEOUT`.
-    async fn session_id(&self) -> Result<String, String> {
+    pub(crate) async fn session_id(&self) -> Result<String, String> {
         let mut state = self.session.subscribe();
         let seen = tokio::time::timeout(SETUP_TIMEOUT, state.wait_for(|s| s.id.is_some() || s.closed)).await
             .map_err(|_| format!("Claude không báo mã phiên sau {} giây.", SETUP_TIMEOUT.as_secs()))?
