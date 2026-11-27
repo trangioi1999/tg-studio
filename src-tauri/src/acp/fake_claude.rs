@@ -17,7 +17,7 @@ type Reader = ReadHalf<DuplexStream>;
 type Writer = WriteHalf<DuplexStream>;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // `Ask` and `WaitForControl` serve the permission and interrupt tests (Tasks 3–4).
+#[allow(dead_code)] // `WaitForControl` serves the interrupt tests (Task 4).
 pub enum ClaudeStep {
     /// A `text_delta` stream event of the main agent.
     Text(&'static str),

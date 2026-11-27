@@ -240,6 +240,50 @@ fn count(log: &crate::acp::fake::Log, method: &str) -> usize {
     log.lock().unwrap().iter().filter(|v| v["method"] == method).count()
 }
 
+/// Claude's `can_use_tool` requests reach the same `TaskSession::permission` as an adapter's
+/// `session/request_permission`: cards, Chỉ hỏi and the forbidden list all hold.
+#[tokio::test]
+async fn claude_permission_routes_through_task_session() {
+    use crate::acp::claude_conn::ClaudeConn;
+    use crate::acp::fake_claude::{fake_claude, ClaudeStep};
+    let behavior = |log: &crate::acp::fake_claude::Log| -> Vec<serde_json::Value> {
+        log.lock().unwrap().iter().filter(|m| m["type"] == "control_response").map(|m| m["response"]["response"].clone()).collect()
+    };
+    for (approval, command, allowed) in [(Approval::Ask, "rm -rf build", true), (Approval::Deny, "rm -rf build", false), (Approval::Auto, "git push origin main", false)] {
+        let sink = Arc::new(Recorder::default());
+        let session = Arc::new(TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Rules)).unwrap());
+        session.set_approval(approval);
+        let steps = vec![
+            ClaudeStep::Ask { tool: "Bash", input: json!({ "command": command }) },
+            ClaudeStep::Result { stop: "success", usage: json!({}), cost: 0.0 },
+        ];
+        let (reader, writer, log) = fake_claude(steps);
+        let conn = ClaudeConn::start(reader, writer, session.clone());
+        conn.initialize().await.unwrap();
+        let id = conn.new_session(&std::env::temp_dir(), json!([])).await.unwrap();
+        let turn = { let conn = conn.clone(); let id = id.clone(); tokio::spawn(async move { conn.prompt_turn(&id, "dọn").await }) };
+        if approval == Approval::Ask {
+            wait_permission(&sink).await;
+            let card = sink.0.lock().unwrap().iter().find(|e| e.kind == "permission").unwrap().data.clone().unwrap();
+            assert_eq!(card["toolCall"]["kind"], "execute");
+            assert_eq!(card["toolCall"]["rawInput"]["command"], command);
+            session.respond_permission(card["requestId"].as_str().unwrap(), "allow", false).unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(3), turn).await.unwrap().unwrap().unwrap();
+        let answers = behavior(&log);
+        assert_eq!(answers.len(), 1, "{approval:?}: {answers:?}");
+        if allowed {
+            assert_eq!(answers[0]["behavior"], "allow");
+            assert_eq!(answers[0]["updatedInput"]["command"], command);
+        } else {
+            assert_eq!(answers[0]["behavior"], "deny", "{approval:?}");
+            assert_eq!(answers[0]["message"], "Người dùng đã từ chối.");
+            assert!(!sink.0.lock().unwrap().iter().any(|e| e.kind == "permission"), "{approval:?}: no card");
+        }
+        conn.close();
+    }
+}
+
 #[tokio::test]
 async fn messages_stay_in_one_session_and_closing_is_a_normal_end() {
     use crate::acp::fake::Step;

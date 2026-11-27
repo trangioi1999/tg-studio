@@ -294,6 +294,8 @@ impl TaskSession {
         let unclear = info.command.as_deref().is_some_and(policy::must_ask);
         let verdict = match (verdict, self.approval()) {
             (Verdict::Ask, Approval::Auto) if !unclear => Verdict::Allow,
+            // Claude in plan mode writes its plan to a file (spec §11.2): the one write Chỉ hỏi allows.
+            (_, Approval::Deny) if self.agent == AgentKind::Claude && is_claude_plan_write(&info, &tool) => Verdict::Allow,
             (_, Approval::Deny) => Verdict::Deny,
             (v, _) => v,
         };
@@ -334,6 +336,39 @@ impl TaskSession {
         Box::pin(async move {Ok(receiver.await.unwrap_or_else(|_|cancelled()))})
     }
 }
+/// An edit whose every file lies in `~/.claude/plans`, where Claude in plan mode keeps its plan.
+fn is_claude_plan_write(info:&policy::ToolInfo, tool:&Value) -> bool {
+    if info.kind != "edit" || info.command.is_some() { return false; }
+    let Some(home) = crate::agents::detect::home_dir().filter(|h| !h.is_empty()) else { return false };
+    let plans = Path::new(&home).join(".claude").join("plans");
+    let raw = &tool["rawInput"];
+    let named = ["file_path", "path", "notebook_path"].iter().map(|k| &raw[*k]);
+    let in_content = tool["content"].as_array().into_iter().flatten().map(|c| &c["path"]);
+    let in_locations = tool["locations"].as_array().into_iter().flatten().map(|l| &l["path"]);
+    let paths: Vec<&Value> = named.chain(in_content).chain(in_locations).filter(|p| !p.is_null()).collect();
+    !paths.is_empty() && paths.iter().all(|p| p.as_str().is_some_and(|p| inside_dir(Path::new(p), &plans)))
+}
+
+/// True when `path` names something strictly inside `dir`, as the file system resolves it:
+/// absolute, no `..`, and symlinks followed. A part that does not exist yet (a new plan, a
+/// plans folder Claude has still to create) is taken as written under its resolved parent;
+/// a dangling symlink is refused, since writing through it would create its target.
+fn inside_dir(path:&Path, dir:&Path) -> bool {
+    use std::path::Component;
+    if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) { return false; }
+    match (resolve(path), resolve(dir)) {
+        (Some(path), Some(dir)) => path != dir && path.starts_with(&dir),
+        _ => false,
+    }
+}
+
+/// `path` with its existing part canonicalized and the rest appended unchanged.
+fn resolve(path:&Path) -> Option<std::path::PathBuf> {
+    if std::fs::symlink_metadata(path).is_ok() { return std::fs::canonicalize(path).ok(); }
+    let (parent, name) = (path.parent()?, path.file_name()?);
+    Some(resolve(parent)?.join(name))
+}
+
 impl ClientHandler for TaskSession {
     fn on_notification(&self, method:&str, params:Value) {
         if method == crate::acp::client::NO_ASKING_MODE {
@@ -609,6 +644,57 @@ mod tests {
         session.on_notification("session/update", json!({"sessionId":"root","update":{"sessionUpdate":"subagent_update","sessionId":"kid2","title":"Khác","state":{"state":"running"}}}));
         session.finish().await;
         assert_eq!(sink.children.lock().unwrap().last().unwrap(), "end p~2 stopped");
+    }
+
+    /// Chỉ hỏi lets Claude write its plan (spec §11.2) and nothing else.
+    #[tokio::test]
+    async fn deny_allows_only_claude_plan_files() {
+        let home = std::path::PathBuf::from(crate::agents::detect::home_dir().unwrap());
+        let write = |path: &std::path::Path| json!({
+            "toolCall": crate::acp::claude_conn::tool_call_of(&json!({"type":"tool_use","id":"t","name":"Write","input":{"file_path":path,"content":"# kế hoạch"}})),
+            "options": [{"optionId":"allow","kind":"allow_once"},{"optionId":"reject","kind":"reject_once"}],
+        });
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("r", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.set_approval(Approval::Deny);
+        let plans = home.join(".claude").join("plans");
+        assert_eq!(session.on_request("session/request_permission".into(), write(&plans.join("x.md"))).await.unwrap(), selected("allow"));
+        for outside in [plans.join("..").join("settings.json"), std::path::PathBuf::from("/tmp/x"), plans.clone(), std::path::PathBuf::from("x.md")] {
+            assert_eq!(session.on_request("session/request_permission".into(), write(&outside)).await.unwrap(), selected("reject"), "{outside:?}");
+        }
+        // Another agent gets no exception, and neither does a command.
+        let codex = TaskSession::new("r", AgentKind::Codex, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        codex.set_approval(Approval::Deny);
+        assert_eq!(codex.on_request("session/request_permission".into(), write(&plans.join("x.md"))).await.unwrap(), selected("reject"));
+        let mut bash = write(&plans.join("x.md"));
+        bash["toolCall"] = crate::acp::claude_conn::tool_call_of(&json!({"type":"tool_use","id":"t","name":"Bash","input":{"command":format!("echo > {}", plans.join("x.md").display())}}));
+        assert_eq!(session.on_request("session/request_permission".into(), bash).await.unwrap(), selected("reject"));
+        assert!(!sink.0.lock().unwrap().iter().any(|e| e.kind == "permission"));
+    }
+
+    /// A symlink inside the plans folder cannot carry a write out of it.
+    #[cfg(unix)]
+    #[test]
+    fn plan_folder_check_resolves_symlinks() {
+        let base = std::env::temp_dir().join(format!("tg-plans-{}", uuid::Uuid::new_v4()));
+        let plans = base.join(".claude/plans");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&plans).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, plans.join("link")).unwrap();
+        std::os::unix::fs::symlink(outside.join("missing.md"), plans.join("dangling.md")).unwrap();
+        std::os::unix::fs::symlink(base.join(".claude/settings.json"), plans.join("file-link.md")).unwrap();
+        std::fs::write(base.join(".claude/settings.json"), "{}").unwrap();
+        assert!(inside_dir(&plans.join("x.md"), &plans));
+        assert!(inside_dir(&plans.join("sub/new/x.md"), &plans), "Claude may create folders under plans");
+        for escape in [plans.join("link/x.md"), plans.join("dangling.md"), plans.join("file-link.md"), plans.join("sub/../../settings.json"), plans.clone()] {
+            assert!(!inside_dir(&escape, &plans), "{escape:?}");
+        }
+        // A plans folder that does not exist yet still works, and still holds.
+        let fresh = base.join("fresh/.claude/plans");
+        assert!(inside_dir(&fresh.join("x.md"), &fresh));
+        assert!(!inside_dir(&base.join("fresh/.claude/x.md"), &fresh));
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[tokio::test]
