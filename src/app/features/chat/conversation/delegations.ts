@@ -1,14 +1,13 @@
-import { Component, computed, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { fmtDuration, fmtUsd } from '../../../shared/utils/format';
 import { costOf } from '../../../services/usage/pricing';
 import { AgentId, Delegation } from '../../../core/protocol';
 import { AGENT_META } from '../../../services/agents/agent-meta';
 import { RunsService } from '../../../services/runs/runs.service';
 import { Run, turnStart } from '../../../services/runs/run';
-import { segmentsOf } from './timeline';
 import { WorkspaceService } from '../../../services/workspace.service';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
-import { Markdown } from '../../../shared/ui/markdown';
+import { AgentTerminal, taskOf } from './agent-terminal';
 
 type State = 'needs_you' | 'running' | 'waiting' | 'failed' | 'stopped';
 
@@ -39,48 +38,36 @@ const LABEL: Record<Delegation['status'], [State, string]> = {
 /** The agents a run delegated to, nested in its message: one row each, opened in place. */
 @Component({
   selector: 'tg-delegations',
-  imports: [AgentAvatar, Markdown],
+  imports: [AgentAvatar, AgentTerminal],
   template: `
     @if (items().length) {
       <section class="dlg" aria-label="Việc đã giao cho agent khác">
         @for (it of items(); track it.key) {
-          <div class="dlg-item" [class.open]="opened().has(it.key)">
-            <div class="dlg-head">
-              <button class="dlg-toggle" (click)="toggle(it.key)" [disabled]="!it.run" [attr.aria-expanded]="opened().has(it.key)"
-                [title]="it.run ? 'Xem agent này làm gì' : ''">
-                <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-                <tg-agent-avatar [agent]="it.agent" [size]="18" />
-                <strong>{{ meta[it.agent].name }}</strong>
-                <span class="ellipsis dlg-task" [title]="it.task">{{ it.task }}</span>
-              </button>
-              <span class="pill" [attr.data-status]="it.state">
-                @if (it.state === 'running') { <span class="spin" aria-hidden="true"></span> }
-                {{ it.label }}
-              </span>
-              @if (it.run) { <span class="mono dim dlg-meta">{{ duration(it.run) }}@if (cost(it.run) !== null) { · {{ usd(cost(it.run)) }} }</span> }
-              @if (it.run?.status === 'running') {
-                <button class="btn ghost sm" (click)="runs.stop(it.run!.id)">Dừng</button>
-              }
-              @if (it.delegation?.worktree && it.run) {
-                <button class="btn ghost sm" (click)="review(it.run!.id)">Xem thay đổi</button>
-              }
-            </div>
-            @if (it.now) { <div class="dlg-now dim ellipsis" [title]="it.now">{{ it.now }}</div> }
-            @if (opened().has(it.key) && it.run) {
-              <div class="dlg-body">
-                @for (seg of segments(it.run); track $index) {
-                  @switch (seg.kind) {
-                    @case ('text') { <tg-markdown class="msg-agent" [text]="seg.text" /> }
-                    @case ('work') {
-                      <ol class="dlg-steps">
-                        @for (st of seg.steps; track $index) {
-                          <li [attr.data-state]="st.state"><span class="mono ellipsis" [title]="st.text">{{ st.text }}</span></li>
-                        }
-                      </ol>
-                    }
-                  }
+          <div class="dlg-item" [class.open]="isOpen(it)">
+            @if (isOpen(it)) {
+              <tg-agent-terminal [run]="it.run!" (collapse)="toggle(it.key)" />
+            } @else {
+              <div class="dlg-head">
+                <button class="dlg-toggle" (click)="toggle(it.key)" [disabled]="!it.run" [attr.aria-expanded]="false"
+                  [title]="it.run ? 'Xem agent này làm gì' : ''">
+                  <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+                  <tg-agent-avatar [agent]="it.agent" [size]="18" />
+                  <strong>{{ meta[it.agent].name }}</strong>
+                  <span class="ellipsis dlg-task" [title]="it.task">{{ it.task }}</span>
+                </button>
+                <span class="pill" [attr.data-status]="it.state">
+                  @if (it.state === 'running') { <span class="spin" aria-hidden="true"></span> }
+                  {{ it.label }}
+                </span>
+                @if (it.run) { <span class="mono dim dlg-meta">{{ duration(it.run) }}@if (cost(it.run) !== null) { · {{ usd(cost(it.run)) }} }</span> }
+                @if (it.run?.status === 'running') {
+                  <button class="btn ghost sm" (click)="runs.stop(it.run!.id)">Dừng</button>
+                }
+                @if (it.delegation?.worktree && it.run) {
+                  <button class="btn ghost sm" (click)="review(it.run!.id)">Xem thay đổi</button>
                 }
               </div>
+              @if (it.now) { <div class="dlg-now dim ellipsis" [title]="it.now">{{ it.now }}</div> }
             }
           </div>
         }
@@ -97,7 +84,9 @@ export class Delegations {
   /** All but these: the ones no marker placed, at the end of the run. */
   readonly except = input<readonly (string | number)[]>([]);
   protected readonly meta = AGENT_META;
-  protected readonly opened = signal<Set<string>>(new Set());
+  /** One agent open at a time in a message; a finished one folds back to its summary row. */
+  protected readonly opened = signal<string | null>(null);
+  private watched: { key: string | null; status: string | null } = { key: null, status: null };
 
   protected readonly items = computed<Item[]>(() => {
     const only = this.only();
@@ -127,21 +116,28 @@ export class Delegations {
     return items;
   });
 
-  protected toggle(key: string): void {
-    this.opened.update((s) => {
-      const next = new Set(s);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
+  constructor() {
+    effect(() => {
+      const key = this.opened();
+      const status = this.all().find((it) => it.key === key)?.run?.status ?? null;
+      untracked(() => {
+        // Only a run seen finishing folds: one opened from history stays open.
+        if (key && this.watched.key === key && this.watched.status === 'running' && status !== 'running' && status !== 'idle') this.opened.set(null);
+        this.watched = { key, status };
+      });
     });
+  }
+
+  protected isOpen(it: Item): boolean {
+    return this.opened() === it.key && !!it.run;
+  }
+
+  protected toggle(key: string): void {
+    this.opened.update((k) => (k === key ? null : key));
   }
 
   protected review(runId: string): void {
     this.workspace.open({ kind: 'changes', runId });
-  }
-
-  protected segments(run: Run) {
-    return segmentsOf(run.lines, run.status === 'running');
   }
 
   protected cost(r: Run): number | null {
@@ -174,7 +170,4 @@ export class Delegations {
   }
 }
 
-/** The delegated task without the note TG Studio adds for the agent. */
-export function taskOf(prompt: string): string {
-  return prompt.replace(/\n\n\(Việc được [\s\S]*$/, '').replace(/\n\nTệp liên quan: .*$/, '').trim();
-}
+export { taskOf };

@@ -27,6 +27,9 @@ export class UiService {
   /** The user's choice for the file tree beside the editor; null follows the panel's width. */
   readonly filesOpen = signal<boolean | null>(null);
   readonly filesShown = computed(() => this.filesOpen() ?? !this.sideCompact());
+  /** The run whose big terminal window is open, if any. */
+  readonly agentWindow = signal<string | null>(null);
+  private agentWindowFrom: HTMLElement | null = null;
   /** The window is narrower than {@link NARROW_QUERY}. */
   readonly narrow = signal(false);
   /** The user's choice on a wide window, kept per machine. */
@@ -67,6 +70,18 @@ export class UiService {
   openSettings(tab: SettingsTab = 'agents'): void {
     this.settingsTab.set(tab);
     this.screen.set('settings');
+  }
+
+  /** Opens the big window of a delegated agent; `from` gets the focus back when it closes. */
+  openAgentWindow(runId: string, from?: HTMLElement): void {
+    this.agentWindowFrom = from ?? null;
+    this.agentWindow.set(runId);
+  }
+
+  closeAgentWindow(): void {
+    this.agentWindow.set(null);
+    this.agentWindowFrom?.focus?.();
+    this.agentWindowFrom = null;
   }
 
   openRun(runId: string, view: ConsoleView = 'log'): void {
