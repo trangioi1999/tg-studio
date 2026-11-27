@@ -12,7 +12,7 @@ import { ChatState } from '../chat.state';
   <div class="ctx-alert" role="status">
     <tg-mascot pose="thinking" [size]="44" />
     <span class="ctx-alert-text">Context đã dùng {{ percent() }}%. Thu gọn để agent nhớ tiếp mà không bị cắt ngang?</span>
-    <button class="btn warn sm" (click)="chat.runs.sendMessage(r.id, '/compact')">Thu gọn</button>
+    <button class="btn warn sm" (click)="chat.compact(r.id)">Thu gọn</button>
   </div>
 }
   `,

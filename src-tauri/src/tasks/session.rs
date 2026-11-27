@@ -65,6 +65,8 @@ pub struct TaskSession {
     progress_at: Mutex<Option<std::time::Instant>>,
     /// The connection sent real counts (`_tg/progress`): the estimate stays silent.
     real_progress: AtomicBool,
+    /// Claude's own `_tg/context` arrived: the category-less `usage_update` summary would only overwrite it.
+    rich_context: AtomicBool,
 }
 
 /// How permission requests are answered. `Ask` shows a card; `Auto` allows without asking
@@ -78,7 +80,7 @@ fn selected(option: &str) -> Value { json!({"outcome":{"outcome":"selected","opt
 impl TaskSession {
     pub fn new(run_id:&str, agent:AgentKind, root:&Path, sink:Arc<dyn EventSink>, rules:Arc<dyn RuleMemory>) -> Result<Self,String> {
         let sandbox = Arc::new(Sandbox::new(root)?);
-        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),context_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default(),turn_chars:AtomicU64::new(0),progress_at:Mutex::new(None),real_progress:AtomicBool::new(false)})
+        Ok(Self {run_id:run_id.into(),agent,cwd:root.to_path_buf(),sink,rules,terminals:Terminals::new(sandbox.clone()),sandbox,permissions:Mutex::default(),events:Mutex::default(),events_idle:tokio::sync::Notify::new(),operation_gate:Arc::new(tokio::sync::Mutex::new(false)),last_cost:Mutex::new(None),totals:Mutex::default(),cost_base:Mutex::new(0.0),muted:AtomicBool::new(false),busy:AtomicBool::new(false),approval:Mutex::new(Approval::Ask),throwaway:AtomicBool::new(false),mode_hook:Mutex::new(None),context_hook:Mutex::new(None),reply:Mutex::default(),subagents:Mutex::default(),turn_seq:AtomicU64::new(0),kiro:Mutex::default(),kiro_seen:Mutex::default(),turn_chars:AtomicU64::new(0),progress_at:Mutex::new(None),real_progress:AtomicBool::new(false),rich_context:AtomicBool::new(false)})
     }
     fn queue(&self, event:AgentEvent) { self.events.lock().unwrap().queued.push_back(event); }
     /// Changes how requests are answered, and tells the connection through the hook if there is one.
@@ -466,6 +468,7 @@ impl ClientHandler for TaskSession {
             return;
         }
         if method == "_tg/context" {
+            self.rich_context.store(true,Ordering::SeqCst);
             self.queue_data("context", claude_context(&params)); self.flush_events();
             return;
         }
@@ -501,7 +504,9 @@ impl ClientHandler for TaskSession {
             Some("available_commands_update") => self.queue_data("commands", json!({"commands": crate::agents::options::parse_commands(self.agent, update, Some(&self.cwd))})),
             Some("plan") => self.queue_data("plan",update.clone()),
             Some("usage_update") => {
-                if let Some(context) = crate::usage::parse_context(update) { self.queue_data("context", context); }
+                if !self.rich_context.load(Ordering::SeqCst) {
+                    if let Some(context) = crate::usage::parse_context(update) { self.queue_data("context", context); }
+                }
                 if let Some(windows) = crate::usage::parse_rate_limit(&update["_meta"]["_claude/rateLimit"]) {
                     self.queue_data("limits", json!({"windows": windows}));
                 }
@@ -594,11 +599,24 @@ mod tests {
         session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2,
             "_meta":{"_claude/rateLimit":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":5,"status":"allowed"}}}}}}));
         session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":1,"size":2}}));
-        let events: Vec<_> = sink.0.lock().unwrap().iter().filter(|e| e.kind != "context").cloned().collect();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].kind, "limits");
+        let events: Vec<_> = sink.0.lock().unwrap().iter().cloned().collect();
+        assert_eq!(events.len(), 3, "context, limits, context: {:?}", events.iter().map(|e| e.kind).collect::<Vec<_>>());
+        assert_eq!(events[0].kind, "context");
+        assert_eq!(events[1].kind, "limits");
+        let events = vec![events[1].clone()];
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["utilization"], 0.3);
         assert_eq!(events[0].data.as_ref().unwrap()["windows"][0]["resetsAt"], 5000);
+    }
+
+    #[test]
+    fn rich_claude_context_is_not_overwritten_by_usage_update() {
+        let sink = Arc::new(Recorder::default());
+        let session = TaskSession::new("run", AgentKind::Claude, &std::env::temp_dir(), sink.clone(), Arc::new(Memory::default())).unwrap();
+        session.on_notification("_tg/context", json!({"totalTokens":10,"maxTokens":100,"percentage":10.0,"categories":[]}));
+        session.on_notification("session/update", json!({"update":{"sessionUpdate":"usage_update","used":5,"size":100,
+            "_meta":{"_claude/rateLimit":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":5,"status":"allowed"}}}}}}));
+        assert_eq!(events_of(&sink, "context").len(), 1);
+        assert_eq!(events_of(&sink, "limits").len(), 1);
     }
 
     #[test]

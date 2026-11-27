@@ -147,6 +147,7 @@ export interface ContextUsage {
   used: number | null; size: number | null; percent: number | null;
   categories?: ContextCategory[]; memoryFiles?: { path: string; tokens: number }[];
   mcpTools?: { server: string; count: number; tokens: number }[];
+  /** Token count at which Claude compacts by itself (not a percent); the UI divides by `size`. */
   autoCompactAt?: number; source: 'claude' | 'acp' | 'kiro';
 }
 

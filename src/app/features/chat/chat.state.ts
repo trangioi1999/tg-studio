@@ -530,6 +530,15 @@ export class ChatState {
     this.error.set(null);
   }
 
+  /** Asks the agent to summarise its conversation; a refusal shows up as a note in the work log. */
+  async compact(runId: string): Promise<void> {
+    try {
+      await this.runs.sendMessage(runId, '/compact');
+    } catch (e) {
+      this.runs.note(runId, `Không thu gọn được: ${errorText(e)}`);
+    }
+  }
+
   async send(): Promise<void> {
     if (!this.canRun()) return;
     const agent = this.agent();

@@ -57,6 +57,8 @@ pub fn parse_context(update: &Value) -> Option<Value> {
     if update["sessionUpdate"] != "usage_update" { return None; }
     let used = update["used"].as_u64()?;
     let size = update["size"].as_u64();
+    // Claude repeats the last usage, (0, 0) before the first turn: nothing to show yet.
+    if used == 0 && size.unwrap_or(0) == 0 { return None; }
     let percent = size.filter(|s| *s > 0).map(|s| (used as f64 * 1000.0 / s as f64).round() / 10.0);
     Some(serde_json::json!({"used": used, "size": size, "percent": percent, "source": "acp"}))
 }
@@ -242,6 +244,12 @@ mod tests {
         let c = parse_context(&json!({"sessionUpdate":"usage_update","used":53000,"size":200000})).unwrap();
         assert_eq!(c, json!({"used":53000,"size":200000,"percent":26.5,"source":"acp"}));
         assert!(parse_context(&json!({"sessionUpdate":"usage_update","cost":{"amount":0.3,"currency":"USD"}})).is_none());
+    }
+
+    #[test]
+    fn empty_context_reading_is_dropped() {
+        assert!(parse_context(&json!({"sessionUpdate":"usage_update","used":0,"size":0})).is_none());
+        assert!(parse_context(&json!({"sessionUpdate":"usage_update","used":0,"size":100})).is_some());
     }
 
     #[test]

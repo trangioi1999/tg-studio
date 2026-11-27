@@ -18,6 +18,14 @@ describe('contextLabel', () => {
   });
 });
 
+describe('fmtTokens', () => {
+  it('drops only a trailing .0', () => {
+    expect(contextLabel({ used: 100_000, size: 1_000_000, percent: 10, source: 'claude' })).toBe('10% · 100k/1M');
+    expect(contextLabel({ used: 1_050_000, size: 2_000_000, percent: 52, source: 'claude' })).toBe('52% · 1.1M/2M');
+    expect(contextLabel({ used: 20_000, size: 40_000, percent: 50, source: 'claude' })).toBe('50% · 20k/40k');
+  });
+});
+
 describe('canCompact', () => {
   it('is always true for Claude, for others only with a compact command', () => {
     expect(canCompact('codex', [])).toBe(false);

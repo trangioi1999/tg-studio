@@ -345,8 +345,7 @@ describe('AgentPanel composer', () => {
   }
 
   it('shows the live tokens of a running turn in the status line', async () => {
-    const { backend } = await setup();
-    void backend;
+    await setup();
     const fixture = TestBed.createComponent(AgentPanel);
     const runs = TestBed.inject(RunsService);
     await runs.start('claude', 'câu một', '/demo');

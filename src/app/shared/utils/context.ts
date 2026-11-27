@@ -1,7 +1,7 @@
 import { AgentCommand, AgentId, ContextCategory, ContextUsage } from '../../core/protocol';
 import { fmtTokens as fmt } from './format';
 
-const fmtTokens = (n: number) => fmt(n).replace('.0', '');
+const fmtTokens = (n: number) => fmt(n).replace(/\.0(?=[kM]$)/, '');
 
 /** Colour of the context chip: calm below half, warning up to 80 %, red above. */
 export function contextTone(percent: number | null): 'run' | 'wait' | 'fail' | null {

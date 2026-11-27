@@ -8,8 +8,8 @@ import { ChatState } from '../chat.state';
 
 interface Row { name: string; tokens: string; share: string; color: string; kind: ContextCategory['kind']; pct: number }
 
-const pctText = (n: number) => n.toFixed(1).replace('.', ',') + '%';
-const tok = (n: number) => fmtTokens(n).replace('.', ',');
+const pctText = (n: number) => n.toFixed(1) + '%';
+const tok = (n: number) => fmtTokens(n).replace(/\.0(?=[kM]$)/, '');
 
 /** The floating breakdown of the context window above the composer. */
 @Component({
@@ -36,12 +36,12 @@ const tok = (n: number) => fmtTokens(n).replace('.', ',');
       }
       @if (rows().length) {
         <div class="ctx-bar" aria-hidden="true">
-          @for (x of rows(); track x.name) {
+          @for (x of rows(); track $index) {
             @if (x.kind !== 'free') { <span [class.buffer]="x.kind === 'buffer'" [style.width.%]="x.pct" [style.background]="x.kind === 'buffer' ? null : x.color"></span> }
           }
         </div>
         <ul class="ctx-rows">
-          @for (x of rows(); track x.name) {
+          @for (x of rows(); track $index) {
             <li class="ctx-row"><span class="ctx-sw" aria-hidden="true" [style.background]="x.color"></span><span class="ctx-name">{{ x.name }}</span><span class="mono dim">{{ x.tokens }}</span><span class="mono dim ctx-share">{{ x.share }}</span></li>
           }
         </ul>
@@ -59,7 +59,7 @@ const tok = (n: number) => fmtTokens(n).replace('.', ',');
         <p class="dim ctx-note">{{ r.agent === 'kiro' ? 'Kiro chỉ báo phần trăm.' : meta[r.agent].name + ' chỉ báo tổng đang dùng.' }}</p>
       }
       <footer class="ctx-foot">
-        <span class="dim">Cập nhật sau mỗi lượt@if (c.autoCompactAt) { · tự thu gọn ở {{ c.autoCompactAt }}% }</span>
+        <span class="dim">Cập nhật sau mỗi lượt@if (c.autoCompactAt) { · tự thu gọn ở {{ autoCompactText(c.autoCompactAt, c.size) }} }</span>
         <span class="spacer"></span>
         @if (compactable() && r.status === 'idle') { <button class="btn ghost sm" (click)="compact(r.id)">Thu gọn ngay (/compact)</button> }
       </footer>
@@ -73,6 +73,11 @@ export class ContextPanel {
   protected readonly meta = AGENT_META;
   protected readonly tok = tok;
   protected readonly round = Math.round;
+
+  /** `autoCompactAt` is a token count: show it as a share of the window when the size is known. */
+  protected autoCompactText(at: number, size: number | null): string {
+    return size ? `${Math.round((at / size) * 100)}%` : `${tok(at)} token`;
+  }
 
   protected readonly rows = computed<Row[]>(() => {
     const c = this.chat.run()?.context;
@@ -96,6 +101,6 @@ export class ContextPanel {
 
   protected compact(id: string): void {
     this.chat.menu.set(null);
-    void this.chat.runs.sendMessage(id, '/compact');
+    void this.chat.compact(id);
   }
 }

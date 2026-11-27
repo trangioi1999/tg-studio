@@ -584,7 +584,22 @@ export class MockBackend extends AgentBackend {
 
   private contextEvent(runId: string, agent: AgentId): AgentEvent {
     const used = 36_800;
-    const data = { used, size: 200_000, percent: 18.4, source: agent === 'claude' ? 'claude' : 'acp' };
+    const base = { used, size: 200_000, percent: 18.4, source: agent === 'claude' ? 'claude' : 'acp' };
+    const data = agent !== 'claude' ? base : {
+      ...base,
+      categories: [
+        { id: 'messages', name: 'Messages', tokens: 18_200, kind: 'used' },
+        { id: 'system_prompt', name: 'System prompt', tokens: 6_300, kind: 'used' },
+        { id: 'system_tools', name: 'System tools', tokens: 8_900, kind: 'used' },
+        { id: 'mcp_tools', name: 'MCP tools', tokens: 2_100, kind: 'used' },
+        { id: 'memory_files', name: 'Memory files', tokens: 1_300, kind: 'used' },
+        { id: 'autocompact_buffer', name: 'Autocompact buffer', tokens: 20_000, kind: 'buffer' },
+        { id: 'free_space', name: 'Free space', tokens: 143_200, kind: 'free' },
+      ],
+      memoryFiles: [{ path: 'CLAUDE.md', tokens: 900 }, { path: '~/.claude/CLAUDE.md', tokens: 400 }],
+      mcpTools: [{ server: 'tg-bridge', count: 3, tokens: 2_100 }],
+      autoCompactAt: 180_000,
+    };
     return { runId, agent, kind: 'context', line: null, usage: null, code: null, atMs: Date.now(), data };
   }
 
