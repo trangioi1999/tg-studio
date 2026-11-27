@@ -16,11 +16,12 @@ import { TitleBar } from './layout/title-bar';
 import { UsageScreen } from './features/usage/usage-screen';
 import { Splitter } from './shared/ui/splitter';
 import { QuickOpen } from './features/files/quick-open';
+import { AgentWindow } from './features/chat/agent-window/agent-window';
 import { LayoutService } from './services/app/layout';
 
 @Component({
   selector: 'app-root',
-  imports: [TitleBar, ThreadList, SidePanel, AgentPanel, MissionControl, UsageScreen, Settings, StatusBar, Splitter, QuickOpen],
+  imports: [TitleBar, ThreadList, SidePanel, AgentPanel, MissionControl, UsageScreen, Settings, StatusBar, Splitter, QuickOpen, AgentWindow],
   templateUrl: './app.html',
 })
 export class App {

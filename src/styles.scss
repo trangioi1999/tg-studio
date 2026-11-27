@@ -1268,7 +1268,7 @@ input, textarea, select { transition: background-color var(--t-fast) var(--ease)
 .at-text { font-family: var(--font); font-size: 13px; line-height: 1.6; }
 .at-status { color: var(--muted); }
 .at-step b { font-weight: 500; color: var(--text); }
-.at-dot { color: var(--done); }
+.at-dot { margin-right: 1ch; color: var(--done); }
 .at-step[data-state='failed'] .at-dot { color: var(--fail); }
 .at-step[data-state='running'] .at-dot { color: var(--run); }
 .at-arg { color: var(--muted); }
@@ -1279,3 +1279,55 @@ input, textarea, select { transition: background-color var(--t-fast) var(--ease)
 .at-dm { padding: 6px 12px 10px; }
 .at-input { width: 100%; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--text); font: 13px var(--font); }
 .at-input:focus-visible { outline: 2px solid var(--run-line); outline-offset: 0; }
+
+/* The big agent window ("Mở to"): the conversation's agents left, one agent's terminal right. */
+.aw-backdrop { position: fixed; inset: 0; z-index: 50; background: var(--scrim-strong); }
+.aw { position: fixed; z-index: 51; inset: 48px 24px; margin: auto; max-width: 1120px; max-height: 780px; display: flex; border: 1px solid var(--line-strong); border-radius: 14px; overflow: hidden; background: var(--bg); box-shadow: var(--shadow-pop); outline: none; }
+.aw-list { flex: none; width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 12px 8px; border-right: 1px solid var(--line-soft); background: #0e0e11; }
+.aw-cap { padding: 4px 8px 8px; color: var(--muted); font-size: var(--fs-xs); }
+.aw-rows { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; }
+.aw-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: var(--r-md); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.aw-row.nested { padding-left: 22px; }
+.aw-row:hover { background: var(--hover); }
+.aw-row.active { background: var(--hover); }
+.aw-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.aw-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.aw-name { font-weight: 500; }
+.aw-state { font-size: var(--fs-xs); color: var(--muted); }
+.aw-state[data-status='running'] { color: var(--run); }
+.aw-state[data-status='needs_you'] { color: var(--wait); }
+.aw-state[data-status='waiting'] { color: var(--done); }
+.aw-state[data-status='failed'] { color: var(--fail); }
+.aw-keys { padding: 8px; color: var(--faint); font-size: var(--fs-xs); line-height: 1.7; }
+.aw-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.aw-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+.aw-head strong { flex: none; font-weight: 600; }
+.aw-head .pill, .aw-head tg-agent-avatar { flex: none; }
+.aw-task { flex: 1; min-width: 0; color: var(--text-2); }
+.aw-meta { flex: none; font-size: var(--fs-sm); }
+.aw-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: transparent; color: var(--text); cursor: pointer; }
+.aw-icon:hover { background: var(--hover); }
+.aw-icon:last-child { border-color: transparent; color: var(--text-2); }
+.aw-stop { border-color: var(--fail-line); color: var(--fail); }
+.aw-tabs { display: flex; gap: 4px; padding: 8px 14px 0; }
+.aw-tab { padding: 6px 12px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.aw-tab.active { background: var(--hover); color: var(--text); }
+.aw-body { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 8px 14px 14px; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; background: var(--term-bg); }
+.aw-body .at-screen { padding: 14px 16px; font-size: 12.5px; line-height: 1.75; }
+.aw-files { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.aw-files > p { padding: 8px; }
+.aw-file { display: flex; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.aw-file:hover { background: var(--hover); color: var(--text); }
+.aw-fst { flex: none; width: 1.5em; color: var(--muted); }
+.aw-prompt { flex: 1; margin: 0; padding: 14px 16px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); font: 13px/1.6 var(--font); }
+.aw-foot { position: relative; padding: 0 14px 14px; }
+.aw-cat { position: absolute; right: 22px; bottom: calc(100% - 6px); pointer-events: none; }
+.aw-dm { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--input); }
+.aw-dm-label { white-space: nowrap; }
+.aw-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
+.aw-send { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-md); background: var(--line-strong); color: var(--text); cursor: pointer; }
+@media (max-width: 1099px) {
+  .aw { inset: 16px; }
+  .aw-list { width: 180px; }
+  .aw-keys { display: none; }
+}

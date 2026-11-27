@@ -4,6 +4,7 @@ import { AGENT_META } from '../../services/agents/agent-meta';
 import { TerminalsService } from '../../services/app/terminals.service';
 import { RunsService } from '../../services/runs/runs.service';
 import { WorkspaceService } from '../../services/workspace.service';
+import { UiService } from '../../services/app/ui.service';
 import { Splitter } from '../../shared/ui/splitter';
 import { AgentAvatar } from '../../shared/ui/agent-avatar';
 import { AgentId } from '../../core/protocol';
@@ -68,9 +69,14 @@ function readTab(): BottomTab {
       }
       @if (!collapsed() && tab() === 'log') {
         <div class="lg-tools">
+          @if (pinned(); as p) {
+            <button class="lg-chip active lg-pin" aria-pressed="true" aria-label="Bỏ lọc theo agent này" title="Bỏ lọc, hiện mọi agent" (click)="ui.logRun.set(null)">
+              <tg-agent-avatar [agent]="p.agent" [size]="14" />Chỉ {{ meta[p.agent].name }}<span aria-hidden="true">✕</span>
+            </button>
+          }
           @if (logAgents().length > 1) {
             <span class="lg-chips" role="group" aria-label="Lọc theo agent">
-              <button class="lg-chip" [class.active]="!logAgent()" [attr.aria-pressed]="!logAgent()" (click)="logAgent.set(null)">Tất cả</button>
+              <button class="lg-chip" [class.active]="!logAgent() && !pinned()" [attr.aria-pressed]="!logAgent() && !pinned()" (click)="logAgent.set(null); ui.logRun.set(null)">Tất cả</button>
               @for (a of logAgents(); track a) {
                 <button class="lg-chip" [class.active]="logAgent() === a" [attr.aria-pressed]="logAgent() === a" (click)="logAgent.set(logAgent() === a ? null : a)">
                   <tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}
@@ -122,6 +128,7 @@ export class Terminal {
   private readonly backend = inject(AgentBackend);
   private readonly workspace = inject(WorkspaceService);
   private readonly terminals = inject(TerminalsService);
+  protected readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
   protected readonly tab = signal<BottomTab>(readTab());
   private readonly shell = viewChild<ElementRef<HTMLElement>>('shell');
@@ -147,7 +154,12 @@ export class Terminal {
   protected readonly errorsOnly = signal(false);
   protected readonly logQuery = signal('');
   protected readonly logAgents = computed(() => [...new Set(this.sections().map((s) => s.run.agent))]);
-  protected readonly shownSections = computed(() => filterSections(this.sections(), { agent: this.logAgent(), errorsOnly: this.errorsOnly(), query: this.logQuery() }));
+  protected readonly shownSections = computed(() => filterSections(this.sections(), { agent: this.logAgent(), errorsOnly: this.errorsOnly(), query: this.logQuery(), run: this.pinned()?.id ?? null }));
+  /** The run pinned from the agent window, while it is part of this conversation. */
+  protected readonly pinned = computed(() => {
+    const id = this.ui.logRun();
+    return id ? (this.sections().find((s) => s.run.id === id)?.run ?? null) : null;
+  });
   protected readonly runningInThread = computed(() => this.sections().map((s) => s.run).filter((r) => r.status === 'running'));
   protected readonly copied = signal(false);
 
@@ -214,18 +226,26 @@ export class Terminal {
     });
     inject(DestroyRef).onDestroy(() => observer?.disconnect());
     // Stay at the bottom as lines arrive, unless the user scrolled up to read.
-    let pinned = true;
-    // Another conversation: its filters start over.
+    let following = true;
+    // Another conversation: its filters start over, but a run just pinned there stays.
     effect(() => {
-      this.runs.selected()?.thread;
-      untracked(() => { this.logAgent.set(null); this.errorsOnly.set(false); this.logQuery.set(''); });
+      const thread = this.runs.selected()?.thread;
+      untracked(() => {
+        this.logAgent.set(null); this.errorsOnly.set(false); this.logQuery.set('');
+        const pin = this.ui.logRun();
+        if (pin && this.runs.runs().find((r) => r.id === pin)?.thread !== thread) this.ui.logRun.set(null);
+      });
+    });
+    // Pinned from the agent window: open the Log on it.
+    effect(() => {
+      if (this.ui.logRun()) untracked(() => this.show('log'));
     });
     effect(() => {
       this.shownSections().reduce((n, s) => n + s.entries.length, 0);
       const el = this.body()?.nativeElement;
       if (!el) return;
-      if (!el.onscroll) el.onscroll = () => (pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 24);
-      if (pinned) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
+      if (!el.onscroll) el.onscroll = () => (following = el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+      if (following) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
     });
   }
 }

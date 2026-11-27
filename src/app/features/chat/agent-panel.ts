@@ -2,6 +2,7 @@ import { Component, ElementRef, HostListener, computed, effect, inject, viewChil
 import { AGENT_META } from '../../services/agents/agent-meta';
 import { isQuiet } from '../../services/runs/run';
 import { AgentAvatar } from '../../shared/ui/agent-avatar';
+import { UiService } from '../../services/app/ui.service';
 import { ChangesCard } from './conversation/changes-card';
 import { ChatHome } from './home/chat-home';
 import { ChatState } from './chat.state';
@@ -76,6 +77,7 @@ import { ProposalCard } from './dock/proposal-card';
 })
 export class AgentPanel {
   protected readonly chat = inject(ChatState);
+  private readonly ui = inject(UiService);
   protected readonly meta = AGENT_META;
   protected readonly panelTabs = [{ id: 'thread', label: 'Trò chuyện' }, { id: 'plan', label: 'Kế hoạch & ghi chú' }] as const;
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
@@ -98,6 +100,8 @@ export class AgentPanel {
   @HostListener('window:keydown', ['$event'])
   protected onKey(e: KeyboardEvent): void {
     const chat = this.chat;
+    // The agent window has the keys while open: its Esc closes it, it does not stop the agent.
+    if (this.ui.agentWindow()) return;
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
       e.preventDefault();
       chat.toggleMenu('agent');

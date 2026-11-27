@@ -32,6 +32,8 @@ export class UiService {
   /** Per parent run, the delegated agent open as a small terminal: one per message, even across markers. */
   readonly openDelegation = signal<Record<string, string>>({});
   private agentWindowFrom: HTMLElement | null = null;
+  /** The one run the bottom Log shows, pinned there from the agent window; null shows them all. */
+  readonly logRun = signal<string | null>(null);
   /** The window is narrower than {@link NARROW_QUERY}. */
   readonly narrow = signal(false);
   /** The user's choice on a wide window, kept per machine. */
@@ -84,6 +86,18 @@ export class UiService {
     this.agentWindow.set(null);
     this.agentWindowFrom?.focus?.();
     this.agentWindowFrom = null;
+  }
+
+  /** "Ghim xuống khung dưới": the bottom Log of the run's conversation, filtered to that run. */
+  pinLog(runId: string): void {
+    const run = this.runs.runs().find((r) => r.id === runId);
+    if (!run) return;
+    // The Log follows the selected conversation; a child is not a row of the chat, so pick its parent.
+    if (this.runs.selected()?.thread !== run.thread) this.runs.selectedId.set(run.parent ?? run.id);
+    this.screen.set('chat');
+    this.sideOpen.set(true);
+    this.logRun.set(runId);
+    this.closeAgentWindow();
   }
 
   openRun(runId: string, view: ConsoleView = 'log'): void {

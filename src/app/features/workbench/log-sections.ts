@@ -21,6 +21,8 @@ export interface LogFilter {
   agent: AgentId | null;
   errorsOnly: boolean;
   query: string;
+  /** Only this run (pinned from the agent window). */
+  run?: string | null;
 }
 
 function userEntry(message: string): LogEntry {
@@ -61,7 +63,7 @@ export function filterSections(sections: LogSection[], f: LogFilter): LogSection
   const q = f.query.trim().toLocaleLowerCase('vi');
   const hasFilter = f.errorsOnly || !!q;
   return sections
-    .filter((s) => !f.agent || s.run.agent === f.agent)
+    .filter((s) => (!f.agent || s.run.agent === f.agent) && (!f.run || s.run.id === f.run))
     .map((s) => ({
       ...s,
       entries: s.entries.filter((e) => {

@@ -35,6 +35,12 @@ describe('conversation log', () => {
     expect(filterSections(sections, { agent: null, errorsOnly: false, query: 'APP.SPEC' }).map((s) => s.run.id)).toEqual(['kid']);
   });
 
+  it('filters to one run, pinned from the agent window', () => {
+    const sections = logSections(runs, 't');
+    expect(filterSections(sections, { agent: null, errorsOnly: false, query: '', run: 'main~1' }).map((s) => s.run.id)).toEqual(['main~1']);
+    expect(filterSections(sections, { agent: null, errorsOnly: false, query: '', run: null })).toHaveLength(4);
+  });
+
   it('copies as plain text with who said what', () => {
     const text = logText(logSections(runs, 't'));
     expect(text).toContain('## Claude Code giao cho Kiro CLI');

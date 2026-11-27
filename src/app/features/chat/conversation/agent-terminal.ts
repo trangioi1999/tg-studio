@@ -11,7 +11,10 @@ import { mascotPose } from '../dock/dock-mascot';
 import { liveTokens } from '../dock/live-status';
 import { StepState, segmentsOf } from './timeline';
 import { ToolHead, middleTruncate } from './tool-step';
-import { turnStatus } from './turn-status';
+import { TurnStatus, turnStatus } from './turn-status';
+
+/** The pill of a run's current turn. */
+export const TURN_LABEL: Record<TurnStatus, string> = { running: 'Đang chạy', needs_you: 'Chờ bạn duyệt', waiting: 'Xong', failed: 'Lỗi', stopped: 'Đã dừng' };
 
 export interface TermLine {
   kind: 'prompt' | 'step' | 'text' | 'status';
@@ -89,6 +92,7 @@ export function canMessage(run: Run): boolean {
   template: `
     @let r = run();
     <section class="at" [class.compact]="compact()" [attr.aria-label]="'Terminal của ' + meta[r.agent].name">
+      @if (!bare()) {
       <header class="at-head">
         <button class="at-icon" (click)="collapse.emit()" aria-label="Thu lại" title="Thu lại">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
@@ -104,6 +108,7 @@ export function canMessage(run: Run): boolean {
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
         </button>
       </header>
+      }
       <div class="at-screen mono" #screen (scroll)="onScroll()" role="log" aria-live="off" tabindex="0">
         @if (view().hidden > 0 && !all()) {
           <button class="at-more" (click)="all.set(true)">Hiện {{ view().hidden }} dòng trước</button>
@@ -127,7 +132,7 @@ export function canMessage(run: Run): boolean {
         }
         @if (fresh()) { <button class="at-new" (click)="jump()">↓ Dòng mới</button> }
       </div>
-      @if (dm()) {
+      @if (dm() && !bare()) {
         <form class="at-dm" (submit)="$event.preventDefault(); send(box)">
           <input #box class="at-input" [placeholder]="'Nhắn riêng ' + meta[r.agent].name" [attr.aria-label]="'Nhắn riêng ' + meta[r.agent].name" autocomplete="off" />
         </form>
@@ -142,6 +147,8 @@ export class AgentTerminal {
   /** True: a fixed 10 lines tall. False: fills its parent (the big window). */
   readonly compact = input(true);
   readonly maxLines = input(500);
+  /** Only the screen: the big window draws its own header and message box. */
+  readonly bare = input(false);
   readonly collapse = output<void>();
   protected readonly meta = AGENT_META;
   protected readonly all = signal(false);
@@ -159,7 +166,7 @@ export class AgentTerminal {
   });
   protected readonly task = computed(() => taskOf(this.run().prompt));
   protected readonly status = computed(() => turnStatus(this.run()));
-  protected readonly label = computed(() => ({ running: 'Đang chạy', needs_you: 'Chờ bạn duyệt', waiting: 'Xong', failed: 'Lỗi', stopped: 'Đã dừng' })[this.status()]);
+  protected readonly label = computed(() => TURN_LABEL[this.status()]);
   protected readonly dm = computed(() => canMessage(this.run()));
   protected readonly cost = computed(() => { const r = this.run(); return costOf(r.agent, r.usage, r.startedAt).usd; });
   protected readonly elapsed = computed(() => { const r = this.run(); return clock(runEnd(r, r.status === 'running' ? this.runs.now() : 0) - turnStart(r)); });
