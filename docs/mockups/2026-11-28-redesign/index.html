@@ -82,6 +82,18 @@ button { font: inherit; color: inherit; }
 .seg button[aria-pressed='true'] { background: var(--bg-4); color: var(--ink); }
 .ic { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
+/* icon-only buttons with a tooltip */
+.ib { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-md); background: none; color: var(--ink-2); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+.ib:hover { background: var(--bg-3); color: var(--ink); }
+.ib:active { transform: scale(.94); }
+.ib[aria-current='page'], .ib[aria-pressed='true'] { background: var(--bg-4); color: var(--ink); }
+.ib .logo { width: 18px; height: 18px; }
+.ib .badge { position: absolute; right: 2px; bottom: 2px; padding: 0 2px; border-radius: 3px; background: var(--bg); color: var(--muted); font: 600 8px/10px var(--font); }
+[data-tip]::after { content: attr(data-tip); position: absolute; z-index: 40; left: 50%; top: calc(100% + 6px); padding: 4px 8px; border: 1px solid var(--rule-2); border-radius: var(--r-sm); background: var(--bg-4); color: var(--ink); font: var(--fs-xs)/1.4 var(--font); white-space: nowrap; pointer-events: none; opacity: 0; transform: translate(-50%, -2px); transition: opacity var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 300ms; }
+[data-tip-up]::after { top: auto; bottom: calc(100% + 6px); }
+.ring { --p: 6; width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--bg-4) 0); -webkit-mask: radial-gradient(circle, transparent 5px, var(--ink) 5.5px); mask: radial-gradient(circle, transparent 5px, var(--ink) 5.5px); }
+
 /* sidebar */
 .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--rule); background: var(--bg-2); }
 .side-scroll { flex: 1; overflow-y: auto; padding: 12px 8px; }
@@ -100,10 +112,7 @@ button { font: inherit; color: inherit; }
 .state[data-s='wait'] { color: var(--wait); }
 .state[data-s='done'] { color: var(--done); }
 .logo { width: 18px; height: 18px; flex: none; border-radius: 5px; }
-.side-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 8px; border-top: 1px solid var(--rule); }
-.side-nav button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font-size: var(--fs-xs); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease); }
-.side-nav button:hover { background: var(--bg-3); color: var(--ink); }
-.side-nav button[aria-current='page'] { color: var(--ink); background: var(--bg-3); }
+.side-nav { display: flex; gap: 4px; padding: 8px; border-top: 1px solid var(--rule); }
 
 /* ---------- views ---------- */
 .main { position: relative; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -247,13 +256,14 @@ button { font: inherit; color: inherit; }
 .page .lede { margin: 0 0 20px; color: var(--muted); }
 .filters { display: flex; gap: 6px; margin-bottom: 18px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
-.card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; padding: 14px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--bg-2); cursor: pointer; transition: border-color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+.card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 12px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--bg-2); cursor: pointer; transition: border-color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
 .card:hover { border-color: var(--rule-2); transform: translateY(-2px); }
-.card .pet { --pet: 64px; grid-row: span 2; }
+.card .pet { --pet: 44px; grid-row: span 2; }
+.card .lane-state { grid-row: span 2; }
 .card h3 { margin: 0; font-size: var(--fs-md); font-weight: 500; }
 .card .sub { color: var(--muted); font-size: var(--fs-sm); }
 .card .lane-now { grid-column: 1 / -1; margin: 6px 0 0; }
-.card .foot { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font: var(--fs-xs) var(--mono); }
+.card .sub { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* ---------- appearance ---------- */
 .set { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px 32px; max-width: 900px; }
@@ -296,17 +306,15 @@ button { font: inherit; color: inherit; }
       <span data-i18n="crumb.thread">Làm lại thanh tiến độ</span>
     </div>
     <span class="spacer"></span>
-    <div class="seg" role="group" aria-label="Language">
-      <button type="button" data-lang="vi" aria-pressed="true">VI</button>
-      <button type="button" data-lang="en" aria-pressed="false">EN</button>
-    </div>
-    <button class="tool" type="button" id="theme" aria-label="Theme">
-      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
-      <span data-i18n="top.theme">Tối</span>
+    <button class="ib" type="button" id="langBtn" data-tip="">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg>
+      <span class="badge" id="langBadge">VI</span>
     </button>
-    <button class="tool" type="button" id="replay">
+    <button class="ib" type="button" id="theme" data-tip="">
+      <svg class="ic" id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
+    </button>
+    <button class="ib" type="button" id="replay" data-tip="">
       <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
-      <span data-i18n="top.replay">Chạy lại kịch bản</span>
     </button>
   </header>
 
@@ -325,9 +333,9 @@ button { font: inherit; color: inherit; }
       <button class="row" type="button"><img class="logo" src="../../../public/agents/claude.svg" alt="" /><span class="t" data-i18n="side.t3">Giải thích luồng ACP</span><span class="state" data-i18n="s.sleep">Đang ngủ</span></button>
     </div>
     <nav class="side-nav" aria-label="Screens">
-      <button type="button" data-view="chat" aria-current="page"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg><span data-i18n="nav.chat">Chat</span></button>
-      <button type="button" data-view="board"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span data-i18n="nav.board">Bảng agent</span></button>
-      <button type="button" data-view="look"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg><span data-i18n="nav.look">Giao diện</span></button>
+      <button class="ib" type="button" data-view="chat" aria-current="page" data-tip-up data-tipk="nav.chat"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></button>
+      <button class="ib" type="button" data-view="board" data-tip-up data-tipk="nav.board"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+      <button class="ib" type="button" data-view="look" data-tip-up data-tipk="nav.look"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg></button>
     </nav>
   </aside>
 
@@ -338,15 +346,15 @@ button { font: inherit; color: inherit; }
       <div class="dock">
         <div class="pet dock-pet" id="dockPet" data-s="idle"><img src="../../../public/mascot/idle.webp" alt="" /></div>
         <form class="composer" id="composer">
-          <div class="live" id="live" hidden><span class="glyph" aria-hidden="true">✻</span><span id="liveText"></span><span class="spacer"></span><span data-i18n="live.esc">Esc để dừng</span></div>
+          <div class="live" id="live" hidden><span class="glyph" aria-hidden="true">✻</span><span id="liveText"></span><span class="spacer"></span><span class="key" data-i18n="live.escKey">esc</span></div>
           <label class="sr" for="prompt" data-i18n="c.label">Tin nhắn cho agent</label>
           <textarea id="prompt" rows="2" data-i18n-ph="c.ph" placeholder="Giao việc hoặc hỏi agent"></textarea>
           <div class="bar">
-            <button class="chip" type="button" aria-label="Add"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-            <button class="chip" type="button"><img class="logo" src="../../../public/agents/claude.svg" alt="" />Claude Code <span class="dim">Opus 5.5</span></button>
-            <button class="chip" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16Z"/></svg><span data-i18n="c.ask">Hỏi trước</span></button>
+            <button class="ib" type="button" data-tip-up data-tipk="c.add"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="ib" type="button" data-tip-up data-tip-raw="Claude Code, Opus 5.5"><img class="logo" src="../../../public/agents/claude.svg" alt="" /></button>
+            <button class="ib" type="button" data-tip-up data-tipk="c.ask"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.2 8 9 4.6-.8 8-4.6 8-9V6Z"/><path d="M12 8v4M12 15.5v.5"/></svg></button>
             <span class="spacer"></span>
-            <span class="ctx" id="ctx">6%  56.7k/1M</span>
+            <button class="ib" type="button" data-tip-up data-tip-raw="6%  56.7k / 1M"><span class="ring" style="--p:6"></span></button>
             <button class="send" id="send" type="submit" aria-label="Send"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
           </div>
         </form>
@@ -435,11 +443,11 @@ button { font: inherit; color: inherit; }
 // ---------- strings ----------
 const T = {
   vi: {
-    'crumb.thread': 'Làm lại thanh tiến độ', 'top.theme': 'Tối', 'top.themeL': 'Sáng', 'top.replay': 'Chạy lại kịch bản',
+    'crumb.thread': 'Làm lại thanh tiến độ', 'top.toLight': 'Chuyển sang sáng', 'top.toDark': 'Chuyển sang tối', 'top.replay': 'Chạy lại kịch bản', 'top.lang': 'English', 'c.add': 'Thêm tệp, lệnh hoặc skill',
     'side.new': 'Trò chuyện mới', 'side.running': 'Đang chạy', 'side.projects': 'Dự án', 'side.t2': 'Sửa test đăng nhập', 'side.t3': 'Giải thích luồng ACP',
     's.done': 'Xong', 's.sleep': 'Đang ngủ', 's.run': 'Đang chạy', 's.wait': 'Chờ bạn', 's.think': 'Đang nghĩ', 's.type': 'Đang viết', 's.exec': 'Đang chạy lệnh', 's.fail': 'Lỗi',
     'nav.chat': 'Chat', 'nav.board': 'Bảng agent', 'nav.look': 'Giao diện',
-    'live.esc': 'Esc để dừng', 'c.label': 'Tin nhắn cho agent', 'c.ph': 'Giao việc hoặc hỏi agent', 'c.phRun': 'Agent đang chạy', 'c.ask': 'Hỏi trước',
+    'live.esc': 'Esc để dừng', 'live.escKey': 'esc', 'c.label': 'Tin nhắn cho agent', 'c.ph': 'Giao việc hoặc hỏi agent', 'c.phRun': 'Agent đang chạy', 'c.ask': 'Hỏi trước',
     'b.title': 'Bảng agent', 'b.lede': 'Mọi agent đang làm trên các dự án. Bấm một thẻ để xem làn của nó.', 'b.all': 'Tất cả', 'b.needs': 'Cần bạn', 'b.run': 'Đang chạy', 'b.done': 'Xong',
     'l.title': 'Giao diện', 'l.lede': 'Theme, màu nhấn và ngôn ngữ. Theme riêng là một bộ token, sửa ở đây hoặc nạp từ tệp.',
     'l.mode': 'Chế độ', 'l.modeP': 'Theo hệ thống, tối hoặc sáng.', 'l.dark': 'Tối (Kiln)', 'l.light': 'Sáng (Bisque)',
@@ -457,11 +465,11 @@ const T = {
     'think': 'đang nghĩ', 'tok': 'token', 'lines': 'dòng',
   },
   en: {
-    'crumb.thread': 'Rework the progress bar', 'top.theme': 'Dark', 'top.themeL': 'Light', 'top.replay': 'Replay the demo',
+    'crumb.thread': 'Rework the progress bar', 'top.toLight': 'Switch to light', 'top.toDark': 'Switch to dark', 'top.replay': 'Replay the demo', 'top.lang': 'Tiếng Việt', 'c.add': 'Add a file, command or skill',
     'side.new': 'New chat', 'side.running': 'Running', 'side.projects': 'Projects', 'side.t2': 'Fix the login tests', 'side.t3': 'Explain the ACP flow',
     's.done': 'Done', 's.sleep': 'Asleep', 's.run': 'Running', 's.wait': 'Needs you', 's.think': 'Thinking', 's.type': 'Writing', 's.exec': 'Running a command', 's.fail': 'Failed',
     'nav.chat': 'Chat', 'nav.board': 'Agent board', 'nav.look': 'Appearance',
-    'live.esc': 'Esc to stop', 'c.label': 'Message for the agent', 'c.ph': 'Give an agent a task or ask it something', 'c.phRun': 'The agent is running', 'c.ask': 'Ask first',
+    'live.esc': 'Esc to stop', 'live.escKey': 'esc', 'c.label': 'Message for the agent', 'c.ph': 'Give an agent a task or ask it something', 'c.phRun': 'The agent is running', 'c.ask': 'Ask first',
     'b.title': 'Agent board', 'b.lede': 'Every agent at work across your projects. Click a card to see its lane.', 'b.all': 'All', 'b.needs': 'Needs you', 'b.run': 'Running', 'b.done': 'Done',
     'l.title': 'Appearance', 'l.lede': 'Theme, accent and language. A custom theme is a set of tokens, edited here or loaded from a file.',
     'l.mode': 'Mode', 'l.modeP': 'Follow the system, dark or light.', 'l.dark': 'Dark (Kiln)', 'l.light': 'Light (Bisque)',
@@ -481,8 +489,19 @@ const T = {
 };
 let lang = 'vi';
 const t = (k) => T[lang][k] ?? T.vi[k] ?? k;
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON = '<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/>';
+function applyTips() {
+  document.querySelectorAll('[data-tipk]').forEach((el) => { el.dataset.tip = t(el.dataset.tipk); el.setAttribute('aria-label', t(el.dataset.tipk)); });
+  document.querySelectorAll('[data-tip-raw]').forEach((el) => { el.dataset.tip = el.dataset.tipRaw; el.setAttribute('aria-label', el.dataset.tipRaw); });
+  const lb = document.getElementById('langBtn'); lb.dataset.tip = t('top.lang'); lb.setAttribute('aria-label', t('top.lang'));
+  document.getElementById('langBadge').textContent = lang.toUpperCase();
+  const rp = document.getElementById('replay'); rp.dataset.tip = t('top.replay'); rp.setAttribute('aria-label', t('top.replay'));
+}
+document.getElementById('langBtn').addEventListener('click', () => { lang = lang === 'vi' ? 'en' : 'vi'; applyLang(); });
 function applyLang() {
   document.documentElement.lang = lang;
+  applyTips();
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
   document.querySelectorAll('[data-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
@@ -497,7 +516,13 @@ function setTheme(m) {
   document.querySelectorAll('#modeSeg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
   themeLabel(); renderTokens();
 }
-function themeLabel() { document.querySelector('#theme span').textContent = root.dataset.theme === 'ember' ? t('top.theme') : t('top.themeL'); }
+function themeLabel() {
+  const dark = root.dataset.theme === 'ember';
+  // The icon shows where a click takes you.
+  document.getElementById('themeIcon').innerHTML = dark ? SUN : MOON;
+  const tip = dark ? t('top.toLight') : t('top.toDark');
+  const b = document.getElementById('theme'); b.dataset.tip = tip; b.setAttribute('aria-label', tip);
+}
 document.getElementById('theme').addEventListener('click', () => setTheme(root.dataset.theme === 'ember' ? 'bisque' : 'ember'));
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.m)));
 document.querySelectorAll('#motionSeg button').forEach((b) => b.addEventListener('click', () => {
@@ -584,7 +609,7 @@ const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 let runId = 0;
 
 function stateWord(s) { return { thinking: t('s.think'), typing: t('s.type'), running: t('s.exec'), waiting: t('s.wait'), success: t('s.done'), idle: t('s.done'), error: t('s.fail'), sleep: t('s.sleep') }[s]; }
-function stateKind(s) { return s === 'waiting' ? 'wait' : s === 'success' || s === 'idle' ? 'done' : 'run'; }
+function stateKind(s) { return s === 'waiting' ? 'wait' : s === 'success' || s === 'idle' ? 'done' : s === 'sleep' ? 'sleep' : 'run'; }
 
 function renderLanes() {
   const box = document.getElementById('lanes');
@@ -608,7 +633,7 @@ function renderLanes() {
   }));
   updateTracks();
   document.getElementById('laneCount').textContent = agents.length;
-  renderRunning();
+  renderRunning(); renderBoard();
 }
 function renderRunning() {
   const live = agents.filter((a) => a.state !== 'idle' && a.state !== 'success');
@@ -630,9 +655,9 @@ function renderBoard() {
     <article class="card" tabindex="0">
       <div class="pet" data-s="${c.state}">${petHTML(c.state)}</div>
       <h3>${t(c.task)}</h3>
-      <div class="sub"><img class="logo" src="${LOGOS[c.agent]}" alt="" style="vertical-align:-4px;margin-right:6px" />${NAMES[c.agent]}, ${c.project}</div>
+      <div class="lane-state" data-s="${stateKind(c.state)}"><b>${stateWord(c.state)}</b><span class="mono">${c.time}</span></div>
+      <div class="sub"><img class="logo" src="${LOGOS[c.agent]}" alt="" />${NAMES[c.agent]}<span class="dim">${c.project}</span></div>
       <div class="lane-now">${c.now || '&nbsp;'}</div>
-      <div class="foot"><span>${stateWord(c.state)}</span><span>${c.time}</span></div>
     </article>`).join('');
 }
 function close(a) { const last = a.track.at(-1); if (last && last.e === null) last.e = clock(); }
