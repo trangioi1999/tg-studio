@@ -8,6 +8,7 @@ import { WorkspaceService } from '../../../services/workspace.service';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
 import { Mascot } from '../../../shared/ui/mascot';
 import { fmtUsd } from '../../../shared/utils/format';
+import { errorText } from '../../../shared/utils/errors';
 import { mascotPose } from '../dock/dock-mascot';
 import { AgentTerminal, TURN_LABEL, canMessage, clock, runEnd, taskOf } from '../conversation/agent-terminal';
 import { turnStatus } from '../conversation/turn-status';
@@ -92,6 +93,7 @@ type Tab = 'live' | 'changes' | 'task';
                   <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
                 </button>
               </form>
+              @if (sendError(); as err) { <p class="aw-err" role="alert">{{ err }}</p> }
             </div>
           }
         </section>
@@ -107,6 +109,7 @@ export class AgentWindow {
   protected readonly subagent = isSubagent;
   protected readonly taskOf = taskOf;
   protected readonly tab = signal<Tab>('live');
+  protected readonly sendError = signal<string | null>(null);
   private readonly dialog = viewChild<ElementRef<HTMLElement>>('dialog');
   private readonly box = viewChild<ElementRef<HTMLInputElement>>('box');
 
@@ -150,41 +153,65 @@ export class AgentWindow {
     effect(() => {
       if (this.ui.agentWindow() && !this.run()) untracked(() => this.ui.closeAgentWindow());
     });
-    // Another run: its changes are read fresh, and the keys keep working on its row.
-    let shown: string | null = null;
+    // Opened, or another run picked: its changes are read fresh, the draft is dropped and the keys
+    // keep working on its row. A new open (even on the same run) starts on Trực tiếp.
+    let seen: { opens: number; id: string | null } = { opens: -1, id: null };
     effect(() => {
-      const r = this.run();
-      if (!r || r.id === shown) return;
-      const first = shown === null;
-      shown = r.id;
+      const opens = this.ui.agentWindowOpens();
+      const id = this.ui.agentWindow();
+      const fresh = opens !== seen.opens;
+      if (!id || (!fresh && id === seen.id)) {
+        seen = { opens, id };
+        return;
+      }
+      seen = { opens, id };
       untracked(() => {
-        if (r.task) void this.workspace.refresh(r.id);
-        if (first) this.tab.set('live');
-        setTimeout(() => this.focusRow(r.id));
+        if (fresh) this.tab.set('live');
+        this.sendError.set(null);
+        const box = this.box()?.nativeElement;
+        if (box) box.value = '';
+        if (this.run()?.task) void this.workspace.refresh(id);
+        setTimeout(() => this.focusRow(id));
       });
-    });
-    effect(() => {
-      if (!this.ui.agentWindow()) shown = null;
     });
   }
 
   protected key(e: KeyboardEvent): void {
     const target = e.target as HTMLElement | null;
     const typing = !!target?.closest('input, textarea');
-    if (e.key === 'Escape') {
+    // Only the list (or the dialog itself) takes ↑↓ and Enter: the terminal, task and files scroll with them.
+    const inList = target === this.dialog()?.nativeElement || !!target?.closest('.aw-list');
+    if (e.key === 'Tab') {
+      this.trapTab(e);
+    } else if (e.key === 'Escape' && !e.isComposing) {
       e.preventDefault();
       e.stopPropagation();
       this.ui.closeAgentWindow();
-    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !typing && !target?.closest('[role="tab"]')) {
+    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && inList) {
       e.preventDefault();
       e.stopPropagation();
       this.step(e.key === 'ArrowDown' ? 1 : -1);
-    } else if (e.key === 'Enter' && !typing && (target === this.dialog()?.nativeElement || target?.closest('.aw-list'))) {
+    } else if (e.key === 'Enter' && !typing && inList) {
       const box = this.box()?.nativeElement;
       if (!box) return;
       e.preventDefault();
       e.stopPropagation();
       box.focus();
+    }
+  }
+
+  /** aria-modal: Tab and Shift+Tab go round inside the window, never to the chat behind it. */
+  private trapTab(e: KeyboardEvent): void {
+    const dialog = this.dialog()?.nativeElement;
+    if (!dialog) return;
+    const all = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+    if (!all.length) return;
+    const first = all[0];
+    const last = all[all.length - 1];
+    const at = document.activeElement;
+    if (e.shiftKey ? at === first || at === dialog : at === last) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
     }
   }
 
@@ -214,8 +241,15 @@ export class AgentWindow {
     const r = this.run();
     const text = box.value.trim();
     if (!r || !text) return;
-    box.value = '';
-    await this.runs.sendMessage(r.id, text);
+    this.sendError.set(null);
+    try {
+      await this.runs.sendMessage(r.id, text);
+    } catch (e) {
+      // Not sent: the words stay for another try.
+      if (this.ui.agentWindow() === r.id) this.sendError.set(errorText(e));
+      return;
+    }
+    if (box.value.trim() === text) box.value = '';
   }
 
   protected stateOf(r: Run) {

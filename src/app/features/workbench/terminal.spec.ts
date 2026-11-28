@@ -48,4 +48,26 @@ describe('Bottom panel log', () => {
     expect(el.querySelectorAll('.lg-sec').length).toBe(2);
     expect(TestBed.inject(UiService).logRun()).toBeNull();
   });
+
+  it('reopens the Log when the same run is pinned again', async () => {
+    try { localStorage.removeItem('tg.bottom'); } catch { /* none */ }
+    TestBed.configureTestingModule({ providers: [{ provide: AgentBackend, useValue: new FakeBackend() }] });
+    const runs = TestBed.inject(RunsService);
+    await flush();
+    runs.runs.set([run({ id: 'p' }), run({ id: 'c', agent: 'codex', parent: 'p', startedAt: 2 })]);
+    runs.selectedId.set('p');
+    const ui = TestBed.inject(UiService);
+    const fixture = TestBed.createComponent(Terminal);
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    ui.pinLog('c');
+    fixture.detectChanges();
+    expect(el.querySelector('.lg-body')).toBeTruthy();
+    [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent!.trim() === 'Thu gọn')!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('.lg-body')).toBeNull();
+    ui.pinLog('c');
+    fixture.detectChanges();
+    expect(el.querySelector('.lg-body')).toBeTruthy();
+  });
 });

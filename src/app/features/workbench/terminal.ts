@@ -238,6 +238,7 @@ export class Terminal {
     });
     // Pinned from the agent window: open the Log on it.
     effect(() => {
+      this.ui.logPins();
       if (this.ui.logRun()) untracked(() => this.show('log'));
     });
     effect(() => {

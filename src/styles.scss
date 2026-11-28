@@ -1324,6 +1324,7 @@ input, textarea, select { transition: background-color var(--t-fast) var(--ease)
 .aw-cat { position: absolute; right: 22px; bottom: calc(100% - 6px); pointer-events: none; }
 .aw-dm { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--input); }
 .aw-dm-label { white-space: nowrap; }
+.aw-err { margin: 6px 4px 0; color: var(--fail); font-size: var(--fs-sm); }
 .aw-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
 .aw-send { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-md); background: var(--line-strong); color: var(--text); cursor: pointer; }
 @media (max-width: 1099px) {

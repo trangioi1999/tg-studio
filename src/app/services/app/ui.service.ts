@@ -34,6 +34,10 @@ export class UiService {
   private agentWindowFrom: HTMLElement | null = null;
   /** The one run the bottom Log shows, pinned there from the agent window; null shows them all. */
   readonly logRun = signal<string | null>(null);
+  /** Bumped on every pin, so pinning the same run again still opens the Log. */
+  readonly logPins = signal(0);
+  /** Bumped on every open, so a window closed and reopened on the same run starts over. */
+  readonly agentWindowOpens = signal(0);
   /** The window is narrower than {@link NARROW_QUERY}. */
   readonly narrow = signal(false);
   /** The user's choice on a wide window, kept per machine. */
@@ -80,12 +84,16 @@ export class UiService {
   openAgentWindow(runId: string, from?: HTMLElement): void {
     this.agentWindowFrom = from ?? null;
     this.agentWindow.set(runId);
+    this.agentWindowOpens.update((n) => n + 1);
   }
 
   closeAgentWindow(): void {
     this.agentWindow.set(null);
-    this.agentWindowFrom?.focus?.();
+    const from = this.agentWindowFrom;
     this.agentWindowFrom = null;
+    // The row that opened it may be gone (the child folded): fall back to the chat box.
+    const target = from?.isConnected ? from : typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('textarea#prompt');
+    target?.focus?.();
   }
 
   /** "Ghim xuống khung dưới": the bottom Log of the run's conversation, filtered to that run. */
@@ -97,6 +105,7 @@ export class UiService {
     this.screen.set('chat');
     this.sideOpen.set(true);
     this.logRun.set(runId);
+    this.logPins.update((n) => n + 1);
     this.closeAgentWindow();
   }
 

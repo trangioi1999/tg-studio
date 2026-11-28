@@ -168,4 +168,104 @@ describe('Agent window', () => {
     render();
     expect(el.querySelector('.aw-input')).toBeNull();
   });
+
+  it('arrows switch agents only from the list or the dialog, not where they scroll', async () => {
+    const { ui, el, render, fixture } = await setup();
+    ui.openAgentWindow('c');
+    render();
+    for (const sel of ['.at-screen']) {
+      expect(key(el.querySelector(sel)!, 'ArrowDown')).toBe(true);
+      render();
+      expect(ui.agentWindow()).toBe('c');
+    }
+    el.querySelectorAll<HTMLButtonElement>('[role="tab"]')[2].click();
+    render();
+    key(el.querySelector('.aw-prompt')!, 'ArrowDown');
+    el.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click();
+    render();
+    key(el.querySelector('.aw-files')!, 'ArrowDown');
+    render();
+    expect(ui.agentWindow()).toBe('c');
+    key(el.querySelector('.aw-row')!, 'ArrowDown');
+    render();
+    expect(ui.agentWindow()).toBe('d');
+    fixture.destroy();
+  });
+
+  it('keeps Tab inside the dialog', async () => {
+    const { ui, el, render } = await setup();
+    document.body.appendChild(el);
+    ui.openAgentWindow('c');
+    render();
+    const dialog = el.querySelector<HTMLElement>('[role="dialog"]')!;
+    const focusables = [...dialog.querySelectorAll<HTMLElement>('button, input, [tabindex="0"]')];
+    const first = focusables[0];
+    const last = focusables.at(-1)!;
+    last.focus();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    last.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(last);
+    el.remove();
+  });
+
+  it('does not close on Esc while an input method composes', async () => {
+    const { ui, el, render } = await setup();
+    ui.openAgentWindow('c');
+    render();
+    el.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+    expect(ui.agentWindow()).toBe('c');
+  });
+
+  it('keeps the message when sending fails, and drops the draft on another agent', async () => {
+    const a = runOf({ id: 'k', agent: 'claude', parent: null, status: 'idle', thread: 'u', startedAt: 1 });
+    const b = runOf({ id: 'm', agent: 'claude', parent: null, status: 'idle', thread: 'u', startedAt: 2 });
+    const { backend, ui, el, render } = await setup([a, b]);
+    backend.sendMessage = () => Promise.reject(new Error('phiên đã đóng'));
+    ui.openAgentWindow('k');
+    render();
+    const input = el.querySelector<HTMLInputElement>('.aw-input')!;
+    input.value = 'làm tiếp';
+    el.querySelector('.aw-dm')!.dispatchEvent(new Event('submit'));
+    await flush();
+    render();
+    expect(input.value).toBe('làm tiếp');
+    expect(el.querySelector('.aw-err')!.textContent).toContain('phiên đã đóng');
+    ui.agentWindow.set('m');
+    render();
+    await flush();
+    render();
+    expect(el.querySelector<HTMLInputElement>('.aw-input')!.value).toBe('');
+    expect(el.querySelector('.aw-err')).toBeNull();
+  });
+
+  it('starts on Trực tiếp when closed and reopened on the same run in one tick', async () => {
+    const { ui, el, render } = await setup();
+    ui.openAgentWindow('c');
+    render();
+    el.querySelectorAll<HTMLButtonElement>('[role="tab"]')[2].click();
+    render();
+    ui.closeAgentWindow();
+    ui.openAgentWindow('c');
+    render();
+    expect(el.querySelector('tg-agent-terminal')).toBeTruthy();
+  });
+
+  it('gives the focus to the chat box when the opener is gone', async () => {
+    const { ui, render } = await setup();
+    const box = document.createElement('textarea');
+    box.id = 'prompt';
+    document.body.appendChild(box);
+    const from = document.createElement('button');
+    document.body.appendChild(from);
+    ui.openAgentWindow('c', from);
+    render();
+    from.remove();
+    ui.closeAgentWindow();
+    expect(document.activeElement).toBe(box);
+    box.remove();
+  });
 });

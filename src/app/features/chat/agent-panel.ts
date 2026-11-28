@@ -99,9 +99,17 @@ export class AgentPanel {
   /** Ctrl/⌘+Shift+M opens the agent and model picker; Esc closes a menu, or stops the agent. */
   @HostListener('window:keydown', ['$event'])
   protected onKey(e: KeyboardEvent): void {
+    // Already handled (the agent window closed on this Esc): do not also stop the agent.
+    if (e.defaultPrevented) return;
     const chat = this.chat;
-    // The agent window has the keys while open: its Esc closes it, it does not stop the agent.
-    if (this.ui.agentWindow()) return;
+    // While the agent window is open, Esc closes it (wherever the focus is), it does not stop the agent.
+    if (this.ui.agentWindow()) {
+      if (e.key === 'Escape' && !e.isComposing) {
+        e.preventDefault();
+        this.ui.closeAgentWindow();
+      }
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
       e.preventDefault();
       chat.toggleMenu('agent');

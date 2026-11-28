@@ -8,6 +8,7 @@ import { AgentEvent, AgentId } from '../../core/protocol';
 import { WorkspaceService } from '../../services/workspace.service';
 import { AgentPanel } from './agent-panel';
 import { ChatState } from './chat.state';
+import { UiService } from '../../services/app/ui.service';
 
 class FakeBackend extends MockBackend {
   starts = 0;
@@ -393,6 +394,19 @@ describe('AgentPanel composer', () => {
       expect(stop).toHaveBeenCalledWith(id);
       patch({ status: 'idle' });
       expect(el.querySelector('.cx-send')?.getAttribute('aria-label')).toBe('Gửi');
+    });
+
+    it('Esc closes an open agent window instead of stopping the agent; with it closed, Esc stops', async () => {
+      const { runs, id } = await running();
+      const ui = TestBed.inject(UiService);
+      const stop = vi.spyOn(runs, 'stop').mockResolvedValue(undefined as never);
+      const esc = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      ui.openAgentWindow(id);
+      esc();
+      expect(ui.agentWindow()).toBeNull();
+      expect(stop).not.toHaveBeenCalled();
+      esc();
+      expect(stop).toHaveBeenCalledWith(id);
     });
 
     it('offers the first message as a plain send button before any run', async () => {
