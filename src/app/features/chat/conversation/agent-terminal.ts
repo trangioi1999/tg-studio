@@ -5,9 +5,8 @@ import { RunsService } from '../../../services/runs/runs.service';
 import { UiService } from '../../../services/app/ui.service';
 import { costOf } from '../../../services/usage/pricing';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
-import { Mascot } from '../../../shared/ui/mascot';
+import { plainText } from '../../../shared/utils/plain-text';
 import { fmtUsd } from '../../../shared/utils/format';
-import { mascotPose } from '../dock/dock-mascot';
 import { liveTokens } from '../dock/live-status';
 import { StepState, segmentsOf } from './timeline';
 import { ToolHead, middleTruncate } from './tool-step';
@@ -31,7 +30,8 @@ export function taskOf(prompt: string): string {
 
 /** m:ss, as a terminal clock. */
 export function clock(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
+  if (ms < 1000) return '';
+  const s = Math.floor(ms / 1000);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
@@ -39,7 +39,7 @@ export function clock(ms: number): string {
 export function terminalBody(run: Run): TermLine[] {
   const body: TermLine[] = [{ kind: 'prompt', text: taskOf(run.prompt) }];
   for (const seg of segmentsOf(run.lines, run.status === 'running')) {
-    if (seg.kind === 'text') body.push({ kind: 'text', text: seg.text });
+    if (seg.kind === 'text') body.push({ kind: 'text', text: plainText(seg.text) });
     else if (seg.kind === 'work') {
       for (const st of seg.steps) {
         const result = st.diff ? `+${st.diff.added} −${st.diff.removed}` : st.result;
@@ -73,8 +73,8 @@ export function runEnd(run: Run, now: number): number {
 
 function statusLine(run: Run, body: TermLine[], now: number): TermLine {
   const step = run.progress?.step ?? [...body].reverse().find((l) => l.kind === 'step' && l.state === 'running')?.text ?? 'đang suy nghĩ…';
-  const t = run.live ? ` · ${liveTokens(run.live)}` : '';
-  return { kind: 'status', text: `${step} (${clock(now - turnStart(run))}${t})` };
+  const detail = [clock(now - turnStart(run)), run.live ? liveTokens(run.live) : ''].filter(Boolean).join(' · ');
+  return { kind: 'status', text: `${step}${detail ? ` (${detail})` : ''}` };
 }
 
 /** Whether the user can write to this agent on its own: an open session, not a one-shot child. */
@@ -88,7 +88,7 @@ export function canMessage(run: Run): boolean {
 /** A delegated agent as a small terminal: header, the last lines of its work, a box to message it. */
 @Component({
   selector: 'tg-agent-terminal',
-  imports: [AgentAvatar, Mascot],
+  imports: [AgentAvatar],
   template: `
     @let r = run();
     <section class="at" [class.compact]="compact()" [attr.aria-label]="'Terminal của ' + meta[r.agent].name">
@@ -97,12 +97,11 @@ export function canMessage(run: Run): boolean {
         <button class="at-icon" (click)="collapse.emit()" aria-label="Thu lại" title="Thu lại">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
-        <tg-mascot [pose]="pose()" [size]="22" />
         <tg-agent-avatar [agent]="r.agent" [size]="18" />
         <strong>{{ meta[r.agent].name }}</strong>
         <span class="ellipsis at-task" [title]="task()">{{ task() }}</span>
         <span class="pill" [attr.data-status]="status()">{{ label() }}</span>
-        <span class="mono dim at-meta">{{ elapsed() }}@if (cost() !== null) { · {{ usd(cost()) }} }@if (r.context?.percent != null) { · ctx {{ r.context!.percent }}% }</span>
+        <span class="mono dim at-meta">{{ elapsed() }}@if (cost() !== null) { @if (elapsed()) { · }{{ usd(cost()) }} }@if (r.context?.percent != null) { @if (elapsed() || cost() !== null) { · }ctx {{ r.context!.percent }}% }</span>
         @if (r.status === 'running' && !subagent(r)) { <button class="btn ghost sm" (click)="runs.stop(r.id)">Dừng</button> }
         <button class="at-icon" (click)="open($event)" aria-label="Mở to" title="Mở to">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>
@@ -144,7 +143,7 @@ export class AgentTerminal {
   protected readonly runs = inject(RunsService);
   private readonly ui = inject(UiService);
   readonly run = input.required<Run>();
-  /** True: a fixed 10 lines tall. False: fills its parent (the big window). */
+  /** True: grows with content up to 10 lines. False: fills its parent (the big window). */
   readonly compact = input(true);
   readonly maxLines = input(500);
   /** Only the screen: the big window draws its own header and message box. */
@@ -171,7 +170,6 @@ export class AgentTerminal {
   protected readonly dm = computed(() => canMessage(this.run()));
   protected readonly cost = computed(() => { const r = this.run(); return costOf(r.agent, r.usage, r.startedAt).usd; });
   protected readonly elapsed = computed(() => { const r = this.run(); return clock(runEnd(r, r.status === 'running' ? this.runs.now() : 0) - turnStart(r)); });
-  protected readonly pose = computed(() => { const r = this.run(); return mascotPose(r, { now: this.runs.now(), lastEvent: this.runs.lastEvent()[r.id] }).pose; });
 
   constructor() {
     afterRenderEffect(() => {

@@ -101,7 +101,8 @@ describe('Bảng agent', () => {
     const { el } = await setup([run(), run({ id: 'child', parent: 'r', agent: 'codex', status: 'failed', endedAt: Date.now(),
       context: { used: 0, size: 100, percent: 0, source: 'acp' }, lines: [{ tone: 'text', text: 'Một\nHai\nBa\nBốn' }] })]);
     const cards = [...el.querySelectorAll('.ab-card')];
-    expect(cards[0].textContent).toContain('Chưa có số liệu ngữ cảnh');
+    expect(cards[0].textContent).not.toContain('Chưa có số liệu ngữ cảnh');
+    expect(cards[0].querySelector('.ab-context')).toBeNull();
     expect(cards[0].querySelector('.ab-meter')).toBeNull();
     expect(cards[1].textContent).toContain('↳ của Viết kiểm tra');
     expect(cards[1].querySelector('.ab-tail')?.textContent).toBe('Hai\nBa\nBốn');
@@ -122,4 +123,11 @@ describe('Bảng agent', () => {
     expect(fixture.nativeElement.textContent).toContain('Bảng agent');
     expect(fixture.nativeElement.textContent).not.toContain('Giám sát');
   });
+});
+
+it('ẩn thời lượng dưới một giây trên bảng, không để dấu phân cách đầu', async () => {
+  const { el } = await setup([run({ status: 'done', startedAt: 1000, endedAt: 1500, restored: false, permissions: [permission] })]);
+  const text = el.querySelector('.ab-meta')!.textContent!.trim();
+  expect(text).not.toContain('0:00');
+  expect(text.startsWith('·')).toBe(false);
 });

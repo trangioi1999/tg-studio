@@ -54,12 +54,12 @@ type Filter = BoardState | 'all';
               }
               @if (errors()[c.runId]; as error) { <p class="ab-error" role="alert">{{ error }}</p> }
               <div class="ab-meta">
-                <span>{{ duration(c.durationMs) }} · {{ usd(c.costUsd) }}</span>
+                <span>@if (c.durationMs >= 1000) { {{ duration(c.durationMs) }} · }{{ usd(c.costUsd) }}</span>
                 @if (c.contextPercent !== null) {
                   <span class="ab-context" [attr.aria-label]="'Ngữ cảnh đã dùng ' + c.contextPercent + '%'">
                     <span>Ngữ cảnh</span><span class="ab-meter" aria-hidden="true"><span [style.width.%]="bounded(c.contextPercent)"></span></span><span>{{ c.contextPercent }}%</span>
                   </span>
-                } @else { <span class="ab-context">Chưa có số liệu ngữ cảnh</span> }
+                }
               </div>
             </article>
           }

@@ -2,6 +2,7 @@ import { AgentId, PermissionRequest } from '../../core/protocol';
 import { Run, turnStart } from '../../services/runs/run';
 import { costOf } from '../../services/usage/pricing';
 import { MascotPose } from '../../shared/ui/mascot';
+import { plainText } from '../../shared/utils/plain-text';
 import { withoutAttachments } from '../../shared/utils/attachments';
 import { mascotPose, NAP_MS } from '../chat/dock/dock-mascot';
 import { segmentsOf } from '../chat/conversation/timeline';
@@ -56,7 +57,7 @@ function buildTail(r: Run): string[] {
     rows.push(...text.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => middleTruncate(s, 80)));
   };
   for (const seg of segmentsOf(r.lines, r.status === 'running')) {
-    if (seg.kind === 'text') append(seg.text);
+    if (seg.kind === 'text') append(plainText(seg.text));
     else if (seg.kind === 'work') {
       for (const step of seg.steps) {
         if (step.head) {
@@ -92,9 +93,34 @@ export function boardCards(runs: Run[], lastEvent: Record<string, number>, now: 
     for (const r of list) if (r.parent && eligible(r)) selected.push({ run: r, title: titleOf(r) });
   }
   const ranked = selected.map((s) => ({ ...s, state: stateOf(s.run, lastEvent, now), at: activityAt(s.run, lastEvent) }));
-  return ranked.sort((a, b) =>
+  ranked.sort((a, b) =>
     ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || b.at - a.at || b.run.startedAt - a.run.startedAt,
-  ).map(({ run: r, title, state }): BoardCard => {
+  );
+  const selectedById = new Map(ranked.map(card => [card.run.id, card]));
+  const children = new Map<string, typeof ranked>();
+  for (const card of ranked) {
+    const parent = card.run.parent ? selectedById.get(card.run.parent) : undefined;
+    if (parent && parent.state === card.state) {
+      const list = children.get(parent.run.id) ?? [];
+      list.push(card);
+      children.set(parent.run.id, list);
+    }
+  }
+  const ordered: typeof ranked = [];
+  const seen = new Set<string>();
+  const append = (card: typeof ranked[number]): void => {
+    if (seen.has(card.run.id)) return;
+    seen.add(card.run.id);
+    ordered.push(card);
+    for (const child of children.get(card.run.id) ?? []) append(child);
+  };
+  for (const card of ranked) {
+    const parent = card.run.parent ? selectedById.get(card.run.parent) : undefined;
+    if (!parent || parent.state !== card.state) append(card);
+  }
+  // Keep malformed cyclic parent data visible without looping.
+  for (const card of ranked) append(card);
+  return ordered.map(({ run: r, title, state }): BoardCard => {
     const parent = r.parent ? byId.get(r.parent) : undefined;
     return {
       runId: r.id, agent: r.agent, title, project: r.project,

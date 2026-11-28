@@ -269,3 +269,12 @@ describe('Agent window', () => {
     box.remove();
   });
 });
+
+it('ẩn thời lượng ngắn, giữ mèo và tin nhắn chữ thường trong cửa sổ lớn', async () => {
+  const { ui, el, render } = await setup([runOf({ parent: null, status: 'idle', startedAt: 1000, endedAt: 1500, lines: [{ tone: 'text', text: '**Xong** `a.ts`' }] })]);
+  ui.openAgentWindow('c');
+  render();
+  expect(el.querySelector('.aw-meta')!.textContent).not.toContain('0:00');
+  expect(el.querySelector('.aw-cat')).toBeTruthy();
+  expect(el.querySelector('.at-text')!.textContent).toBe('Xong a.ts');
+});

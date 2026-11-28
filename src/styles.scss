@@ -1261,11 +1261,11 @@ input, textarea, select { transition: background-color var(--t-fast) var(--ease)
 .at-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); cursor: pointer; }
 .at-icon:hover { background: var(--hover); color: var(--text); }
 .at-screen { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; background: var(--term-bg); color: var(--text-2); font: 12px/1.7 var(--mono); }
-.at.compact .at-screen { flex: none; height: calc(10 * 1.7em + 16px); }
+.at.compact .at-screen { flex: none; max-height: calc(10 * 1.7em + 16px); }
 .at-line { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .at-prompt { color: var(--text); }
 .at-p { color: var(--muted); }
-.at-text { font-family: var(--font); font-size: 13px; line-height: 1.6; }
+.at-text { font: inherit; }
 .at-status { color: var(--muted); }
 .at-step b { font-weight: 500; color: var(--text); }
 .at-dot { margin-right: 1ch; color: var(--done); }

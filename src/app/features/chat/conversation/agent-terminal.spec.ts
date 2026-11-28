@@ -5,7 +5,7 @@ import { AgentEvent, DetectedAgent } from '../../../core/protocol';
 import { UiService } from '../../../services/app/ui.service';
 import { RunsService } from '../../../services/runs/runs.service';
 import { Run } from '../../../services/runs/run';
-import { AgentTerminal, canMessage, runEnd, terminalLines } from './agent-terminal';
+import { AgentTerminal, clock, canMessage, runEnd, terminalLines } from './agent-terminal';
 import { Delegations } from './delegations';
 
 class FakeBackend extends MockBackend {
@@ -182,5 +182,25 @@ describe('Agent terminal', () => {
     fixture.detectChanges();
     (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-label="Mở to"]')!.click();
     expect(TestBed.inject(UiService).agentWindow()).toBe('c');
+  });
+});
+
+describe('Đánh bóng terminal', () => {
+  it('hiện tin nhắn dưới dạng chữ thường', () => {
+    expect(terminalLines(runOf({ lines: [{ tone: 'text', text: '**Xong** `a.ts`' }] }), 10).lines).toContainEqual({ kind: 'text', text: 'Xong a.ts' });
+  });
+  it('ẩn đồng hồ dưới một giây và không để ngoặc rỗng', () => {
+    for (const ms of [-1, 0, 999]) expect(clock(ms)).toBe('');
+    expect(clock(1000)).toBe('0:01');
+    expect(terminalLines(runOf({ startedAt: 1000 }), 10, 1500).lines.at(-1)?.text).toBe('đang suy nghĩ…');
+  });
+  it('giữ avatar, bỏ mèo và thời lượng ngắn ở header', async () => {
+    await setup();
+    const f = TestBed.createComponent(AgentTerminal);
+    f.componentRef.setInput('run', runOf({ status: 'done', startedAt: 1000, endedAt: 1500 }));
+    f.detectChanges();
+    expect(f.nativeElement.querySelector('.at-head tg-mascot')).toBeNull();
+    expect(f.nativeElement.querySelector('.at-head tg-agent-avatar')).toBeTruthy();
+    expect(f.nativeElement.querySelector('.at-meta').textContent).not.toContain('0:00');
   });
 });

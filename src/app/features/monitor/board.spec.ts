@@ -127,3 +127,18 @@ describe('boardCards', () => {
     });
   });
 });
+
+it('gom con ngay sau cha cùng trạng thái, giữ thứ tự trạng thái và con thiếu cha', () => {
+  const cards = boardCards([
+    run('child', { parent: 'parent', startedAt: now - 1000 }),
+    run('other', { startedAt: now - 2000 }),
+    run('parent', { startedAt: now - 3000 }),
+    run('sibling', { parent: 'parent', startedAt: now - 4000 }),
+    run('orphan', { parent: 'absent', startedAt: now - 5000 }),
+    run('failed-child', { parent: 'parent', status: 'failed', endedAt: now }),
+  ], {}, now);
+  expect(cards.map(c => c.runId)).toEqual(['other', 'parent', 'child', 'sibling', 'orphan', 'failed-child']);
+});
+it('bỏ Markdown khỏi đuôi tin nhắn trên bảng', () => {
+  expect(boardCards([run('r', { lines: [{ tone: 'text', text: '# **Xong**\n- `a.ts`\n> [Đọc](url)' }] })], {}, now)[0].tail).toEqual(['Xong', 'a.ts', 'Đọc']);
+});

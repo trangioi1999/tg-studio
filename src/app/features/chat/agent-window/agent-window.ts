@@ -50,7 +50,7 @@ type Tab = 'live' | 'changes' | 'task';
             <strong>{{ meta[r.agent].name }}</strong>
             <span class="ellipsis aw-task" [title]="task()">{{ task() }}@if (parentName(); as p) {<span class="dim"> · việc con của {{ p }}</span>}</span>
             <span class="pill" [attr.data-status]="stateOf(r)">{{ labelOf(r) }}</span>
-            <span class="mono dim aw-meta">{{ elapsed() }}@if (cost() !== null) { · {{ usd(cost()) }} }@if (r.context?.percent != null) { · ctx {{ r.context!.percent }}% }</span>
+            <span class="mono dim aw-meta">{{ elapsed() }}@if (cost() !== null) { @if (elapsed()) { · }{{ usd(cost()) }} }@if (r.context?.percent != null) { @if (elapsed() || cost() !== null) { · }ctx {{ r.context!.percent }}% }</span>
             <button class="aw-icon" (click)="ui.pinLog(r.id)" aria-label="Ghim xuống khung dưới" title="Ghim xuống khung dưới">
               <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/></svg>
             </button>
