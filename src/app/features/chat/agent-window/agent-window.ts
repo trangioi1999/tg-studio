@@ -42,7 +42,7 @@ type Tab = 'live' | 'changes' | 'task';
             }
           </div>
           <span class="spacer"></span>
-          <div class="mono aw-keys">↑ ↓ đổi agent<br />Enter nhắn riêng<br />Esc đóng</div>
+          <div class="mono aw-keys">↑ ↓ đổi agent<br />@if (dm()) {Enter nhắn riêng<br />}Esc đóng</div>
         </aside>
         <section class="aw-main">
           <header class="aw-head">

@@ -32,6 +32,8 @@ export class UiService {
   /** Per parent run, the delegated agent open as a small terminal: one per message, even across markers. */
   readonly openDelegation = signal<Record<string, string>>({});
   private agentWindowFrom: HTMLElement | null = null;
+  /** The run it opened on, so focus can go back to that child's row when the opener folded away. */
+  private agentWindowRun: string | null = null;
   /** The one run the bottom Log shows, pinned there from the agent window; null shows them all. */
   readonly logRun = signal<string | null>(null);
   /** Bumped on every pin, so pinning the same run again still opens the Log. */
@@ -83,6 +85,7 @@ export class UiService {
   /** Opens the big window of a delegated agent; `from` gets the focus back when it closes. */
   openAgentWindow(runId: string, from?: HTMLElement): void {
     this.agentWindowFrom = from ?? null;
+    this.agentWindowRun = runId;
     this.agentWindow.set(runId);
     this.agentWindowOpens.update((n) => n + 1);
   }
@@ -92,7 +95,10 @@ export class UiService {
     const from = this.agentWindowFrom;
     this.agentWindowFrom = null;
     // The row that opened it may be gone (the child folded): fall back to the chat box.
-    const target = from?.isConnected ? from : typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('textarea#prompt');
+    const runId = this.agentWindowRun;
+    this.agentWindowRun = null;
+    const row = runId && typeof document !== 'undefined' ? document.querySelector<HTMLElement>(`.dlg-toggle[data-run="${CSS.escape(runId)}"]`) : null;
+    const target = from?.isConnected ? from : row ?? (typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('textarea#prompt'));
     target?.focus?.();
   }
 

@@ -210,7 +210,8 @@ export class AgentTerminal {
     const text = box.value.trim();
     if (!text) return;
     box.value = '';
-    await this.runs.sendMessage(this.run().id, text);
+    // A failed send gives the text back rather than losing it.
+    await this.runs.sendMessage(this.run().id, text).catch(() => { if (!box.value) box.value = text; });
   }
 
   protected trunc(s: string): string {

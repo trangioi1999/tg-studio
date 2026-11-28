@@ -78,7 +78,7 @@ function readTab(): BottomTab {
             <span class="lg-chips" role="group" aria-label="Lọc theo agent">
               <button class="lg-chip" [class.active]="!logAgent() && !pinned()" [attr.aria-pressed]="!logAgent() && !pinned()" (click)="logAgent.set(null); ui.logRun.set(null)">Tất cả</button>
               @for (a of logAgents(); track a) {
-                <button class="lg-chip" [class.active]="logAgent() === a" [attr.aria-pressed]="logAgent() === a" (click)="logAgent.set(logAgent() === a ? null : a)">
+                <button class="lg-chip" [class.active]="logAgent() === a" [attr.aria-pressed]="logAgent() === a" (click)="logAgent.set(logAgent() === a ? null : a); ui.logRun.set(null)">
                   <tg-agent-avatar [agent]="a" [size]="14" />{{ meta[a].name }}
                 </button>
               }

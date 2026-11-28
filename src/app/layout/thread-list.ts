@@ -172,6 +172,8 @@ export class ThreadList {
   @HostListener('window:keydown', ['$event'])
   protected onKey(e: KeyboardEvent): void {
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    // The agent window is modal: no new conversation or sidebar change behind it.
+    if (this.ui.agentWindow()) return;
     const key = e.key.toLowerCase();
     if (key === 'n') {
       e.preventDefault();

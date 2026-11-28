@@ -44,6 +44,8 @@ export class QuickOpen {
 
   @HostListener('window:keydown', ['$event'])
   protected onKey(e: KeyboardEvent): void {
+    // The agent window is modal: nothing opens behind it.
+    if (this.ui.agentWindow()) return;
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
       e.preventDefault();
       if (this.open()) this.close();

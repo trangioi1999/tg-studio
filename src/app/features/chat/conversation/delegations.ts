@@ -50,7 +50,7 @@ const LABEL: Record<Delegation['status'], [State, string]> = {
               <tg-agent-terminal [run]="it.run!" (collapse)="toggle(it.key)" />
             } @else {
               <div class="dlg-head">
-                <button class="dlg-toggle" (click)="toggle(it.key)" [disabled]="!it.run" [attr.aria-expanded]="false"
+                <button class="dlg-toggle" [attr.data-run]="it.run?.id ?? null" (click)="toggle(it.key)" [disabled]="!it.run" [attr.aria-expanded]="false"
                   [title]="it.run ? 'Xem agent này làm gì' : ''">
                   <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
                   <tg-agent-avatar [agent]="it.agent" [size]="18" />
