@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="vi" data-theme="ember" data-accent="ember">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Bản thiết kế mới của TG Studio: làn sống cho từng agent, mèo theo trạng thái, song ngữ, theme sáng tối." />
+<title>TG Studio · bản thiết kế 2026-11-28</title>
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/inter/wght.css" />
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/jetbrains-mono/wght.css" />
+<style>
+/* Hallmark · v2.0.0 · shape: app screen · theme: kiln (dealt 2/3, seed desktop-ide-client-agent-76c1·04995c3c·2026-11-28·r0) · kiln: ember + bisque · faces: Inter + JetBrains Mono (bundled by the app) · signature: agent lanes, one live lane per agent with its cat · scope: app */
+/* critique: the old screen hid child agents behind folded rows and spread the same status over six places; here every agent gets one lane and one cat, and status lives there only */
+/* waive 64: mono is the material for tool steps and the terminal, never for labels */
+
+/* ---------- tokens ---------- */
+:root {
+  --font: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px; --fs-xl: 18px; --fs-2xl: 22px;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 18px; --r-pill: 999px;
+  --ease: cubic-bezier(.2, .8, .2, 1); --ease-spring: cubic-bezier(.3, 1.4, .5, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 480ms;
+  --side: 248px; --lanes: 340px;
+  /* Accent choices: a dark-ground and a light-ground step of each. */
+  --ember-d: oklch(70% 0.19 45); --moss-d: oklch(72% 0.13 145); --tide-d: oklch(70% 0.12 230); --plum-d: oklch(68% 0.14 350); --on-d: oklch(16% 0.02 40);
+  --ember-l: oklch(58% 0.17 48); --moss-l: oklch(52% 0.12 145); --tide-l: oklch(50% 0.12 235); --plum-l: oklch(50% 0.14 350); --on-l: oklch(99% 0.005 80);
+}
+/* Kiln ember: near-black warm ground, cream ink, one ember signal. */
+[data-theme='ember'] {
+  --bg: oklch(14.5% 0.01 50); --bg-2: oklch(17.5% 0.012 50); --bg-3: oklch(21% 0.014 50); --bg-4: oklch(25% 0.016 50);
+  --ink: oklch(94% 0.015 80); --ink-2: oklch(80% 0.02 70); --muted: oklch(64% 0.02 60);
+  --rule: oklch(96% 0.01 80 / 0.09); --rule-2: oklch(96% 0.01 80 / 0.16);
+  --term: oklch(12% 0.008 50);
+  --run: oklch(74% 0.12 240); --wait: oklch(80% 0.14 80); --done: oklch(74% 0.13 150); --fail: oklch(68% 0.17 25);
+  --shadow: 0 24px 60px -24px oklch(5% 0.01 40 / 0.7);
+  color-scheme: dark;
+}
+/* Kiln bisque: bone ground, warm ink, the same signal a step darker. */
+[data-theme='bisque'] {
+  --bg: oklch(97% 0.01 80); --bg-2: oklch(94.5% 0.013 78); --bg-3: oklch(91% 0.016 76); --bg-4: oklch(87% 0.018 74);
+  --ink: oklch(22% 0.02 45); --ink-2: oklch(38% 0.02 45); --muted: oklch(52% 0.02 50);
+  --rule: oklch(25% 0.02 45 / 0.1); --rule-2: oklch(25% 0.02 45 / 0.18);
+  --term: oklch(99% 0.005 80);
+  --run: oklch(52% 0.14 245); --wait: oklch(58% 0.14 70); --done: oklch(52% 0.13 150); --fail: oklch(54% 0.18 27);
+  --shadow: 0 24px 60px -28px oklch(30% 0.03 50 / 0.35);
+  color-scheme: light;
+}
+[data-accent='ember'] { --accent: var(--ember-d); --accent-ink: var(--on-d); }
+[data-accent='moss'] { --accent: var(--moss-d); --accent-ink: var(--on-d); }
+[data-accent='tide'] { --accent: var(--tide-d); --accent-ink: var(--on-d); }
+[data-accent='plum'] { --accent: var(--plum-d); --accent-ink: var(--on-d); }
+[data-theme='bisque'][data-accent='ember'] { --accent: var(--ember-l); --accent-ink: var(--on-l); }
+[data-theme='bisque'][data-accent='moss'] { --accent: var(--moss-l); --accent-ink: var(--on-l); }
+[data-theme='bisque'][data-accent='tide'] { --accent: var(--tide-l); --accent-ink: var(--on-l); }
+[data-theme='bisque'][data-accent='plum'] { --accent: var(--plum-l); --accent-ink: var(--on-l); }
+
+/* ---------- base ---------- */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; overflow-x: clip; }
+body { background: var(--bg); color: var(--ink); font: var(--fs-md)/1.5 var(--font); -webkit-font-smoothing: antialiased; transition: background-color var(--dur-long) var(--ease), color var(--dur-long) var(--ease); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; transition: none; }
+.mono { font-family: var(--mono); }
+.dim { color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+/* ---------- shell ---------- */
+.app { display: grid; grid-template-rows: 44px minmax(0, 1fr) 28px; grid-template-columns: var(--side) minmax(0, 1fr) var(--lanes); height: 100vh; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 84px; border-bottom: 1px solid var(--rule); background: var(--bg); }
+.lights { position: absolute; left: 14px; top: 15px; display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--bg-4); }
+.crumb { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink-2); }
+.crumb b { color: var(--ink); font-weight: 500; }
+.crumb .branch { font: var(--fs-sm) var(--mono); color: var(--muted); }
+.spacer { flex: 1; }
+.tool { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--bg-2); color: var(--ink-2); font-size: var(--fs-sm); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+.tool:hover { background: var(--bg-3); color: var(--ink); }
+.tool:active { transform: scale(.97); }
+.tool[aria-pressed='true'] { background: var(--bg-4); color: var(--ink); border-color: var(--rule-2); }
+.seg { display: inline-flex; padding: 2px; border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--bg-2); }
+.seg button { height: 24px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: none; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease); }
+.seg button[aria-pressed='true'] { background: var(--bg-4); color: var(--ink); }
+.ic { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* sidebar */
+.side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--rule); background: var(--bg-2); }
+.side-scroll { flex: 1; overflow-y: auto; padding: 12px 8px; }
+.new { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--rule-2); border-radius: var(--r-md); background: var(--bg-3); color: var(--ink); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+.new:hover { background: var(--bg-4); }
+.new:active { transform: scale(.98); }
+.key { margin-left: auto; padding: 1px 6px; border: 1px solid var(--rule-2); border-bottom-width: 2px; border-radius: 5px; font: var(--fs-xs) var(--mono); color: var(--muted); }
+.group { margin: 20px 4px 6px; color: var(--muted); font-size: var(--fs-sm); display: flex; align-items: center; justify-content: space-between; }
+.row { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 34px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink-2); text-align: left; cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease); }
+.row:hover { background: var(--bg-3); color: var(--ink); }
+.row[aria-current='page'] { background: var(--bg-4); color: var(--ink); }
+.row .t { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row.child { padding-left: 28px; height: 30px; font-size: var(--fs-sm); }
+.state { flex: none; font-size: var(--fs-xs); color: var(--muted); }
+.state[data-s='run'] { color: var(--run); }
+.state[data-s='wait'] { color: var(--wait); }
+.state[data-s='done'] { color: var(--done); }
+.logo { width: 18px; height: 18px; flex: none; border-radius: 5px; }
+.side-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 8px; border-top: 1px solid var(--rule); }
+.side-nav button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font-size: var(--fs-xs); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease); }
+.side-nav button:hover { background: var(--bg-3); color: var(--ink); }
+.side-nav button[aria-current='page'] { color: var(--ink); background: var(--bg-3); }
+
+/* ---------- views ---------- */
+.main { position: relative; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.view { display: none; min-height: 0; flex: 1; }
+.view.on { display: flex; flex-direction: column; }
+
+/* chat */
+.chat { flex: 1; overflow-y: auto; padding: 28px 32px 24px; scroll-behavior: smooth; }
+.col { max-width: 760px; margin: 0 auto; }
+.u { display: flex; justify-content: flex-end; margin: 0 0 20px; }
+.bubble { max-width: 80%; padding: 10px 14px; border: 1px solid var(--rule); border-radius: var(--r-lg) var(--r-lg) var(--r-sm) var(--r-lg); background: var(--bg-3); color: var(--ink); }
+.turn { margin: 0 0 24px; }
+.who { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.who b { font-weight: 500; }
+.who .meta { color: var(--muted); font-size: var(--fs-sm); }
+.who .meta span + span::before { content: ''; display: inline-block; width: 10px; }
+.say { margin: 0 0 12px; font-size: var(--fs-lg); line-height: 1.6; color: var(--ink); }
+.say code { padding: 1px 5px; border-radius: 5px; background: var(--bg-3); font: var(--fs-sm) var(--mono); }
+.steps { margin: 0 0 12px; padding: 0; list-style: none; font: var(--fs-sm)/1.7 var(--mono); color: var(--ink-2); }
+.step { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 8px; }
+.step .dot { width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: var(--done); }
+.step[data-s='run'] .dot { background: var(--run); animation: blink 1s steps(2) infinite; }
+.step[data-s='wait'] .dot { background: var(--wait); }
+.step b { color: var(--ink); font-weight: 500; }
+.step .res { grid-column: 2; color: var(--muted); }
+.step .res .add { color: var(--done); } .step .res .del { color: var(--fail); }
+@keyframes blink { 50% { opacity: .35; } }
+.enter { animation: rise var(--dur-short) var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+/* the spawn marker: where a child agent was handed work */
+.spawn { display: flex; align-items: center; gap: 10px; margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--bg-2); cursor: pointer; transition: border-color var(--dur-micro) var(--ease), background-color var(--dur-micro) var(--ease); }
+.spawn:hover { border-color: var(--rule-2); background: var(--bg-3); }
+.spawn .t { flex: 1; min-width: 0; }
+.spawn .t small { display: block; color: var(--muted); font-size: var(--fs-xs); }
+
+/* approval inside the chat block */
+.approve { margin: 0 0 14px; padding: 12px; border: 1px solid color-mix(in oklch, var(--wait) 45%, transparent); border-radius: var(--r-lg); background: color-mix(in oklch, var(--wait) 8%, var(--bg-2)); }
+.approve p { margin: 0 0 10px; }
+.approve code { font: var(--fs-md) var(--mono); padding: 2px 6px; border-radius: 5px; background: var(--bg-3); }
+.btns { display: flex; gap: 8px; justify-content: flex-end; }
+.btn { height: 32px; padding: 0 14px; border: 1px solid var(--rule-2); border-radius: var(--r-pill); background: none; color: var(--ink); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+.btn:hover { background: var(--bg-3); }
+.btn:active { transform: scale(.97); }
+.btn.primary { border-color: transparent; background: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.btn.primary:hover { background: color-mix(in oklch, var(--accent) 88%, var(--ink)); }
+
+/* composer */
+.dock { position: relative; padding: 0 32px 20px; }
+.composer { position: relative; max-width: 760px; margin: 0 auto; border: 1px solid var(--rule-2); border-radius: var(--r-xl); background: var(--bg-2); box-shadow: var(--shadow); transition: border-color var(--dur-short) var(--ease); }
+.composer:focus-within { border-color: color-mix(in oklch, var(--accent) 60%, var(--rule-2)); }
+.live { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 14px; border-bottom: 1px solid var(--rule); color: var(--ink-2); font: var(--fs-sm) var(--mono); }
+.live[hidden] { display: none; }
+.live .glyph { color: var(--accent); display: inline-block; animation: spin 1.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.composer textarea { display: block; width: 100%; min-height: 64px; padding: 14px 16px 6px; border: 0; background: none; color: var(--ink); font: var(--fs-lg)/1.5 var(--font); resize: none; outline: none; }
+.composer textarea::placeholder { color: var(--muted); }
+.bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font-size: var(--fs-md); cursor: pointer; transition: background-color var(--dur-micro) var(--ease); }
+.chip:hover { background: var(--bg-3); }
+.ctx { color: var(--muted); font: var(--fs-sm) var(--mono); padding: 0 8px; }
+.send { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); cursor: pointer; transition: transform var(--dur-micro) var(--ease), background-color var(--dur-micro) var(--ease); }
+.send:hover { transform: translateY(-1px); }
+.send:active { transform: scale(.92); }
+.send[data-mode='stop'] { background: var(--ink); color: var(--bg); }
+.ghost { position: fixed; z-index: 30; padding: 10px 14px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--bg-3); color: var(--ink); pointer-events: none; transition: transform var(--dur-long) var(--ease-spring), opacity var(--dur-long) var(--ease); }
+
+/* ---------- the pet ---------- */
+.pet { position: relative; width: var(--pet, 56px); height: calc(var(--pet, 56px) * 1.11); flex: none; }
+.pet img, .pet .sprite { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 100%; }
+.pet .sprite { background-repeat: no-repeat; background-size: auto 100%; image-rendering: auto; }
+.pet[data-s='typing'] img { animation: type .28s ease-in-out infinite alternate; }
+.pet[data-s='running'] img { animation: run .36s var(--ease) infinite; }
+.pet[data-s='thinking'] img { animation: think 2.4s ease-in-out infinite; }
+.pet .wave { position: absolute; inset: 0; background: url('../../../public/mascot/wave.webp') 0 0 / 500% 100% no-repeat; animation: wave5 1.4s step-end infinite; }
+@keyframes wave5 { 0% { background-position: 0% 0; } 20% { background-position: 25% 0; } 40% { background-position: 50% 0; } 60% { background-position: 75% 0; } 80% { background-position: 100% 0; } }
+.lanes-empty { display: grid; justify-items: center; gap: 10px; padding: 48px 16px; color: var(--muted); text-align: center; }
+.lanes-empty .pet { --pet: 72px; }
+.pet[data-s='success'] img { animation: hop .7s var(--ease-spring) 2; }
+.pet[data-s='error'] img { animation: shake .45s ease-in-out 1; }
+.pet[data-s='sleep'] img { animation: breathe 3.2s ease-in-out infinite; }
+.pet[data-s='idle'] img { animation: breathe 4s ease-in-out infinite; }
+@keyframes type { from { transform: translateY(0) rotate(-1deg); } to { transform: translateY(-2px) rotate(1deg); } }
+@keyframes run { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-6px) rotate(4deg); } }
+@keyframes think { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+@keyframes call { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(-5px) rotate(-3deg); } 60% { transform: translateY(0) rotate(2deg); } }
+@keyframes hop { 0% { transform: translateY(0) scale(1, 1); } 30% { transform: translateY(-14px) scale(.96, 1.05); } 60% { transform: translateY(0) scale(1.04, .95); } 100% { transform: translateY(0) scale(1); } }
+@keyframes shake { 20%, 60% { transform: translateX(-3px) rotate(-3deg); } 40%, 80% { transform: translateX(3px) rotate(3deg); } }
+@keyframes breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.015, .985); } }
+.pet .zz { position: absolute; right: -4px; top: -6px; font: 600 var(--fs-sm) var(--mono); color: var(--muted); animation: zz 2.4s ease-in-out infinite; }
+.pet .dots { position: absolute; right: -10px; top: 2px; font: 600 var(--fs-md) var(--mono); color: var(--muted); }
+.pet .dots i { font-style: normal; animation: blink 1.2s infinite; }
+.pet .dots i:nth-child(2) { animation-delay: .2s; } .pet .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes zz { 0% { opacity: 0; transform: translateY(4px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-8px); } }
+.dock-pet { position: absolute; right: 44px; top: -58px; --pet: 52px; }
+
+/* ---------- agent lanes (the signature) ---------- */
+.lanes { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--rule); background: var(--bg-2); }
+.lanes-head { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-bottom: 1px solid var(--rule); }
+.lanes-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 500; }
+.lanes-body { flex: 1; overflow-y: auto; padding: 10px; }
+.lane { position: relative; margin-bottom: 8px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--bg); transition: border-color var(--dur-short) var(--ease), transform var(--dur-short) var(--ease), opacity var(--dur-short) var(--ease); }
+.lane.child { margin-left: 18px; }
+.lane.child::before { content: ''; position: absolute; left: -12px; top: -9px; width: 10px; height: 36px; border-left: 1px solid var(--rule-2); border-bottom: 1px solid var(--rule-2); border-bottom-left-radius: 8px; }
+.lane[data-s='running'], .lane[data-s='typing'] { border-color: color-mix(in oklch, var(--run) 40%, var(--rule)); }
+.lane[data-s='waiting'] { border-color: color-mix(in oklch, var(--wait) 55%, var(--rule)); }
+.lane.spawned { animation: spawn var(--dur-long) var(--ease-spring) both; }
+@keyframes spawn { from { opacity: 0; transform: translateY(-10px) scale(.97); } }
+.lane-top { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 10px 6px; border: 0; background: none; text-align: left; cursor: pointer; }
+.lane-top .pet { --pet: 40px; }
+.lane-id { flex: 1; min-width: 0; }
+.lane-id b { white-space: nowrap; display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.lane-id .task { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); font-size: var(--fs-sm); }
+.lane-state { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; text-align: right; }
+.lane-state b { display: block; font-weight: 500; }
+.lane-state[data-s='run'] b { color: var(--run); } .lane-state[data-s='wait'] b { color: var(--wait); } .lane-state[data-s='done'] b { color: var(--done); }
+.lane-now { margin: 0 10px 8px; padding: 6px 8px; border-radius: var(--r-sm); background: var(--term); color: var(--ink-2); font: var(--fs-xs)/1.6 var(--mono); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.track { position: relative; height: 8px; margin: 0 10px 10px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+.track i { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--bg-4); }
+.axis { position: sticky; top: -10px; z-index: 1; display: flex; justify-content: space-between; margin: -10px -10px 8px; padding: 8px 20px 6px; border-bottom: 1px solid var(--rule); background: var(--bg-2); color: var(--muted); font: var(--fs-xs) var(--mono); }
+.lane-log { display: none; margin: 0 10px 10px; padding: 8px 10px; max-height: 180px; overflow-y: auto; border-radius: var(--r-sm); background: var(--term); color: var(--ink-2); font: var(--fs-xs)/1.7 var(--mono); }
+.lane.open .lane-log { display: block; animation: rise var(--dur-short) var(--ease) both; }
+.lane.open .lane-now { display: none; }
+.lane-top .chev { transition: transform var(--dur-short) var(--ease); color: var(--muted); }
+.lane.open .lane-top .chev { transform: rotate(90deg); }
+[data-motion='light'] .lane .pet img, [data-motion='light'] .card .pet img { animation: none; }
+[data-motion='off'] *, [data-motion='off'] *::before, [data-motion='off'] *::after { animation: none !important; transition: none !important; }
+.track i[data-k='read'] { background: color-mix(in oklch, var(--ink) 30%, transparent); }
+.track i[data-k='edit'] { background: var(--accent); }
+.track i[data-k='exec'] { background: var(--run); }
+.track i[data-k='wait'] { background: var(--wait); }
+@keyframes grow { from { transform: scaleX(0); } }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 14px 12px; border-top: 1px solid var(--rule); color: var(--muted); font-size: var(--fs-xs); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 6px; border-radius: 2px; }
+
+/* ---------- board ---------- */
+.page { flex: 1; overflow-y: auto; padding: 28px 32px; }
+.page-in { max-width: 1240px; margin: 0 auto; }
+.page h1 { margin: 0 0 4px; font-size: var(--fs-2xl); font-weight: 500; }
+.page .lede { margin: 0 0 20px; color: var(--muted); }
+.filters { display: flex; gap: 6px; margin-bottom: 18px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; padding: 14px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--bg-2); cursor: pointer; transition: border-color var(--dur-micro) var(--ease), transform var(--dur-micro) var(--ease); }
+.card:hover { border-color: var(--rule-2); transform: translateY(-2px); }
+.card .pet { --pet: 64px; grid-row: span 2; }
+.card h3 { margin: 0; font-size: var(--fs-md); font-weight: 500; }
+.card .sub { color: var(--muted); font-size: var(--fs-sm); }
+.card .lane-now { grid-column: 1 / -1; margin: 6px 0 0; }
+.card .foot { grid-column: 1 / -1; display: flex; justify-content: space-between; color: var(--muted); font: var(--fs-xs) var(--mono); }
+
+/* ---------- appearance ---------- */
+.set { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px 32px; max-width: 900px; }
+.set h2 { margin: 0; font-size: var(--fs-md); font-weight: 500; }
+.set p { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.swatches { display: flex; gap: 10px; }
+.sw { width: 32px; height: 32px; border: 2px solid transparent; border-radius: 50%; cursor: pointer; transition: transform var(--dur-micro) var(--ease); }
+.sw:hover { transform: scale(1.08); }
+.sw[aria-pressed='true'] { border-color: var(--ink); }
+.sw[data-a='ember'] { background: var(--ember-d); } .sw[data-a='moss'] { background: var(--moss-d); }
+.sw[data-a='tide'] { background: var(--tide-d); } .sw[data-a='plum'] { background: var(--plum-d); }
+.preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.set > .seg, .filters { justify-self: start; align-self: start; width: fit-content; }
+.mini { color: var(--ink); padding: 12px; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--bg); }
+.mini .bar-s { height: 8px; margin: 6px 0; border-radius: 4px; background: var(--bg-3); }
+.mini .bar-s.a { width: 40%; background: var(--accent); }
+.tokens { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.tokens td { padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+.tokens td:first-child { font-family: var(--mono); color: var(--ink-2); }
+.tokens i { display: inline-block; width: 14px; height: 14px; margin-right: 8px; border: 1px solid var(--rule-2); border-radius: 4px; vertical-align: -3px; }
+
+/* status bar */
+.status { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 12px; border-top: 1px solid var(--rule); color: var(--muted); font: var(--fs-xs) var(--mono); }
+
+@media (max-width: 1180px) { .app { --lanes: 300px; --side: 220px; } }
+@media (max-width: 980px) { .app { grid-template-columns: 0 minmax(0, 1fr) var(--lanes); } .side { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="crumb">
+      <b>tg-studio</b>
+      <span class="branch">claude/gallant-wozniak</span>
+      <span class="dim">/</span>
+      <span data-i18n="crumb.thread">Làm lại thanh tiến độ</span>
+    </div>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-lang="vi" aria-pressed="true">VI</button>
+      <button type="button" data-lang="en" aria-pressed="false">EN</button>
+    </div>
+    <button class="tool" type="button" id="theme" aria-label="Theme">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
+      <span data-i18n="top.theme">Tối</span>
+    </button>
+    <button class="tool" type="button" id="replay">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+      <span data-i18n="top.replay">Chạy lại kịch bản</span>
+    </button>
+  </header>
+
+  <aside class="side" aria-label="Sidebar">
+    <div class="side-scroll">
+      <button class="new" type="button">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span data-i18n="side.new">Trò chuyện mới</span><span class="key">⌘N</span>
+      </button>
+      <div class="group"><span data-i18n="side.running">Đang chạy</span><span class="mono" id="runCount">0</span></div>
+      <div id="runningRows"></div>
+      <div class="group"><span data-i18n="side.projects">Dự án</span></div>
+      <button class="row" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="t">tg-studio</span></button>
+      <button class="row" type="button" aria-current="page"><img class="logo" src="../../../public/agents/claude.svg" alt="" /><span class="t" data-i18n="crumb.thread">Làm lại thanh tiến độ</span><span class="state" id="threadState" data-s="idle"></span></button>
+      <button class="row" type="button"><img class="logo" src="../../../public/agents/codex.svg" alt="" /><span class="t" data-i18n="side.t2">Sửa test đăng nhập</span><span class="state" data-s="done" data-i18n="s.done">Xong</span></button>
+      <button class="row" type="button"><img class="logo" src="../../../public/agents/claude.svg" alt="" /><span class="t" data-i18n="side.t3">Giải thích luồng ACP</span><span class="state" data-i18n="s.sleep">Đang ngủ</span></button>
+    </div>
+    <nav class="side-nav" aria-label="Screens">
+      <button type="button" data-view="chat" aria-current="page"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg><span data-i18n="nav.chat">Chat</span></button>
+      <button type="button" data-view="board"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span data-i18n="nav.board">Bảng agent</span></button>
+      <button type="button" data-view="look"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg><span data-i18n="nav.look">Giao diện</span></button>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <!-- chat -->
+    <section class="view on" id="v-chat" aria-label="Chat">
+      <div class="chat" id="chat"><div class="col" id="log"></div></div>
+      <div class="dock">
+        <div class="pet dock-pet" id="dockPet" data-s="idle"><img src="../../../public/mascot/idle.webp" alt="" /></div>
+        <form class="composer" id="composer">
+          <div class="live" id="live" hidden><span class="glyph" aria-hidden="true">✻</span><span id="liveText"></span><span class="spacer"></span><span data-i18n="live.esc">Esc để dừng</span></div>
+          <label class="sr" for="prompt" data-i18n="c.label">Tin nhắn cho agent</label>
+          <textarea id="prompt" rows="2" data-i18n-ph="c.ph" placeholder="Giao việc hoặc hỏi agent"></textarea>
+          <div class="bar">
+            <button class="chip" type="button" aria-label="Add"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button class="chip" type="button"><img class="logo" src="../../../public/agents/claude.svg" alt="" />Claude Code <span class="dim">Opus 5.5</span></button>
+            <button class="chip" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16Z"/></svg><span data-i18n="c.ask">Hỏi trước</span></button>
+            <span class="spacer"></span>
+            <span class="ctx" id="ctx">6%  56.7k/1M</span>
+            <button class="send" id="send" type="submit" aria-label="Send"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- board -->
+    <section class="view" id="v-board" aria-label="Board">
+      <div class="page"><div class="page-in">
+        <h1 data-i18n="b.title">Bảng agent</h1>
+        <p class="lede" data-i18n="b.lede">Mọi agent đang làm trên các dự án. Bấm một thẻ để xem làn của nó.</p>
+        <div class="filters seg" role="tablist" aria-label="Filter">
+          <button type="button" aria-pressed="true" data-i18n="b.all">Tất cả</button>
+          <button type="button" aria-pressed="false" data-i18n="b.needs">Cần bạn</button>
+          <button type="button" aria-pressed="false" data-i18n="b.run">Đang chạy</button>
+          <button type="button" aria-pressed="false" data-i18n="b.done">Xong</button>
+        </div>
+        <div class="grid" id="boardGrid"></div>
+      </div></div>
+    </section>
+
+    <!-- appearance -->
+    <section class="view" id="v-look" aria-label="Appearance">
+      <div class="page"><div class="page-in">
+        <h1 data-i18n="l.title">Giao diện</h1>
+        <p class="lede" data-i18n="l.lede">Theme, màu nhấn và ngôn ngữ. Theme riêng là một bộ token, sửa ở đây hoặc nạp từ tệp.</p>
+        <div class="set">
+          <div><h2 data-i18n="l.mode">Chế độ</h2><p data-i18n="l.modeP">Theo hệ thống, tối hoặc sáng.</p></div>
+          <div class="seg" role="group" aria-label="Mode" id="modeSeg">
+            <button type="button" data-m="system" aria-pressed="false" data-i18n="l.system">Theo hệ thống</button>
+            <button type="button" data-m="ember" aria-pressed="true" data-i18n="l.dark">Tối (Kiln)</button>
+            <button type="button" data-m="bisque" aria-pressed="false" data-i18n="l.light">Sáng (Bisque)</button>
+          </div>
+          <div><h2 data-i18n="l.accent">Màu nhấn</h2><p data-i18n="l.accentP">Chỉ dùng cho nút chính, lựa chọn và thao tác sửa.</p></div>
+          <div class="swatches" id="swatches">
+            <button class="sw" type="button" data-a="ember" aria-pressed="true" aria-label="Ember"></button>
+            <button class="sw" type="button" data-a="moss" aria-pressed="false" aria-label="Moss"></button>
+            <button class="sw" type="button" data-a="tide" aria-pressed="false" aria-label="Tide"></button>
+            <button class="sw" type="button" data-a="plum" aria-pressed="false" aria-label="Plum"></button>
+          </div>
+          <div><h2 data-i18n="l.preview">Xem trước</h2><p data-i18n="l.previewP">Hai mặt của cùng một bộ token.</p></div>
+          <div class="preview">
+            <div class="mini" data-theme="ember" data-accent="ember" id="miniDark"><b>Kiln</b><div class="bar-s a"></div><div class="bar-s"></div><div class="bar-s" style="width:70%"></div></div>
+            <div class="mini" data-theme="bisque" data-accent="ember" id="miniLight"><b>Bisque</b><div class="bar-s a"></div><div class="bar-s"></div><div class="bar-s" style="width:70%"></div></div>
+          </div>
+          <div><h2 data-i18n="l.tokens">Token của theme</h2><p data-i18n="l.tokensP">Theme riêng ghi đè các biến này; để trống thì lấy của Kiln.</p></div>
+          <table class="tokens"><tbody id="tokenRows"></tbody></table>
+          <div><h2 data-i18n="l.motion">Chuyển động</h2><p data-i18n="l.motionP">Nhẹ: chỉ mèo ở ô chat chuyển động. Tắt: mọi thứ đứng yên.</p></div>
+          <div class="seg" role="group" aria-label="Motion" id="motionSeg">
+            <button type="button" data-mo="full" aria-pressed="true" data-i18n="l.full">Đầy đủ</button>
+            <button type="button" data-mo="light" aria-pressed="false" data-i18n="l.lightM">Nhẹ</button>
+            <button type="button" data-mo="off" aria-pressed="false" data-i18n="l.off">Tắt</button>
+          </div>
+          <div><h2 data-i18n="l.lang">Ngôn ngữ</h2><p data-i18n="l.langP">Mọi chữ trên giao diện, kể cả lỗi từ lõi.</p></div>
+          <div class="seg" role="group" aria-label="Language">
+            <button type="button" data-lang="vi" aria-pressed="true">Tiếng Việt</button>
+            <button type="button" data-lang="en" aria-pressed="false">English</button>
+          </div>
+        </div>
+      </div></div>
+    </section>
+  </main>
+
+  <aside class="lanes" aria-label="Agent lanes">
+    <div class="lanes-head">
+      <h2 data-i18n="lanes.title">Agent trong cuộc trò chuyện</h2>
+      <span class="spacer"></span>
+      <span class="dim mono" id="laneCount">1</span>
+    </div>
+    <div class="lanes-body" id="lanes"></div>
+    <div class="legend">
+      <span><i style="background: color-mix(in oklch, var(--ink) 30%, transparent)"></i><span data-i18n="lg.read">Đọc</span></span>
+      <span><i style="background: var(--accent)"></i><span data-i18n="lg.edit">Sửa</span></span>
+      <span><i style="background: var(--run)"></i><span data-i18n="lg.exec">Chạy lệnh</span></span>
+      <span><i style="background: var(--wait)"></i><span data-i18n="lg.wait">Chờ bạn</span></span>
+    </div>
+  </aside>
+
+  <footer class="status">
+    <span>v0.8.0</span><span class="spacer"></span>
+    <span id="cost">$0.00</span><span>Claude 5h 8%</span><span>Codex 7d 39%</span><span>TG 107 MB</span>
+  </footer>
+</div>
+
+<script>
+// ---------- strings ----------
+const T = {
+  vi: {
+    'crumb.thread': 'Làm lại thanh tiến độ', 'top.theme': 'Tối', 'top.themeL': 'Sáng', 'top.replay': 'Chạy lại kịch bản',
+    'side.new': 'Trò chuyện mới', 'side.running': 'Đang chạy', 'side.projects': 'Dự án', 'side.t2': 'Sửa test đăng nhập', 'side.t3': 'Giải thích luồng ACP',
+    's.done': 'Xong', 's.sleep': 'Đang ngủ', 's.run': 'Đang chạy', 's.wait': 'Chờ bạn', 's.think': 'Đang nghĩ', 's.type': 'Đang viết', 's.exec': 'Đang chạy lệnh', 's.fail': 'Lỗi',
+    'nav.chat': 'Chat', 'nav.board': 'Bảng agent', 'nav.look': 'Giao diện',
+    'live.esc': 'Esc để dừng', 'c.label': 'Tin nhắn cho agent', 'c.ph': 'Giao việc hoặc hỏi agent', 'c.phRun': 'Agent đang chạy', 'c.ask': 'Hỏi trước',
+    'b.title': 'Bảng agent', 'b.lede': 'Mọi agent đang làm trên các dự án. Bấm một thẻ để xem làn của nó.', 'b.all': 'Tất cả', 'b.needs': 'Cần bạn', 'b.run': 'Đang chạy', 'b.done': 'Xong',
+    'l.title': 'Giao diện', 'l.lede': 'Theme, màu nhấn và ngôn ngữ. Theme riêng là một bộ token, sửa ở đây hoặc nạp từ tệp.',
+    'l.mode': 'Chế độ', 'l.modeP': 'Theo hệ thống, tối hoặc sáng.', 'l.dark': 'Tối (Kiln)', 'l.light': 'Sáng (Bisque)',
+    'l.accent': 'Màu nhấn', 'l.accentP': 'Chỉ dùng cho nút chính, lựa chọn và thao tác sửa.', 'l.preview': 'Xem trước', 'l.previewP': 'Hai mặt của cùng một bộ token.',
+    'l.system': 'Theo hệ thống', 'l.motion': 'Chuyển động', 'l.motionP': 'Nhẹ: chỉ mèo ở ô chat chuyển động. Tắt: mọi thứ đứng yên.', 'l.full': 'Đầy đủ', 'l.lightM': 'Nhẹ', 'l.off': 'Tắt',
+    'l.tokens': 'Token của theme', 'l.tokensP': 'Theme riêng ghi đè các biến này; để trống thì lấy của Kiln.', 'l.lang': 'Ngôn ngữ', 'l.langP': 'Mọi chữ trên giao diện, kể cả lỗi từ lõi.',
+    'lanes.title': 'Agent trong cuộc trò chuyện', 'lanes.empty': 'Chưa có agent nào chạy. Gửi một việc, mỗi agent sẽ có một làn ở đây.', 'lg.read': 'Đọc', 'lg.edit': 'Sửa', 'lg.exec': 'Chạy lệnh', 'lg.wait': 'Chờ bạn',
+    'p.prompt': 'Thanh tiến độ ở chat đang hiện hai lần. Gộp lại, rồi nhờ Codex viết test cho nó.',
+    'a.plan': 'Mình sẽ đọc chỗ vẽ thanh tiến độ trước, rồi sửa và chạy test.',
+    'a.ask': 'Cho chạy lệnh này?', 'a.deny': 'Từ chối', 'a.allow': 'Cho phép lần này',
+    'a.spawn': 'Mình sửa xong phần hiển thị. Giao Codex viết test, và một subagent soát chữ tiếng Anh.',
+    'a.done': 'Xong. Thanh tiến độ chỉ còn một chỗ, Codex thêm 3 test, subagent sửa 2 chuỗi tiếng Anh.',
+    'k.codex': 'Viết test cho thanh tiến độ', 'k.sub': 'Soát chuỗi tiếng Anh', 'k.main': 'Gộp thanh tiến độ',
+    'spawn.open': 'Xem làn',
+    'think': 'đang nghĩ', 'tok': 'token', 'lines': 'dòng',
+  },
+  en: {
+    'crumb.thread': 'Rework the progress bar', 'top.theme': 'Dark', 'top.themeL': 'Light', 'top.replay': 'Replay the demo',
+    'side.new': 'New chat', 'side.running': 'Running', 'side.projects': 'Projects', 'side.t2': 'Fix the login tests', 'side.t3': 'Explain the ACP flow',
+    's.done': 'Done', 's.sleep': 'Asleep', 's.run': 'Running', 's.wait': 'Needs you', 's.think': 'Thinking', 's.type': 'Writing', 's.exec': 'Running a command', 's.fail': 'Failed',
+    'nav.chat': 'Chat', 'nav.board': 'Agent board', 'nav.look': 'Appearance',
+    'live.esc': 'Esc to stop', 'c.label': 'Message for the agent', 'c.ph': 'Give an agent a task or ask it something', 'c.phRun': 'The agent is running', 'c.ask': 'Ask first',
+    'b.title': 'Agent board', 'b.lede': 'Every agent at work across your projects. Click a card to see its lane.', 'b.all': 'All', 'b.needs': 'Needs you', 'b.run': 'Running', 'b.done': 'Done',
+    'l.title': 'Appearance', 'l.lede': 'Theme, accent and language. A custom theme is a set of tokens, edited here or loaded from a file.',
+    'l.mode': 'Mode', 'l.modeP': 'Follow the system, dark or light.', 'l.dark': 'Dark (Kiln)', 'l.light': 'Light (Bisque)',
+    'l.accent': 'Accent', 'l.accentP': 'Only for the primary action, the selection and edits.', 'l.preview': 'Preview', 'l.previewP': 'Both sides of one token set.',
+    'l.system': 'System', 'l.motion': 'Motion', 'l.motionP': 'Light: only the cat by the composer moves. Off: everything stands still.', 'l.full': 'Full', 'l.lightM': 'Light', 'l.off': 'Off',
+    'l.tokens': 'Theme tokens', 'l.tokensP': 'A custom theme overrides these; anything left out comes from Kiln.', 'l.lang': 'Language', 'l.langP': 'Every word in the interface, errors from the core included.',
+    'lanes.title': 'Agents in this chat', 'lanes.empty': 'No agent is running. Send a task and each agent gets a lane here.', 'lg.read': 'Read', 'lg.edit': 'Edit', 'lg.exec': 'Command', 'lg.wait': 'Needs you',
+    'p.prompt': 'The chat shows the progress bar twice. Merge them, then have Codex write tests for it.',
+    'a.plan': "I'll read where the progress bar is drawn first, then fix it and run the tests.",
+    'a.ask': 'Run this command?', 'a.deny': 'Deny', 'a.allow': 'Allow once',
+    'a.spawn': 'The view is fixed. Codex writes the tests, and a subagent checks the English strings.',
+    'a.done': 'Done. The progress bar shows once, Codex added 3 tests, the subagent fixed 2 English strings.',
+    'k.codex': 'Write tests for the progress bar', 'k.sub': 'Check the English strings', 'k.main': 'Merge the progress bar',
+    'spawn.open': 'Show lane',
+    'think': 'thinking', 'tok': 'tokens', 'lines': 'lines',
+  },
+};
+let lang = 'vi';
+const t = (k) => T[lang][k] ?? T.vi[k] ?? k;
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+  document.querySelectorAll('[data-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+  themeLabel(); renderLanes(); renderBoard(); renderRunning(); renderTokens();
+}
+document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.lang; applyLang(); }));
+
+// ---------- theme ----------
+const root = document.documentElement;
+function setTheme(m) {
+  root.dataset.theme = m === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'bisque' : 'ember') : m;
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
+  themeLabel(); renderTokens();
+}
+function themeLabel() { document.querySelector('#theme span').textContent = root.dataset.theme === 'ember' ? t('top.theme') : t('top.themeL'); }
+document.getElementById('theme').addEventListener('click', () => setTheme(root.dataset.theme === 'ember' ? 'bisque' : 'ember'));
+document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.m)));
+document.querySelectorAll('#motionSeg button').forEach((b) => b.addEventListener('click', () => {
+  root.dataset.motion = b.dataset.mo;
+  document.querySelectorAll('#motionSeg button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+}));
+document.querySelectorAll('#swatches .sw').forEach((b) => b.addEventListener('click', () => {
+  root.dataset.accent = b.dataset.a;
+  document.getElementById('miniDark').dataset.accent = b.dataset.a; document.getElementById('miniLight').dataset.accent = b.dataset.a;
+  document.querySelectorAll('#swatches .sw').forEach((s) => s.setAttribute('aria-pressed', String(s === b)));
+  renderTokens();
+}));
+function renderTokens() {
+  const cs = getComputedStyle(root);
+  document.getElementById('tokenRows').innerHTML = ['--bg', '--bg-2', '--ink', '--muted', '--accent', '--run', '--wait', '--done', '--fail']
+    .map((k) => `<tr><td>${k}</td><td><i style="background:var(${k})"></i>${cs.getPropertyValue(k).trim()}</td></tr>`).join('');
+}
+
+// ---------- views ----------
+document.querySelectorAll('.side-nav [data-view]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('.side-nav [data-view]').forEach((x) => x.removeAttribute('aria-current'));
+  b.setAttribute('aria-current', 'page');
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + b.dataset.view));
+}));
+
+// ---------- the pet: sprite sheets when Codex's frames exist, the still poses with motion otherwise ----------
+const POSE = { idle: 'idle', thinking: 'thinking', typing: 'coding', running: 'coding', success: 'success', error: 'thinking', sleep: 'sleep' };
+let sprites = null;
+fetch('pet/manifest.json').then((r) => (r.ok ? r.json() : null)).then((m) => {
+  if (!m) return;
+  sprites = Object.fromEntries(Object.entries(m).filter(([, v]) => v && v.frames && !v.error));
+  document.querySelectorAll('.pet').forEach((p) => setPet(p, p.dataset.s));
+}).catch(() => {});
+function petHTML(state) {
+  const extra = state === 'sleep' ? '<span class="zz" aria-hidden="true">z</span>' : state === 'thinking' ? '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>' : '';
+  if (sprites && sprites[state]) {
+    return `<span class="sprite" data-state="${state}" style="background-image:url(pet/${state}.png);background-size:${sprites[state].frames * 100}% 100%"></span>${extra}`;
+  }
+  if (state === 'waiting') return '<span class="wave"></span>';
+  return `<img src="../../../public/mascot/${POSE[state] || 'idle'}.webp" alt="" />${extra}`;
+}
+function setPet(el, state) { if (!el) return; el.dataset.s = state; el.innerHTML = petHTML(state); }
+// Step every sprite one frame at its own fps.
+let tick = 0;
+setInterval(() => {
+  if (!sprites || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  tick++;
+  document.querySelectorAll('.pet .sprite').forEach((s) => {
+    const m = sprites[s.dataset.state]; if (!m) return;
+    const every = Math.max(1, Math.round(30 / (m.fps || 8)));
+    const f = Math.floor(tick / every) % m.frames;
+    s.style.backgroundPosition = `${(f / Math.max(1, m.frames - 1)) * 100}% 0`;
+  });
+}, 1000 / 30);
+
+// ---------- the demo run ----------
+const LOGOS = { claude: '../../../public/agents/claude.svg', codex: '../../../public/agents/codex.svg' };
+const NAMES = { claude: 'Claude Code', codex: 'Codex' };
+let agents = [];
+let cost = 0;
+let started = performance.now();
+let stopped = null;
+const clock = () => ((stopped ?? performance.now()) - started) / 1000;
+const opened = new Set();
+// Every lane shares one time axis: a segment sits where it happened, so parallel work lines up.
+function updateTracks() {
+  const span = Math.max(30, Math.ceil(clock() / 10) * 10);
+  const now = clock();
+  document.querySelectorAll('.track[data-id]').forEach((tr) => {
+    const a = agents.find((x) => x.id === tr.dataset.id); if (!a) return;
+    tr.querySelectorAll('i').forEach((bar, i) => {
+      const seg = a.track[i]; if (!seg) return;
+      bar.style.left = (seg.s / span) * 100 + '%';
+      bar.style.width = Math.max(0.6, (((seg.e ?? now) - seg.s) / span) * 100) + '%';
+    });
+  });
+}
+setInterval(() => { if (stopped === null && agents.length) updateTracks(); }, 250);
+const log = document.getElementById('log');
+const chat = document.getElementById('chat');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let runId = 0;
+
+function stateWord(s) { return { thinking: t('s.think'), typing: t('s.type'), running: t('s.exec'), waiting: t('s.wait'), success: t('s.done'), idle: t('s.done'), error: t('s.fail'), sleep: t('s.sleep') }[s]; }
+function stateKind(s) { return s === 'waiting' ? 'wait' : s === 'success' || s === 'idle' ? 'done' : 'run'; }
+
+function renderLanes() {
+  const box = document.getElementById('lanes');
+  const span = Math.max(30, Math.ceil(clock() / 10) * 10);
+  const ticks = [0, span / 3, (2 * span) / 3, span].map((v) => Math.round(v) + 's');
+  box.innerHTML = (agents.length ? `<div class="axis" aria-hidden="true">${ticks.map((x) => `<span>${x}</span>`).join('')}</div>` : `<div class="lanes-empty"><div class="pet" data-s="sleep">${petHTML('sleep')}</div><p>${t('lanes.empty')}</p></div>`) + agents.map((a) => `
+    <article class="lane ${a.parent ? 'child' : ''} ${a.fresh ? 'spawned' : ''} ${opened.has(a.id) ? 'open' : ''}" data-s="${a.state}" id="lane-${a.id}">
+      <button class="lane-top" type="button">
+        <div class="pet" data-s="${a.state}">${petHTML(a.state)}</div>
+        <div class="lane-id"><b><img class="logo" src="${LOGOS[a.agent]}" alt="" />${NAMES[a.agent]}</b><span class="task">${a.sub ? `<span class="dim">subagent</span> ` : ''}${t(a.task)}</span></div>
+        <div class="lane-state" data-s="${stateKind(a.state)}"><b>${stateWord(a.state)}</b><span class="mono">${a.time}</span></div>
+        <svg class="ic chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </button>
+      <div class="lane-now">${a.now || '&nbsp;'}</div>
+      <div class="lane-log">${a.log.map((l) => `<div>${l}</div>`).join('') || '&nbsp;'}</div>
+      <div class="track" data-id="${a.id}">${a.track.map((k) => `<i data-k="${k.k}"></i>`).join('')}</div>
+    </article>`).join('');
+  agents.forEach((a) => (a.fresh = false));
+  box.querySelectorAll('.lane').forEach((el) => el.querySelector('.lane-top').addEventListener('click', () => {
+    const id = el.id.slice(5); opened.has(id) ? opened.delete(id) : opened.add(id); el.classList.toggle('open');
+  }));
+  updateTracks();
+  document.getElementById('laneCount').textContent = agents.length;
+  renderRunning();
+}
+function renderRunning() {
+  const live = agents.filter((a) => a.state !== 'idle' && a.state !== 'success');
+  document.getElementById('runCount').textContent = live.length;
+  document.getElementById('runningRows').innerHTML = live.map((a) => `
+    <button class="row ${a.parent ? 'child' : ''}" type="button"><img class="logo" src="${LOGOS[a.agent]}" alt="" /><span class="t">${t(a.task)}</span><span class="state" data-s="${stateKind(a.state)}">${stateWord(a.state)}</span></button>`).join('');
+  const main = agents[0];
+  const ts = document.getElementById('threadState');
+  ts.dataset.s = main ? stateKind(main.state) : 'idle';
+  ts.textContent = main ? stateWord(main.state) : '';
+}
+function renderBoard() {
+  const cards = [
+    ...agents.map((a) => ({ ...a, project: 'tg-studio' })),
+    { id: 'x1', agent: 'codex', task: 'side.t2', state: 'idle', now: '› 12 passed', time: '4:12', project: 'tg-studio' },
+    { id: 'x2', agent: 'claude', task: 'side.t3', state: 'sleep', now: '› ACP: initialize → session/new → prompt', time: '0:48', project: 'tg-vitals' },
+  ];
+  document.getElementById('boardGrid').innerHTML = cards.map((c) => `
+    <article class="card" tabindex="0">
+      <div class="pet" data-s="${c.state}">${petHTML(c.state)}</div>
+      <h3>${t(c.task)}</h3>
+      <div class="sub"><img class="logo" src="${LOGOS[c.agent]}" alt="" style="vertical-align:-4px;margin-right:6px" />${NAMES[c.agent]}, ${c.project}</div>
+      <div class="lane-now">${c.now || '&nbsp;'}</div>
+      <div class="foot"><span>${stateWord(c.state)}</span><span>${c.time}</span></div>
+    </article>`).join('');
+}
+function close(a) { const last = a.track.at(-1); if (last && last.e === null) last.e = clock(); }
+function setAgent(id, patch) {
+  const a = agents.find((x) => x.id === id);
+  if (patch.now && patch.now !== a.now) a.log.push(patch.now);
+  if (patch.state === 'success' || patch.state === 'idle') close(a);
+  Object.assign(a, patch); renderLanes();
+}
+function push(id, kind) { const a = agents.find((x) => x.id === id); close(a); a.track.push({ k: kind, s: clock(), e: null }); renderLanes(); }
+function setDock(state) { setPet(document.getElementById('dockPet'), state); }
+function setLive(text) { const l = document.getElementById('live'); l.hidden = !text; document.getElementById('liveText').textContent = text || ''; }
+function add(html) { const d = document.createElement('div'); d.className = 'enter'; d.innerHTML = html; log.appendChild(d); chat.scrollTop = chat.scrollHeight; return d; }
+function addCost(n) { cost += n; document.getElementById('cost').textContent = '$' + cost.toFixed(2); }
+
+async function typeInto(el, text, my) {
+  if (reduce()) { el.textContent = text; return; }
+  // Stream in word chunks, the way tokens arrive.
+  const words = text.split(/(\s+)/);
+  for (let i = 1; i <= words.length; i += 2) { if (my !== runId) return; el.textContent = words.slice(0, i + 1).join(''); await sleep(45 + Math.random() * 60); }
+  el.textContent = text;
+}
+
+async function sendAnimation(text) {
+  // The prompt lifts out of the box and lands as the user's bubble.
+  const box = document.getElementById('prompt');
+  const r = box.getBoundingClientRect();
+  const g = document.createElement('div');
+  g.className = 'ghost'; g.textContent = text;
+  g.style.left = r.left + 'px'; g.style.top = r.top + 'px'; g.style.maxWidth = '560px';
+  document.body.appendChild(g);
+  box.value = '';
+  const bubble = add(`<div class="u"><div class="bubble" style="opacity:0">${text}</div></div>`).querySelector('.bubble');
+  const b = bubble.getBoundingClientRect();
+  if (!reduce()) {
+    await sleep(16);
+    g.style.transform = `translate(${b.right - g.offsetWidth - r.left}px, ${b.top - r.top}px)`;
+    await sleep(480);
+  }
+  g.remove(); bubble.style.opacity = 1;
+}
+
+async function demo() {
+  const my = ++runId;
+  agents = []; opened.clear(); started = performance.now(); stopped = null; cost = 0; addCost(0); log.innerHTML = ''; renderLanes(); setDock('idle'); setLive('');
+  const send = document.getElementById('send');
+  const prompt = document.getElementById('prompt');
+  prompt.value = t('p.prompt');
+  await sleep(900); if (my !== runId) return;
+  await sendAnimation(t('p.prompt')); if (my !== runId) return;
+  send.dataset.mode = 'stop'; prompt.placeholder = t('c.phRun');
+
+  agents.push({ id: 'main', agent: 'claude', task: 'k.main', state: 'thinking', now: t('think') + '…', time: '0:01', track: [], log: [], fresh: true });
+  renderLanes(); setDock('thinking'); setLive(`${t('think')}…  0:01`);
+  const turn = add(`<div class="turn"><div class="who"><img class="logo" src="${LOGOS.claude}" alt="" /><b>Claude Code</b><span class="meta"><span>Opus 5.5</span><span>${t('c.ask')}</span></span></div><p class="say"></p><ul class="steps"></ul></div>`);
+  const say = turn.querySelector('.say'); const steps = turn.querySelector('.steps');
+  await sleep(1400); if (my !== runId) return;
+
+  setAgent('main', { state: 'typing', now: t('s.type') + '…', time: '0:03' }); setDock('typing');
+  setLive(`${t('s.type')}  0:03  ↓ 120 ${t('tok')}`);
+  await typeInto(say, t('a.plan'), my); if (my !== runId) return;
+
+  const step = (html, s = 'run') => { const li = document.createElement('li'); li.className = 'step enter'; li.dataset.s = s; li.innerHTML = `<span class="dot"></span><div>${html}</div>`; steps.appendChild(li); chat.scrollTop = chat.scrollHeight; return li; };
+  let s1 = step('<b>Read</b>(src/app/features/chat/conversation/chat-turn.ts)');
+  setAgent('main', { now: '● Read chat-turn.ts', time: '0:05' }); push('main', 'read'); setLive(`Read chat-turn.ts  0:05`);
+  await sleep(900); s1.dataset.s = 'done'; s1.querySelector('div').insertAdjacentHTML('beforeend', `<div class="res">└ 212 ${t('lines')}</div>`);
+  let s2 = step('<b>Update</b>(chat-turn.ts)'); setAgent('main', { now: '● Update chat-turn.ts', time: '0:08' }); push('main', 'edit'); setLive(`Update chat-turn.ts  0:08  ↓ 640 ${t('tok')}`); addCost(0.04);
+  await sleep(1100); if (my !== runId) return; s2.dataset.s = 'done'; s2.querySelector('div').insertAdjacentHTML('beforeend', '<div class="res">└ <span class="add">+6</span> <span class="del">−14</span></div>');
+
+  // Needs approval.
+  let s3 = step('<b>Bash</b>(npm test -- --watch=false)', 'wait');
+  setAgent('main', { state: 'waiting', now: '● Bash npm test', time: '0:10' }); push('main', 'wait'); setDock('waiting'); setLive(`${t('s.wait')}  0:10`);
+  const ap = add(`<div class="approve"><p>${t('a.ask')} <code>npm test -- --watch=false</code></p><div class="btns"><button class="btn" type="button">${t('a.deny')}</button><button class="btn primary" type="button" id="allow">${t('a.allow')}</button></div></div>`);
+  await new Promise((res) => { ap.querySelector('#allow').addEventListener('click', res, { once: true }); setTimeout(res, 3500); });
+  if (my !== runId) return; ap.remove();
+  s3.dataset.s = 'run';
+  setAgent('main', { state: 'running', now: '● Bash npm test', time: '0:13' }); push('main', 'exec'); setDock('running'); setLive(`npm test  0:13`);
+  await sleep(1600); if (my !== runId) return; s3.dataset.s = 'done'; s3.querySelector('div').insertAdjacentHTML('beforeend', '<div class="res">└ 421 passed</div>');
+
+  // Spawn: Codex through tg-bridge, and Claude's own subagent.
+  setAgent('main', { state: 'typing', now: t('s.type') + '…', time: '0:16' }); setDock('typing');
+  const say2 = add('<p class="say"></p>').querySelector('.say');
+  await typeInto(say2, t('a.spawn'), my); if (my !== runId) return;
+  const sp = add(`<div class="spawn" role="button" tabindex="0"><img class="logo" src="${LOGOS.codex}" alt="" /><div class="t"><b>Codex</b> ${t('k.codex')}<small>tg-bridge delegate</small></div><span class="dim">${t('spawn.open')}</span></div>
+                  <div class="spawn" role="button" tabindex="0"><img class="logo" src="${LOGOS.claude}" alt="" /><div class="t"><b>Claude Code</b> ${t('k.sub')}<small>subagent ~1</small></div><span class="dim">${t('spawn.open')}</span></div>`);
+  agents.push({ id: 'codex', agent: 'codex', parent: 'main', task: 'k.codex', state: 'thinking', now: t('think') + '…', time: '0:00', track: [], log: [], fresh: true });
+  renderLanes(); await sleep(260);
+  agents.push({ id: 'sub', agent: 'claude', parent: 'main', sub: true, task: 'k.sub', state: 'thinking', now: t('think') + '…', time: '0:00', track: [], log: [], fresh: true });
+  push('main', 'wait'); setAgent('main', { state: 'thinking', now: 'wait_delegated', time: '0:18' }); setDock('thinking'); setLive(`wait_delegated  0:18`);
+  sp.querySelectorAll('.spawn').forEach((s, i) => s.addEventListener('click', () => document.getElementById(i ? 'lane-sub' : 'lane-codex')?.scrollIntoView({ behavior: 'smooth', block: 'center' })));
+
+  // Both children work in parallel.
+  const beats = [
+    ['codex', { state: 'typing', now: '● Read progress.spec.ts', time: '0:02' }, ['read', 2]],
+    ['sub', { state: 'typing', now: '● Grep "progress" i18n/en.json', time: '0:02' }, ['read', 1]],
+    ['codex', { now: '● Update chat-turn.spec.ts', time: '0:05' }, ['edit', 3]],
+    ['sub', { now: '● Update i18n/en.json', time: '0:04' }, ['edit', 2]],
+    ['codex', { state: 'running', now: '● Bash npm test -- chat-turn', time: '0:08' }, ['exec', 3]],
+    ['sub', { state: 'success', now: '› 2 strings fixed', time: '0:06' }, null],
+    ['codex', { state: 'success', now: '› 3 tests added, 424 passed', time: '0:11' }, null],
+  ];
+  for (const [id, patch, seg] of beats) {
+    await sleep(900); if (my !== runId) return;
+    if (seg) push(id, seg[0]);
+    setAgent(id, patch); addCost(0.02);
+  }
+  await sleep(700); if (my !== runId) return;
+  setAgent('main', { state: 'typing', now: t('s.type') + '…', time: '0:24' }); setDock('typing'); push('main', 'read');
+  const say3 = add('<p class="say"></p>').querySelector('.say');
+  await typeInto(say3, t('a.done'), my); if (my !== runId) return;
+
+  setAgent('main', { state: 'success', now: '› ' + t('s.done'), time: '0:26' }); setDock('success'); setLive('');
+  send.dataset.mode = ''; prompt.placeholder = t('c.ph');
+  await sleep(1600); if (my !== runId) return;
+  agents.forEach((a) => { close(a); a.state = 'idle'; }); stopped = performance.now(); renderLanes(); setDock('idle');
+  renderBoard();
+}
+
+document.getElementById('replay').addEventListener('click', demo);
+document.getElementById('composer').addEventListener('submit', (e) => { e.preventDefault(); demo(); });
+document.getElementById('prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); demo(); } });
+applyLang();
+demo();
+</script>
+</body>
+</html>
