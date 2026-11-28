@@ -21,9 +21,20 @@ Ghi chú để làm tiếp ở phiên hoặc tài khoản khác. Đọc hết t�
 |---|---|
 | A · Một phiên cho mọi chế độ | **Xong**, lượt soát toàn nhánh sạch (commit `8d1d14b..44b1078`) |
 | B · Token và context | **Xong** (`4e0a034..fcfdf07`), soát toàn đợt và soát lại lượt sửa đều sạch |
-| C · Ô chat A, dòng kiểu CLI, nhóm Đang chạy | **Xong code** (`7e575a7..468c01b`). Lượt sửa sau soát toàn đợt là `468c01b` (danh sách: `2026-11-27-findings/dot-c-final-findings.md`), **chưa soát lại** |
-| D · Agent con trong chat, cửa sổ lớn | Dở, xem "Cập nhật 2026-11-27 tối" |
-| E · Bảng agent | Chưa làm (plan sẵn) |
+| C · Ô chat A, dòng kiểu CLI, nhóm Đang chạy | **Xong** (`7e575a7..468c01b`), lượt sửa sau soát đã soát lại: sạch |
+| D · Agent con trong chat, cửa sổ lớn | **Xong** (`8e89a91..c111cc5`), soát từng task và soát toàn đợt, đã sửa các điểm Important |
+| E · Bảng agent | **Xong** (Task 1 + 2 + lượt sửa sau soát toàn đợt: Approved) |
+
+### Cập nhật 2026-11-28 (đợt C, D, E xong)
+
+Kiểm tra lúc dừng: npm test 404, cargo 445 / 16 bỏ qua, build qua. Chưa merge `main`.
+
+Việc nhỏ còn lại (đã soát, cho phép hoãn):
+- README dòng 13 và 67–69 vẫn tả màn "Giám sát" cũ, ảnh `docs/images/mission-control.png` cần chụp lại.
+- `mission-control.ts`: `queue` còn dựng mục approve/commit không ai hiện, chỉ `reviewCount` dùng.
+- Bảng agent: đóng cửa sổ lớn khi thẻ mở nó đã rời bộ lọc thì focus rơi về body; `aria-label` của thẻ che mất nội dung thẻ với trình đọc màn hình.
+- Trình đọc chữ ở thẻ hiện markdown thô (`**...**`).
+- Test thật với tài khoản Claude (mục dưới) vẫn chỉ chủ repo chạy được.
 
 ### Cập nhật 2026-11-27 tối (phiên trên máy chủ repo)
 

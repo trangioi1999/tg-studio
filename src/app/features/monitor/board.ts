@@ -32,14 +32,25 @@ const activityAt = (r: Run, lastEvent: Record<string, number>): number =>
 function stateOf(r: Run, lastEvent: Record<string, number>, now: number): BoardState {
   if (r.permissions.length) return 'needs_you';
   if (r.status === 'running') return 'running';
+  // Spec §11.5: a reloaded run sleeps, even one that failed before the restart.
+  if (r.restored) return 'sleep';
   if (r.status === 'failed') return 'failed';
-  if (r.restored || now - activityAt(r, lastEvent) >= NAP_MS) return 'sleep';
+  if (now - activityAt(r, lastEvent) >= NAP_MS) return 'sleep';
   // Stopped/interrupted runs have no separate board state; recent endings are done.
   return 'done';
 }
 
+/** Runs are replaced on every change, so an unchanged run keeps its tail between clock ticks. */
+const tails = new WeakMap<Run, string[]>();
+
 /** Same CLI rows as the agent terminal, without prompts or protocol noise. */
 function tailOf(r: Run): string[] {
+  let tail = tails.get(r);
+  if (!tail) tails.set(r, (tail = buildTail(r)));
+  return tail;
+}
+
+function buildTail(r: Run): string[] {
   const rows: string[] = [];
   const append = (text: string): void => {
     rows.push(...text.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => middleTruncate(s, 80)));
@@ -80,15 +91,15 @@ export function boardCards(runs: Run[], lastEvent: Record<string, number>, now: 
     if (latest && list.some(eligible)) selected.push({ run: latest, title: titleOf(main[0]) });
     for (const r of list) if (r.parent && eligible(r)) selected.push({ run: r, title: titleOf(r) });
   }
-  return selected.sort((a, b) =>
-    ORDER.indexOf(stateOf(a.run, lastEvent, now)) - ORDER.indexOf(stateOf(b.run, lastEvent, now)) ||
-    activityAt(b.run, lastEvent) - activityAt(a.run, lastEvent) || b.run.startedAt - a.run.startedAt,
-  ).map(({ run: r, title }): BoardCard => {
+  const ranked = selected.map((s) => ({ ...s, state: stateOf(s.run, lastEvent, now), at: activityAt(s.run, lastEvent) }));
+  return ranked.sort((a, b) =>
+    ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || b.at - a.at || b.run.startedAt - a.run.startedAt,
+  ).map(({ run: r, title, state }): BoardCard => {
     const parent = r.parent ? byId.get(r.parent) : undefined;
     return {
       runId: r.id, agent: r.agent, title, project: r.project,
       parentTitle: parent ? titleOf(parent) : null,
-      state: stateOf(r, lastEvent, now),
+      state,
       // No observed running → done transition in this pure projection: do not invent a cheer.
       pose: mascotPose(r, { now, lastEvent: lastEvent[r.id] }).pose,
       tail: tailOf(r),

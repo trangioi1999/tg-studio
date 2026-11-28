@@ -34,6 +34,14 @@ describe('boardCards', () => {
     expect(boardCounts(cards)).toEqual({ all: 6, needs_you: 1, running: 1, failed: 1, done: 1, sleep: 2 });
   });
 
+  it('a restored run sleeps even if it failed, and tails are reused for an unchanged run', () => {
+    const now = 10_000_000;
+    const failed = run('f', { status: 'failed', restored: true, endedAt: now - 60_000 });
+    expect(boardCards([failed], {}, now)[0].state).toBe('sleep');
+    const live = run('l', { status: 'running', endedAt: null, lines: [{ tone: 'text', text: 'xin chào' }] });
+    expect(boardCards([live], {}, now)[0].tail).toBe(boardCards([live], {}, now + 1000)[0].tail);
+  });
+
   it('old_runs_are_left_out', () => {
     expect(boardCards([run('old', { startedAt: now - 26 * hour, endedAt: now - 25 * hour, status: 'done' })], { old: now }, now)).toEqual([]);
     expect(boardCards([run('edge', { startedAt: now - 26 * hour, endedAt: now - 24 * hour, status: 'done' })], {}, now)).toHaveLength(1);
@@ -80,8 +88,9 @@ describe('boardCards', () => {
       { tone: 'muted', text: '{"type":"system"}' }, { tone: 'ok', text: '✓ success' },
     ] });
     expect(boardCards([r], {}, now)[0].tail).toEqual(['Bắt đầu', '● Bash(npm test)', '└ Đã qua']);
-    r.lines.push({ tone: 'text', text: `một\nhai\n${'x'.repeat(100)}\nbốn` });
-    const tail = boardCards([r], {}, now)[0].tail;
+    // Runs are replaced, never changed in place (the tail is cached per run object).
+    const next = { ...r, lines: [...r.lines, { tone: 'text' as const, text: `một\nhai\n${'x'.repeat(100)}\nbốn` }] };
+    const tail = boardCards([next], {}, now)[0].tail;
     expect(tail).toHaveLength(3);
     expect(tail[0]).toBe('hai');
     expect(tail[2]).toBe('bốn');
