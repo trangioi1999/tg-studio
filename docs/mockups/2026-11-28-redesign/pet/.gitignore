@@ -1,0 +1,4 @@
+# Originals stay local: 512px frames and PNG sheets (~21 MB). The prototype uses the webp sheets.
+*/
+*.png
+!contact-sheet.png

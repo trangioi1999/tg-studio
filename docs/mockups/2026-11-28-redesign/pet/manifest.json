@@ -1,0 +1,42 @@
+{
+  "typing": {
+    "frames": 8,
+    "size": 256,
+    "fps": 10
+  },
+  "running": {
+    "frames": 8,
+    "size": 256,
+    "fps": 12
+  },
+  "thinking": {
+    "frames": 8,
+    "size": 256,
+    "fps": 6
+  },
+  "waiting": {
+    "frames": 8,
+    "size": 256,
+    "fps": 8
+  },
+  "success": {
+    "frames": 8,
+    "size": 256,
+    "fps": 10
+  },
+  "error": {
+    "frames": 8,
+    "size": 256,
+    "fps": 6
+  },
+  "sleep": {
+    "frames": 8,
+    "size": 256,
+    "fps": 4
+  },
+  "idle": {
+    "frames": 8,
+    "size": 256,
+    "fps": 5
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "typing": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "running": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "thinking": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "waiting": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "success": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "error": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "sleep": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  },
+  "idle": {
+    "frames": 8,
+    "size": [
+      512,
+      512
+    ],
+    "sheet": [
+      4096,
+      512
+    ],
+    "alpha": true,
+    "distinctFrames": 8,
+    "sheetMatchesFrames": true
+  }
+}

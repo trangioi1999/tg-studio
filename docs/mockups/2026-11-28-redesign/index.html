@@ -174,7 +174,7 @@ button { font: inherit; color: inherit; }
 /* ---------- the pet ---------- */
 .pet { position: relative; width: var(--pet, 56px); height: calc(var(--pet, 56px) * 1.11); flex: none; }
 .pet img, .pet .sprite { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: 50% 100%; }
-.pet .sprite { background-repeat: no-repeat; background-size: auto 100%; image-rendering: auto; }
+.pet .sprite { inset: auto auto -4% -9%; width: 118%; height: auto; aspect-ratio: 1; background-repeat: no-repeat; }
 .pet[data-s='typing'] img { animation: type .28s ease-in-out infinite alternate; }
 .pet[data-s='running'] img { animation: run .36s var(--ease) infinite; }
 .pet[data-s='thinking'] img { animation: think 2.4s ease-in-out infinite; }
@@ -213,7 +213,7 @@ button { font: inherit; color: inherit; }
 .lane.spawned { animation: spawn var(--dur-long) var(--ease-spring) both; }
 @keyframes spawn { from { opacity: 0; transform: translateY(-10px) scale(.97); } }
 .lane-top { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 10px 6px; border: 0; background: none; text-align: left; cursor: pointer; }
-.lane-top .pet { --pet: 40px; }
+.lane-top .pet { --pet: 48px; }
 .lane-id { flex: 1; min-width: 0; }
 .lane-id b { white-space: nowrap; display: flex; align-items: center; gap: 6px; font-weight: 500; }
 .lane-id .task { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); font-size: var(--fs-sm); }
@@ -534,7 +534,8 @@ fetch('pet/manifest.json').then((r) => (r.ok ? r.json() : null)).then((m) => {
 function petHTML(state) {
   const extra = state === 'sleep' ? '<span class="zz" aria-hidden="true">z</span>' : state === 'thinking' ? '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>' : '';
   if (sprites && sprites[state]) {
-    return `<span class="sprite" data-state="${state}" style="background-image:url(pet/${state}.png);background-size:${sprites[state].frames * 100}% 100%"></span>${extra}`;
+    // Codex's frames carry their own z's and dots.
+    return `<span class="sprite" data-state="${state}" style="background-image:url(pet/${state}.webp);background-size:${sprites[state].frames * 100}% 100%"></span>`;
   }
   if (state === 'waiting') return '<span class="wave"></span>';
   return `<img src="../../../public/mascot/${POSE[state] || 'idle'}.webp" alt="" />${extra}`;

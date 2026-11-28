@@ -1,0 +1,38 @@
+{
+  "tool": "built-in image_gen",
+  "base": "Use case: stylized-concept. Create a production animation atlas of EXACTLY the referenced TG Studio mascot. Same orange tabby, brown stripes on cheeks and forehead, cream muzzle, amber eyes, expressive dark eyebrows, black hoodie hood up with protruding orange ears, light drawstrings, black trousers, black sneakers cream soles, thick striped tail. Same cute detailed 3D proportions, warm left light cyan right rim. EXACTLY 8 sequential poses in 4 columns by 2 rows of equally sized square cells, 2048x1024 preferred. TRANSPARENT EMPTY BACKGROUND with alpha zero, no white backdrop, no floor, no cast shadows, no grid lines, no captions. One whole cat per cell. Keep head size and body scale identical, camera fixed, center at 50% cell width, ground baseline at 90% cell height. Leave generous 12% margins to avoid clipping. Smooth eight phase loop from frame 1 to 8 then 1, chronological left-to-right top-to-bottom. ",
+  "states": {
+    "running": {
+      "reference": "public/mascot/idle.webp",
+      "action": "RUNNING in place in three-quarter view. Eight distinct phases of full run cycle: left contact, down, passing, up, right contact, down, passing, up. Arms swing opposite legs, alternating bent knees, tail counterbalances. Body stays centered with tiny vertical bounce, no travel."
+    },
+    "thinking": {
+      "reference": "public/mascot/thinking.webp",
+      "action": "THINKING, standing one paw under chin other arm folded, head gently tilts and amber eyes glance left then right, single blink. Three small cream dots ... above head pulse one-two-three-two-one across loop, reserve space above. Feet never move."
+    },
+    "waiting": {
+      "reference": "public/mascot/wave.webp",
+      "action": "WAITING FOR APPROVAL, standing facing viewer, one paw raised waving to attract user's attention. Eight phases of a gentle wave left-to-right and back, inviting questioning face with one brief blink. Other paw resting by side. Both feet firmly fixed."
+    },
+    "success": {
+      "reference": "public/mascot/success.webp",
+      "action": "SUCCESS, joyful celebration jump loop. Frame1 standing slightly crouched, 2 deeper anticipation crouch, 3 takeoff arms rising, 4 airborne, 5 apex with both fists up happy closed eyes open smile, 6 descending, 7 landing squash, 8 recovered near frame1. Consistent character scale, fixed horizontal center and ground plane, feet move vertically only as demanded by jump. Leave ample headroom."
+    },
+    "error": {
+      "reference": "public/mascot/idle.webp",
+      "action": "ERROR, sitting on bottom confused and scratching side of hood/head with one paw, other paw on lap, feet forward. Eight subtle phases scratch up-down twice with puzzled brows and eyes glancing sideways then blink, sheepish half smile. Remain seated with hips and shoes anchored."
+    },
+    "sleep": {
+      "reference": "public/mascot/sleep.webp",
+      "action": "SLEEP, curled up asleep with eyes closed and tail wrapped around body, head on folded paws. Eight phases slow breathing, tiny chest expansion and settling, no translation. Small cream z floats gently above head and fades across loop, repeat seamlessly."
+    },
+    "idle": {
+      "reference": "public/mascot/idle.webp",
+      "action": "IDLE, standing calmly with arms folded like reference. Eight phases barely perceptible breathing rise and fall, one blink frames4-5, tail gently sways, return to first phase. Feet fixed in exactly same location, same head size, no camera movement."
+    }
+  },
+  "typing": {
+    "reference": "public/mascot/coding.webp",
+    "action": "8-phase alternating paw taps on fixed laptop, tail sway, one blink; 4x2 transparent atlas; same mascot identity."
+  }
+}
