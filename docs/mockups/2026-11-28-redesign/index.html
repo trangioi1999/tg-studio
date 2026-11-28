@@ -321,6 +321,12 @@ button { font: inherit; color: inherit; }
 .ctx-rows li i { width: 8px; height: 8px; border-radius: 2px; }
 .ctx-rows li span:last-child { margin-left: auto; font-family: var(--mono); color: var(--muted); }
 
+.limits { margin: 0 0 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.limit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 4px 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.limit .bar-m { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--bg-4); overflow: hidden; }
+.limit .bar-m i { display: block; height: 100%; background: var(--ink-2); }
+.limit .v { font-family: var(--mono); color: var(--muted); }
+
 /* settings */
 .settings { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 32px; }
 .stabs { display: flex; flex-direction: column; gap: 2px; }
@@ -438,6 +444,7 @@ button { font: inherit; color: inherit; }
             <p class="big">56.7k / 1M token (6%)</p>
             <div class="stack" id="ctxStack"></div>
             <ul class="ctx-rows" id="ctxRows"></ul>
+            <div class="limits" id="ctxLimits"></div>
             <div class="btns"><button class="btn" type="button" data-i18n="ctx.compact">Thu gọn ngay</button></div>
           </div>
           <div class="live" id="live" hidden><span class="glyph" aria-hidden="true">✻</span><span id="liveText"></span><span class="spacer"></span><span class="key" data-i18n="live.escKey">esc</span></div>
@@ -600,7 +607,7 @@ const T = {
     'crumb.thread': 'Làm lại thanh tiến độ', 'top.more': 'Chạy lại kịch bản (bản mẫu)', 'top.panel': 'Ẩn/hiện panel', 'side.search': 'Tìm kiếm', 'nav.settings': 'Cài đặt',
     'p.agents': 'Agent', 'p.changes': 'Thay đổi', 'p.files': 'Tệp', 'p.toggleDrawer': 'Thu/mở ngăn dưới',
     'chg.empty': 'Agent chưa sửa tệp nào.', 'chg.msg': 'Nội dung commit', 'chg.commit': 'Commit', 'chg.revert': 'Hoàn tác', 'dr.empty': 'Chưa có gì.',
-    'ctx.title': 'Context của phiên', 'ctx.system': 'Prompt hệ thống', 'ctx.tools': 'Công cụ', 'ctx.mcp': 'MCP', 'ctx.memory': 'Tệp ghi nhớ', 'ctx.msgs': 'Tin nhắn', 'ctx.free': 'Còn trống', 'ctx.auto': 'Tự thu gọn ở', 'ctx.compact': 'Thu gọn ngay',
+    'ctx.title': 'Context của phiên', 'ctx.system': 'Prompt hệ thống', 'ctx.tools': 'Công cụ', 'ctx.mcp': 'MCP', 'ctx.memory': 'Tệp ghi nhớ', 'ctx.msgs': 'Tin nhắn', 'ctx.free': 'Còn trống', 'ctx.auto': 'Tự thu gọn ở', 'ctx.compact': 'Thu gọn ngay', 'lim.5h': 'Hạn mức 5 giờ', 'lim.7d': 'Hạn mức 1 tuần', 'lim.5hReset': 'Đặt lại sau 2 giờ 14 phút', 'lim.7dReset': 'Đặt lại thứ Ba, 09:00',
     'st.title': 'Cài đặt', 'st.lede': 'Mọi tuỳ chọn của app ở một chỗ.', 'st.general': 'Chung', 'st.look': 'Giao diện', 'st.agents': 'Agent', 'st.conn': 'Kết nối', 'st.usage': 'Sử dụng', 'st.about': 'Giới thiệu',
     'st.notInstalled': 'Chưa cài', 'st.on': 'Bật', 'st.off': 'Tắt', 'st.today': 'Chi phí hôm nay', 'st.update': 'Đang dùng bản mới nhất', 'st.res': 'Tài nguyên', 'pal.ph': 'Tìm cuộc trò chuyện, tệp, lệnh', 'top.toLight': 'Chuyển sang sáng', 'top.toDark': 'Chuyển sang tối', 'top.replay': 'Chạy lại kịch bản', 'top.lang': 'English', 'c.add': 'Thêm tệp, lệnh hoặc skill',
     'side.new': 'Trò chuyện mới', 'side.running': 'Đang chạy', 'side.projects': 'Dự án', 'side.t2': 'Sửa test đăng nhập', 'side.t3': 'Giải thích luồng ACP',
@@ -627,7 +634,7 @@ const T = {
     'crumb.thread': 'Rework the progress bar', 'top.more': 'Replay the demo (prototype)', 'top.panel': 'Show or hide the panel', 'side.search': 'Search', 'nav.settings': 'Settings',
     'p.agents': 'Agents', 'p.changes': 'Changes', 'p.files': 'Files', 'p.toggleDrawer': 'Fold the bottom drawer',
     'chg.empty': 'No file changed yet.', 'chg.msg': 'Commit message', 'chg.commit': 'Commit', 'chg.revert': 'Revert', 'dr.empty': 'Nothing yet.',
-    'ctx.title': 'Session context', 'ctx.system': 'System prompt', 'ctx.tools': 'Tools', 'ctx.mcp': 'MCP', 'ctx.memory': 'Memory files', 'ctx.msgs': 'Messages', 'ctx.free': 'Free', 'ctx.auto': 'Auto-compact at', 'ctx.compact': 'Compact now',
+    'ctx.title': 'Session context', 'ctx.system': 'System prompt', 'ctx.tools': 'Tools', 'ctx.mcp': 'MCP', 'ctx.memory': 'Memory files', 'ctx.msgs': 'Messages', 'ctx.free': 'Free', 'ctx.auto': 'Auto-compact at', 'ctx.compact': 'Compact now', 'lim.5h': '5-hour limit', 'lim.7d': 'Weekly limit', 'lim.5hReset': 'Resets in 2 h 14 min', 'lim.7dReset': 'Resets Tuesday, 09:00',
     'st.title': 'Settings', 'st.lede': 'Every option of the app in one place.', 'st.general': 'General', 'st.look': 'Appearance', 'st.agents': 'Agents', 'st.conn': 'Connections', 'st.usage': 'Usage', 'st.about': 'About',
     'st.notInstalled': 'Not installed', 'st.on': 'On', 'st.off': 'Off', 'st.today': 'Spent today', 'st.update': 'Up to date', 'st.res': 'Resources', 'pal.ph': 'Search chats, files, commands', 'top.toLight': 'Switch to light', 'top.toDark': 'Switch to dark', 'top.replay': 'Replay the demo', 'top.lang': 'Tiếng Việt', 'c.add': 'Add a file, command or skill',
     'side.new': 'New chat', 'side.running': 'Running', 'side.projects': 'Projects', 'side.t2': 'Fix the login tests', 'side.t3': 'Explain the ACP flow',
@@ -733,6 +740,9 @@ function renderCtx() {
   document.getElementById('ctxStack').innerHTML = CTX.map(([, v, c]) => `<i style="width:${(v / total) * 100 * 8}%;background:${c}"></i>`).join('');
   document.getElementById('ctxRows').innerHTML = CTX.map(([k, v, c]) => `<li><i style="background:${c}"></i><span>${t(k)}</span><span>${v}k</span></li>`).join('')
     + `<li><i style="background:var(--bg-4)"></i><span>${t('ctx.free')}</span><span>943.3k</span></li><li><span class="dim">${t('ctx.auto')}</span><span>800k</span></li>`;
+  // The plan's own limits, so a long run can be judged against them before it starts.
+  document.getElementById('ctxLimits').innerHTML = [['lim.5h', 8, 'lim.5hReset'], ['lim.7d', 18, 'lim.7dReset']]
+    .map(([k, v, r]) => `<div class="limit"><span>${t(k)}</span><span class="v">${v}%</span><div class="bar-m"><i style="width:${v}%"></i></div><span class="dim">${t(r)}</span></div>`).join('');
 }
 const ctxBtn = document.getElementById('ctxBtn'); const ctxPop = document.getElementById('ctxPop');
 ctxBtn.addEventListener('click', (e) => { e.stopPropagation(); const on = ctxPop.classList.toggle('on'); ctxBtn.setAttribute('aria-expanded', String(on)); });
