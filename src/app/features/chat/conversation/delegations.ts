@@ -9,6 +9,7 @@ import { runEnd } from './agent-terminal';
 import { WorkspaceService } from '../../../services/workspace.service';
 import { UiService } from '../../../services/app/ui.service';
 import { AgentAvatar } from '../../../shared/ui/agent-avatar';
+import { plainText } from '../../../shared/utils/plain-text';
 import { AgentTerminal, taskOf } from './agent-terminal';
 
 type State = 'needs_you' | 'running' | 'waiting' | 'failed' | 'stopped';
@@ -192,7 +193,8 @@ export class Delegations {
     if (!run) return d?.status === 'waiting_approval' ? 'Đang chờ bạn cho phép giao việc này.' : '';
     // What it did last, marked the same way for a delegated agent and a subagent.
     const last = run.lines.filter((l) => l.tone === 'tool' || l.tone === 'text').at(-1);
-    const text = last?.text.split('\n')[0].replace(/^›\s*/, '').replace(/\s[✓✕]$/, '').trim();
+    const first = last ? (last.tone === 'text' ? plainText(last.text) : last.text).split('\n')[0] : '';
+    const text = first.replace(/^›\s*/, '').replace(/\s[✓✕]$/, '').trim();
     return text ? `› ${text}` : '';
   }
 }
