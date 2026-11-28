@@ -11,6 +11,7 @@
 /* Hallmark · v2.0.0 · shape: app screen · theme: kiln (dealt 2/3, seed desktop-ide-client-agent-76c1·04995c3c·2026-11-28·r0) · kiln: ember + bisque · faces: Inter + JetBrains Mono (bundled by the app) · signature: agent lanes, one live lane per agent with its cat · scope: app */
 /* critique: the old screen hid child agents behind folded rows and spread the same status over six places; here every agent gets one lane and one cat, and status lives there only */
 /* waive 64: mono is the material for tool steps and the terminal, never for labels */
+/* waive 67: MB and CPU are units, written as units */
 
 /* ---------- tokens ---------- */
 :root {
@@ -65,7 +66,11 @@ button { font: inherit; color: inherit; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* ---------- shell ---------- */
-.app { display: grid; grid-template-rows: 44px minmax(0, 1fr) 28px; grid-template-columns: var(--side) minmax(0, 1fr) var(--lanes); height: 100vh; }
+.app { display: grid; grid-template-rows: 44px minmax(0, 1fr); grid-template-columns: var(--side) minmax(0, 1fr) var(--lanes); height: 100vh; }
+.app.no-panel { grid-template-columns: var(--side) minmax(0, 1fr) 0; }
+.app.no-panel .panel, .app.off-chat .panel { display: none; }
+.app.off-chat { grid-template-columns: var(--side) minmax(0, 1fr) 0; }
+.app.off-chat #panelBtn { visibility: hidden; }
 .top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 84px; border-bottom: 1px solid var(--rule); background: var(--bg); }
 .lights { position: absolute; left: 14px; top: 15px; display: flex; gap: 8px; }
 .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--bg-4); }
@@ -94,6 +99,15 @@ button { font: inherit; color: inherit; }
 [data-tip-up]::after { top: auto; bottom: calc(100% + 6px); }
 .ring { --p: 6; width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--bg-4) 0); -webkit-mask: radial-gradient(circle, transparent 5px, var(--ink) 5.5px); mask: radial-gradient(circle, transparent 5px, var(--ink) 5.5px); }
 
+/* sidebar nav rows */
+.nav-row { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink-2); text-align: left; cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease); }
+.nav-row:hover { background: var(--bg-3); color: var(--ink); }
+.nav-row[aria-current='page'] { background: var(--bg-4); color: var(--ink); }
+.nav-row .t { flex: 1; }
+.count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--wait); color: var(--accent-ink); font: 600 var(--fs-xs)/18px var(--font); text-align: center; }
+.count[hidden] { display: none; }
+.side-foot { padding: 8px; border-top: 1px solid var(--rule); }
+
 /* sidebar */
 .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--rule); background: var(--bg-2); }
 .side-scroll { flex: 1; overflow-y: auto; padding: 12px 8px; }
@@ -112,7 +126,6 @@ button { font: inherit; color: inherit; }
 .state[data-s='wait'] { color: var(--wait); }
 .state[data-s='done'] { color: var(--done); }
 .logo { width: 18px; height: 18px; flex: none; border-radius: 5px; }
-.side-nav { display: flex; gap: 4px; padding: 8px; border-top: 1px solid var(--rule); }
 
 /* ---------- views ---------- */
 .main { position: relative; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -249,6 +262,87 @@ button { font: inherit; color: inherit; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 10px; height: 6px; border-radius: 2px; }
 
+/* ---------- right panel ---------- */
+.panel { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--rule); background: var(--bg-2); }
+.tabs { display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 8px; border-bottom: 1px solid var(--rule); }
+.tab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); cursor: pointer; transition: background-color var(--dur-micro) var(--ease), color var(--dur-micro) var(--ease); }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected='true'] { background: var(--bg-4); color: var(--ink); }
+.tab .n { color: var(--muted); font: var(--fs-xs) var(--mono); }
+.pane { display: none; flex: 1; min-height: 0; flex-direction: column; }
+.pane.on { display: flex; }
+.lanes-body { flex: 1; overflow-y: auto; padding: 10px; }
+/* changes */
+.chg-list { padding: 6px; border-bottom: 1px solid var(--rule); }
+.chg { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: none; color: var(--ink-2); font: var(--fs-sm) var(--mono); text-align: left; cursor: pointer; }
+.chg:hover { background: var(--bg-3); }
+.chg[aria-selected='true'] { background: var(--bg-4); color: var(--ink); }
+.chg .p b { font-weight: 500; color: var(--ink); }
+[aria-expanded='true'][data-tip]::after { display: none; }
+.chg .p { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chg .add { color: var(--done); } .chg .del { color: var(--fail); }
+.chg input { accent-color: var(--accent); }
+.diff { flex: 1; overflow: auto; margin: 0; padding: 8px 0; background: var(--term); font: var(--fs-xs)/1.7 var(--mono); color: var(--ink-2); }
+.diff div { padding: 0 12px; white-space: pre; }
+.diff .a { background: color-mix(in oklch, var(--done) 14%, transparent); color: var(--ink); }
+.diff .d { background: color-mix(in oklch, var(--fail) 14%, transparent); color: var(--ink-2); }
+.diff .h { color: var(--muted); }
+.commit { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--rule); }
+.commit input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--rule-2); border-radius: var(--r-md); background: var(--bg); color: var(--ink); font: var(--fs-sm) var(--font); }
+.empty-pane { display: grid; place-items: center; flex: 1; padding: 24px; color: var(--muted); text-align: center; }
+/* files */
+.files { display: grid; grid-template-columns: 120px minmax(0, 1fr); flex: 1; min-height: 0; }
+.tree { overflow-y: auto; padding: 6px; border-right: 1px solid var(--rule); font-size: var(--fs-sm); }
+.tree button { display: block; width: 100%; padding: 3px 6px; border: 0; border-radius: 4px; background: none; color: var(--ink-2); font: inherit; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.tree button:hover { background: var(--bg-3); }
+.tree button[aria-selected='true'] { background: var(--bg-4); color: var(--ink); }
+.tree .dir { color: var(--muted); padding: 6px 6px 2px; }
+.code { overflow: auto; margin: 0; padding: 8px 0; background: var(--term); font: var(--fs-xs)/1.7 var(--mono); color: var(--ink-2); counter-reset: ln; }
+.code div { padding: 0 10px 0 0; white-space: pre; }
+.code div::before { counter-increment: ln; content: counter(ln); display: inline-block; width: 28px; margin-right: 10px; color: var(--muted); text-align: right; }
+.code .mark { box-shadow: inset 2px 0 var(--accent); background: color-mix(in oklch, var(--accent) 8%, transparent); }
+/* drawer */
+.drawer { display: flex; flex-direction: column; border-top: 1px solid var(--rule); }
+.drawer-tabs { display: flex; align-items: center; gap: 2px; height: 32px; padding: 0 8px; }
+.drawer-tabs .tab { height: 24px; font-size: var(--fs-sm); }
+.drawer-body { height: 140px; overflow-y: auto; padding: 6px 12px; background: var(--term); font: var(--fs-xs)/1.7 var(--mono); color: var(--ink-2); }
+.drawer.closed .drawer-body { display: none; }
+.drawer .chev { margin-left: auto; transition: transform var(--dur-short) var(--ease); }
+.drawer.closed .chev { transform: rotate(180deg); }
+
+/* context popover */
+.pop { position: absolute; right: 8px; bottom: calc(100% + 8px); z-index: 20; width: 320px; padding: 14px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--bg-3); box-shadow: var(--shadow); transition: opacity var(--dur-short) var(--ease), transform var(--dur-short) var(--ease); }
+.js .pop:not(.on) { opacity: 0; transform: translateY(4px); pointer-events: none; }
+.pop h3 { margin: 0 0 2px; font-size: var(--fs-md); font-weight: 500; }
+.pop .big { margin: 0 0 10px; color: var(--muted); font: var(--fs-sm) var(--mono); }
+.stack { display: flex; height: 8px; margin-bottom: 10px; overflow: hidden; border-radius: 4px; background: var(--bg-4); }
+.stack i { display: block; height: 100%; }
+.ctx-rows { margin: 0 0 12px; padding: 0; list-style: none; font-size: var(--fs-sm); }
+.ctx-rows li { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--ink-2); }
+.ctx-rows li i { width: 8px; height: 8px; border-radius: 2px; }
+.ctx-rows li span:last-child { margin-left: auto; font-family: var(--mono); color: var(--muted); }
+
+/* settings */
+.settings { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 32px; }
+.stabs { display: flex; flex-direction: column; gap: 2px; }
+.stabs .nav-row { margin: 0; }
+.spane { display: none; }
+.spane.on { display: block; }
+.meter { display: grid; grid-template-columns: 120px minmax(0, 1fr) 48px; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: var(--fs-sm); }
+.meter .bar-m { height: 6px; border-radius: 3px; background: var(--bg-4); overflow: hidden; }
+.meter .bar-m i { display: block; height: 100%; background: var(--ink-2); }
+.meter span:last-child { text-align: right; font-family: var(--mono); color: var(--muted); }
+.list-plain { margin: 0; padding: 0; list-style: none; }
+.list-plain li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.list-plain li .dim { margin-left: auto; font-size: var(--fs-sm); }
+
+/* search palette */
+.palette { position: fixed; inset: 0; z-index: 50; display: none; place-items: start center; padding-top: 14vh; background: color-mix(in oklch, var(--bg) 55%, transparent); }
+.palette.on { display: grid; }
+.palette-box { width: min(560px, 92vw); border: 1px solid var(--rule-2); border-radius: var(--r-xl); background: var(--bg-3); box-shadow: var(--shadow); animation: rise var(--dur-short) var(--ease) both; }
+.palette input { width: 100%; height: 48px; padding: 0 16px; border: 0; border-bottom: 1px solid var(--rule); background: none; color: var(--ink); font: var(--fs-lg) var(--font); outline: none; }
+.palette ul { margin: 0; padding: 6px; list-style: none; }
+
 /* ---------- board ---------- */
 .page { flex: 1; overflow-y: auto; padding: 28px 32px; }
 .page-in { max-width: 1240px; margin: 0 auto; }
@@ -306,15 +400,11 @@ button { font: inherit; color: inherit; }
       <span data-i18n="crumb.thread">Làm lại thanh tiến độ</span>
     </div>
     <span class="spacer"></span>
-    <button class="ib" type="button" id="langBtn" data-tip="">
-      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg>
-      <span class="badge" id="langBadge">VI</span>
+    <button class="ib" type="button" id="more" data-tipk="top.more">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
     </button>
-    <button class="ib" type="button" id="theme" data-tip="">
-      <svg class="ic" id="themeIcon" viewBox="0 0 24 24" aria-hidden="true"></svg>
-    </button>
-    <button class="ib" type="button" id="replay" data-tip="">
-      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+    <button class="ib" type="button" id="panelBtn" aria-pressed="true" data-tipk="top.panel">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
     </button>
   </header>
 
@@ -324,19 +414,17 @@ button { font: inherit; color: inherit; }
         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         <span data-i18n="side.new">Trò chuyện mới</span><span class="key">⌘N</span>
       </button>
-      <div class="group"><span data-i18n="side.running">Đang chạy</span><span class="mono" id="runCount">0</span></div>
-      <div id="runningRows"></div>
+      <button class="nav-row" type="button" id="searchBtn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="t" data-i18n="side.search">Tìm kiếm</span><span class="key">⌘K</span></button>
+      <button class="nav-row" type="button" data-view="board"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="t" data-i18n="nav.board">Bảng agent</span><span class="count" id="needsCount" hidden>0</span></button>
       <div class="group"><span data-i18n="side.projects">Dự án</span></div>
       <button class="row" type="button"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="t">tg-studio</span></button>
-      <button class="row" type="button" aria-current="page"><img class="logo" src="../../../public/agents/claude.svg" alt="" /><span class="t" data-i18n="crumb.thread">Làm lại thanh tiến độ</span><span class="state" id="threadState" data-s="idle"></span></button>
+      <button class="row" type="button" aria-current="page" data-view="chat"><img class="logo" src="../../../public/agents/claude.svg" alt="" /><span class="t" data-i18n="crumb.thread">Làm lại thanh tiến độ</span><span class="state" id="threadState" data-s="idle"></span></button>
       <button class="row" type="button"><img class="logo" src="../../../public/agents/codex.svg" alt="" /><span class="t" data-i18n="side.t2">Sửa test đăng nhập</span><span class="state" data-s="done" data-i18n="s.done">Xong</span></button>
       <button class="row" type="button"><img class="logo" src="../../../public/agents/claude.svg" alt="" /><span class="t" data-i18n="side.t3">Giải thích luồng ACP</span><span class="state" data-i18n="s.sleep">Đang ngủ</span></button>
     </div>
-    <nav class="side-nav" aria-label="Screens">
-      <button class="ib" type="button" data-view="chat" aria-current="page" data-tip-up data-tipk="nav.chat"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg></button>
-      <button class="ib" type="button" data-view="board" data-tip-up data-tipk="nav.board"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
-      <button class="ib" type="button" data-view="look" data-tip-up data-tipk="nav.look"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M12 3a9 9 0 0 1 0 18"/></svg></button>
-    </nav>
+    <div class="side-foot">
+      <button class="nav-row" type="button" data-view="settings"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span class="t" data-i18n="nav.settings">Cài đặt</span></button>
+    </div>
   </aside>
 
   <main class="main">
@@ -346,6 +434,13 @@ button { font: inherit; color: inherit; }
       <div class="dock">
         <div class="pet dock-pet" id="dockPet" data-s="idle"><img src="../../../public/mascot/idle.webp" alt="" /></div>
         <form class="composer" id="composer">
+          <div class="pop" id="ctxPop" role="dialog" aria-labelledby="ctxTitle">
+            <h3 id="ctxTitle" data-i18n="ctx.title">Context của phiên</h3>
+            <p class="big">56.7k / 1M token (6%)</p>
+            <div class="stack" id="ctxStack"></div>
+            <ul class="ctx-rows" id="ctxRows"></ul>
+            <div class="btns"><button class="btn" type="button" data-i18n="ctx.compact">Thu gọn ngay</button></div>
+          </div>
           <div class="live" id="live" hidden><span class="glyph" aria-hidden="true">✻</span><span id="liveText"></span><span class="spacer"></span><span class="key" data-i18n="live.escKey">esc</span></div>
           <label class="sr" for="prompt" data-i18n="c.label">Tin nhắn cho agent</label>
           <textarea id="prompt" rows="2" data-i18n-ph="c.ph" placeholder="Giao việc hoặc hỏi agent"></textarea>
@@ -354,7 +449,7 @@ button { font: inherit; color: inherit; }
             <button class="ib" type="button" data-tip-up data-tip-raw="Claude Code, Opus 5.5"><img class="logo" src="../../../public/agents/claude.svg" alt="" /></button>
             <button class="ib" type="button" data-tip-up data-tipk="c.ask"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.4 3.4 8.2 8 9 4.6-.8 8-4.6 8-9V6Z"/><path d="M12 8v4M12 15.5v.5"/></svg></button>
             <span class="spacer"></span>
-            <button class="ib" type="button" data-tip-up data-tip-raw="6%  56.7k / 1M"><span class="ring" style="--p:6"></span></button>
+            <button class="ib" type="button" id="ctxBtn" aria-expanded="false" aria-controls="ctxPop" data-tip-up data-tip-raw="6%  56.7k / 1M"><span class="ring" style="--p:6"></span></button>
             <button class="send" id="send" type="submit" aria-label="Send"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
           </div>
         </form>
@@ -377,10 +472,28 @@ button { font: inherit; color: inherit; }
     </section>
 
     <!-- appearance -->
-    <section class="view" id="v-look" aria-label="Appearance">
+    <section class="view" id="v-settings" aria-label="Settings">
       <div class="page"><div class="page-in">
-        <h1 data-i18n="l.title">Giao diện</h1>
-        <p class="lede" data-i18n="l.lede">Theme, màu nhấn và ngôn ngữ. Theme riêng là một bộ token, sửa ở đây hoặc nạp từ tệp.</p>
+        <h1 data-i18n="st.title">Cài đặt</h1>
+        <p class="lede" data-i18n="st.lede">Mọi tuỳ chọn của app ở một chỗ.</p>
+        <div class="settings">
+          <nav class="stabs" aria-label="Settings sections">
+            <button class="nav-row" type="button" data-st="general" aria-current="page" data-i18n="st.general">Chung</button>
+            <button class="nav-row" type="button" data-st="look" data-i18n="st.look">Giao diện</button>
+            <button class="nav-row" type="button" data-st="agents" data-i18n="st.agents">Agent</button>
+            <button class="nav-row" type="button" data-st="conn" data-i18n="st.conn">Kết nối</button>
+            <button class="nav-row" type="button" data-st="usage" data-i18n="st.usage">Sử dụng</button>
+            <button class="nav-row" type="button" data-st="about" data-i18n="st.about">Giới thiệu</button>
+          </nav>
+          <div>
+        <div class="spane on" id="st-general"><div class="set">
+          <div><h2 data-i18n="l.lang">Ngôn ngữ</h2><p data-i18n="l.langP">Mọi chữ trên giao diện, kể cả lỗi từ lõi.</p></div>
+          <div class="seg" role="group" aria-label="Language">
+            <button type="button" data-lang="vi" aria-pressed="true">Tiếng Việt</button>
+            <button type="button" data-lang="en" aria-pressed="false">English</button>
+          </div>
+        </div></div>
+        <div class="spane" id="st-look">
         <div class="set">
           <div><h2 data-i18n="l.mode">Chế độ</h2><p data-i18n="l.modeP">Theo hệ thống, tối hoặc sáng.</p></div>
           <div class="seg" role="group" aria-label="Mode" id="modeSeg">
@@ -408,42 +521,89 @@ button { font: inherit; color: inherit; }
             <button type="button" data-mo="light" aria-pressed="false" data-i18n="l.lightM">Nhẹ</button>
             <button type="button" data-mo="off" aria-pressed="false" data-i18n="l.off">Tắt</button>
           </div>
-          <div><h2 data-i18n="l.lang">Ngôn ngữ</h2><p data-i18n="l.langP">Mọi chữ trên giao diện, kể cả lỗi từ lõi.</p></div>
-          <div class="seg" role="group" aria-label="Language">
-            <button type="button" data-lang="vi" aria-pressed="true">Tiếng Việt</button>
-            <button type="button" data-lang="en" aria-pressed="false">English</button>
+        </div>
+        </div>
+        <div class="spane" id="st-agents"><ul class="list-plain">
+          <li><img class="logo" src="../../../public/agents/claude.svg" alt="" />Claude Code<span class="dim">2.1.332, Opus 5.5</span></li>
+          <li><img class="logo" src="../../../public/agents/codex.svg" alt="" />Codex<span class="dim">0.166.0</span></li>
+          <li><img class="logo" src="../../../public/agents/gemini.svg" alt="" />Gemini<span class="dim" data-i18n="st.notInstalled">Chưa cài</span></li>
+          <li><img class="logo" src="../../../public/agents/kiro.svg" alt="" />Kiro<span class="dim">1.4</span></li>
+        </ul></div>
+        <div class="spane" id="st-conn"><ul class="list-plain">
+          <li>tg-bridge<span class="dim" data-i18n="st.on">Bật</span></li>
+          <li>tg-browser (MCP)<span class="dim" data-i18n="st.on">Bật</span></li>
+          <li>context7 (MCP)<span class="dim" data-i18n="st.off">Tắt</span></li>
+        </ul></div>
+        <div class="spane" id="st-usage">
+          <div class="meter"><span>Claude 5h</span><div class="bar-m"><i style="width:8%"></i></div><span>8%</span></div>
+          <div class="meter"><span>Claude 7d</span><div class="bar-m"><i style="width:18%"></i></div><span>18%</span></div>
+          <div class="meter"><span>Codex 7d</span><div class="bar-m"><i style="width:39%"></i></div><span>39%</span></div>
+          <div class="meter"><span>Kiro</span><div class="bar-m"><i style="width:17%"></i></div><span>17%</span></div>
+          <div class="meter"><span data-i18n="st.today">Hôm nay</span><div></div><span id="cost">$0.00</span></div>
+        </div>
+        <div class="spane" id="st-about"><ul class="list-plain">
+          <li>TG Studio<span class="dim">v0.8.0 (dae40d1)</span></li>
+          <li data-i18n="st.update">Đang dùng bản mới nhất</li>
+          <li><span data-i18n="st.res">Tài nguyên</span><span class="dim">107 MB, 1.4% CPU</span></li>
+        </ul></div>
           </div>
         </div>
       </div></div>
     </section>
   </main>
 
-  <aside class="lanes" aria-label="Agent lanes">
-    <div class="lanes-head">
-      <h2 data-i18n="lanes.title">Agent trong cuộc trò chuyện</h2>
-      <span class="spacer"></span>
-      <span class="dim mono" id="laneCount">1</span>
+  <aside class="panel" aria-label="Panel">
+    <div class="tabs" role="tablist">
+      <button class="tab" type="button" role="tab" aria-selected="true" data-pane="agents"><span data-i18n="p.agents">Agent</span><span class="n" id="laneCount">0</span></button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-pane="changes"><span data-i18n="p.changes">Thay đổi</span><span class="n" id="chgCount">0</span></button>
+      <button class="tab" type="button" role="tab" aria-selected="false" data-pane="files"><span data-i18n="p.files">Tệp</span></button>
     </div>
-    <div class="lanes-body" id="lanes"></div>
-    <div class="legend">
-      <span><i style="background: color-mix(in oklch, var(--ink) 30%, transparent)"></i><span data-i18n="lg.read">Đọc</span></span>
-      <span><i style="background: var(--accent)"></i><span data-i18n="lg.edit">Sửa</span></span>
-      <span><i style="background: var(--run)"></i><span data-i18n="lg.exec">Chạy lệnh</span></span>
-      <span><i style="background: var(--wait)"></i><span data-i18n="lg.wait">Chờ bạn</span></span>
+    <div class="pane on" id="pane-agents">
+      <div class="lanes-body" id="lanes"></div>
+      <div class="legend">
+        <span><i style="background: color-mix(in oklch, var(--ink) 30%, transparent)"></i><span data-i18n="lg.read">Đọc</span></span>
+        <span><i style="background: var(--accent)"></i><span data-i18n="lg.edit">Sửa</span></span>
+        <span><i style="background: var(--run)"></i><span data-i18n="lg.exec">Chạy lệnh</span></span>
+        <span><i style="background: var(--wait)"></i><span data-i18n="lg.wait">Chờ bạn</span></span>
+      </div>
+    </div>
+    <div class="pane" id="pane-changes"></div>
+    <div class="pane" id="pane-files">
+      <div class="files">
+        <div class="tree" id="tree"></div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </div>
+    <div class="drawer" id="drawer">
+      <div class="drawer-tabs" role="tablist">
+        <button class="tab" type="button" role="tab" aria-selected="true" data-dr="term">Terminal</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-dr="log">Log</button>
+        <button class="ib chev" type="button" id="drawerToggle" data-tipk="p.toggleDrawer"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
     </div>
   </aside>
+  <div class="palette" id="palette" role="dialog" aria-label="Search">
+    <div class="palette-box">
+      <input id="paletteInput" data-i18n-ph="pal.ph" placeholder="Tìm cuộc trò chuyện, tệp, lệnh" />
+      <ul id="paletteList"></ul>
+    </div>
+  </div>
 
-  <footer class="status">
-    <span>v0.8.0</span><span class="spacer"></span>
-    <span id="cost">$0.00</span><span>Claude 5h 8%</span><span>Codex 7d 39%</span><span>TG 107 MB</span>
-  </footer>
+
 </div>
 
 <script>
+document.documentElement.classList.add('js');
 // ---------- strings ----------
 const T = {
   vi: {
-    'crumb.thread': 'Làm lại thanh tiến độ', 'top.toLight': 'Chuyển sang sáng', 'top.toDark': 'Chuyển sang tối', 'top.replay': 'Chạy lại kịch bản', 'top.lang': 'English', 'c.add': 'Thêm tệp, lệnh hoặc skill',
+    'crumb.thread': 'Làm lại thanh tiến độ', 'top.more': 'Chạy lại kịch bản (bản mẫu)', 'top.panel': 'Ẩn/hiện panel', 'side.search': 'Tìm kiếm', 'nav.settings': 'Cài đặt',
+    'p.agents': 'Agent', 'p.changes': 'Thay đổi', 'p.files': 'Tệp', 'p.toggleDrawer': 'Thu/mở ngăn dưới',
+    'chg.empty': 'Agent chưa sửa tệp nào.', 'chg.msg': 'Nội dung commit', 'chg.commit': 'Commit', 'chg.revert': 'Hoàn tác', 'dr.empty': 'Chưa có gì.',
+    'ctx.title': 'Context của phiên', 'ctx.system': 'Prompt hệ thống', 'ctx.tools': 'Công cụ', 'ctx.mcp': 'MCP', 'ctx.memory': 'Tệp ghi nhớ', 'ctx.msgs': 'Tin nhắn', 'ctx.free': 'Còn trống', 'ctx.auto': 'Tự thu gọn ở', 'ctx.compact': 'Thu gọn ngay',
+    'st.title': 'Cài đặt', 'st.lede': 'Mọi tuỳ chọn của app ở một chỗ.', 'st.general': 'Chung', 'st.look': 'Giao diện', 'st.agents': 'Agent', 'st.conn': 'Kết nối', 'st.usage': 'Sử dụng', 'st.about': 'Giới thiệu',
+    'st.notInstalled': 'Chưa cài', 'st.on': 'Bật', 'st.off': 'Tắt', 'st.today': 'Chi phí hôm nay', 'st.update': 'Đang dùng bản mới nhất', 'st.res': 'Tài nguyên', 'pal.ph': 'Tìm cuộc trò chuyện, tệp, lệnh', 'top.toLight': 'Chuyển sang sáng', 'top.toDark': 'Chuyển sang tối', 'top.replay': 'Chạy lại kịch bản', 'top.lang': 'English', 'c.add': 'Thêm tệp, lệnh hoặc skill',
     'side.new': 'Trò chuyện mới', 'side.running': 'Đang chạy', 'side.projects': 'Dự án', 'side.t2': 'Sửa test đăng nhập', 'side.t3': 'Giải thích luồng ACP',
     's.done': 'Xong', 's.sleep': 'Đang ngủ', 's.run': 'Đang chạy', 's.wait': 'Chờ bạn', 's.think': 'Đang nghĩ', 's.type': 'Đang viết', 's.exec': 'Đang chạy lệnh', 's.fail': 'Lỗi',
     'nav.chat': 'Chat', 'nav.board': 'Bảng agent', 'nav.look': 'Giao diện',
@@ -465,7 +625,12 @@ const T = {
     'think': 'đang nghĩ', 'tok': 'token', 'lines': 'dòng',
   },
   en: {
-    'crumb.thread': 'Rework the progress bar', 'top.toLight': 'Switch to light', 'top.toDark': 'Switch to dark', 'top.replay': 'Replay the demo', 'top.lang': 'Tiếng Việt', 'c.add': 'Add a file, command or skill',
+    'crumb.thread': 'Rework the progress bar', 'top.more': 'Replay the demo (prototype)', 'top.panel': 'Show or hide the panel', 'side.search': 'Search', 'nav.settings': 'Settings',
+    'p.agents': 'Agents', 'p.changes': 'Changes', 'p.files': 'Files', 'p.toggleDrawer': 'Fold the bottom drawer',
+    'chg.empty': 'No file changed yet.', 'chg.msg': 'Commit message', 'chg.commit': 'Commit', 'chg.revert': 'Revert', 'dr.empty': 'Nothing yet.',
+    'ctx.title': 'Session context', 'ctx.system': 'System prompt', 'ctx.tools': 'Tools', 'ctx.mcp': 'MCP', 'ctx.memory': 'Memory files', 'ctx.msgs': 'Messages', 'ctx.free': 'Free', 'ctx.auto': 'Auto-compact at', 'ctx.compact': 'Compact now',
+    'st.title': 'Settings', 'st.lede': 'Every option of the app in one place.', 'st.general': 'General', 'st.look': 'Appearance', 'st.agents': 'Agents', 'st.conn': 'Connections', 'st.usage': 'Usage', 'st.about': 'About',
+    'st.notInstalled': 'Not installed', 'st.on': 'On', 'st.off': 'Off', 'st.today': 'Spent today', 'st.update': 'Up to date', 'st.res': 'Resources', 'pal.ph': 'Search chats, files, commands', 'top.toLight': 'Switch to light', 'top.toDark': 'Switch to dark', 'top.replay': 'Replay the demo', 'top.lang': 'Tiếng Việt', 'c.add': 'Add a file, command or skill',
     'side.new': 'New chat', 'side.running': 'Running', 'side.projects': 'Projects', 'side.t2': 'Fix the login tests', 'side.t3': 'Explain the ACP flow',
     's.done': 'Done', 's.sleep': 'Asleep', 's.run': 'Running', 's.wait': 'Needs you', 's.think': 'Thinking', 's.type': 'Writing', 's.exec': 'Running a command', 's.fail': 'Failed',
     'nav.chat': 'Chat', 'nav.board': 'Agent board', 'nav.look': 'Appearance',
@@ -494,18 +659,14 @@ const MOON = '<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/>';
 function applyTips() {
   document.querySelectorAll('[data-tipk]').forEach((el) => { el.dataset.tip = t(el.dataset.tipk); el.setAttribute('aria-label', t(el.dataset.tipk)); });
   document.querySelectorAll('[data-tip-raw]').forEach((el) => { el.dataset.tip = el.dataset.tipRaw; el.setAttribute('aria-label', el.dataset.tipRaw); });
-  const lb = document.getElementById('langBtn'); lb.dataset.tip = t('top.lang'); lb.setAttribute('aria-label', t('top.lang'));
-  document.getElementById('langBadge').textContent = lang.toUpperCase();
-  const rp = document.getElementById('replay'); rp.dataset.tip = t('top.replay'); rp.setAttribute('aria-label', t('top.replay'));
 }
-document.getElementById('langBtn').addEventListener('click', () => { lang = lang === 'vi' ? 'en' : 'vi'; applyLang(); });
 function applyLang() {
   document.documentElement.lang = lang;
   applyTips();
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
   document.querySelectorAll('[data-lang]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
-  themeLabel(); renderLanes(); renderBoard(); renderRunning(); renderTokens();
+  themeLabel(); renderLanes(); renderBoard(); renderRunning(); renderTokens(); renderChanges(); renderCtx(); renderDrawer();
 }
 document.querySelectorAll('[data-lang]').forEach((b) => b.addEventListener('click', () => { lang = b.dataset.lang; applyLang(); }));
 
@@ -516,14 +677,7 @@ function setTheme(m) {
   document.querySelectorAll('#modeSeg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === m)));
   themeLabel(); renderTokens();
 }
-function themeLabel() {
-  const dark = root.dataset.theme === 'ember';
-  // The icon shows where a click takes you.
-  document.getElementById('themeIcon').innerHTML = dark ? SUN : MOON;
-  const tip = dark ? t('top.toLight') : t('top.toDark');
-  const b = document.getElementById('theme'); b.dataset.tip = tip; b.setAttribute('aria-label', tip);
-}
-document.getElementById('theme').addEventListener('click', () => setTheme(root.dataset.theme === 'ember' ? 'bisque' : 'ember'));
+function themeLabel() {}
 document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.m)));
 document.querySelectorAll('#motionSeg button').forEach((b) => b.addEventListener('click', () => {
   root.dataset.motion = b.dataset.mo;
@@ -542,11 +696,97 @@ function renderTokens() {
 }
 
 // ---------- views ----------
-document.querySelectorAll('.side-nav [data-view]').forEach((b) => b.addEventListener('click', () => {
-  document.querySelectorAll('.side-nav [data-view]').forEach((x) => x.removeAttribute('aria-current'));
+function show(view) {
+  document.querySelectorAll('.side [data-view]').forEach((x) => x.toggleAttribute('aria-current', x.dataset.view === view));
+  document.querySelectorAll('.side [data-view][aria-current]').forEach((x) => x.setAttribute('aria-current', 'page'));
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + view));
+  // The panel belongs to a conversation: other screens take the full width.
+  document.querySelector('.app').classList.toggle('off-chat', view !== 'chat');
+}
+document.querySelectorAll('.side [data-view]').forEach((b) => b.addEventListener('click', () => show(b.dataset.view)));
+// Settings sections.
+document.querySelectorAll('.stabs [data-st]').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('.stabs [data-st]').forEach((x) => x.toggleAttribute('aria-current', x === b));
   b.setAttribute('aria-current', 'page');
-  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + b.dataset.view));
+  document.querySelectorAll('.spane').forEach((x) => x.classList.toggle('on', x.id === 'st-' + b.dataset.st));
 }));
+// Right panel tabs and the bottom drawer.
+function showPane(name) {
+  document.querySelectorAll('.tabs .tab').forEach((x) => x.setAttribute('aria-selected', String(x.dataset.pane === name)));
+  document.querySelectorAll('.pane').forEach((x) => x.classList.toggle('on', x.id === 'pane-' + name));
+}
+document.querySelectorAll('.tabs .tab').forEach((b) => b.addEventListener('click', () => showPane(b.dataset.pane)));
+let drawerTab = 'term';
+document.querySelectorAll('[data-dr]').forEach((b) => b.addEventListener('click', () => {
+  drawerTab = b.dataset.dr; document.getElementById('drawer').classList.remove('closed');
+  document.querySelectorAll('[data-dr]').forEach((x) => x.setAttribute('aria-selected', String(x === b))); renderDrawer();
+}));
+document.getElementById('drawerToggle').addEventListener('click', () => document.getElementById('drawer').classList.toggle('closed'));
+document.getElementById('panelBtn').addEventListener('click', (e) => {
+  const on = document.querySelector('.app').classList.toggle('no-panel');
+  e.currentTarget.setAttribute('aria-pressed', String(!on));
+});
+document.getElementById('more').addEventListener('click', () => { show('chat'); demo(); });
+// Context popover.
+const CTX = [['ctx.system', 4.1, 'var(--ink-2)'], ['ctx.tools', 12.8, 'var(--run)'], ['ctx.mcp', 6.2, 'var(--wait)'], ['ctx.memory', 2.4, 'var(--done)'], ['ctx.msgs', 31.2, 'var(--accent)']];
+function renderCtx() {
+  const total = 1000;
+  document.getElementById('ctxStack').innerHTML = CTX.map(([, v, c]) => `<i style="width:${(v / total) * 100 * 8}%;background:${c}"></i>`).join('');
+  document.getElementById('ctxRows').innerHTML = CTX.map(([k, v, c]) => `<li><i style="background:${c}"></i><span>${t(k)}</span><span>${v}k</span></li>`).join('')
+    + `<li><i style="background:var(--bg-4)"></i><span>${t('ctx.free')}</span><span>943.3k</span></li><li><span class="dim">${t('ctx.auto')}</span><span>800k</span></li>`;
+}
+const ctxBtn = document.getElementById('ctxBtn'); const ctxPop = document.getElementById('ctxPop');
+ctxBtn.addEventListener('click', (e) => { e.stopPropagation(); const on = ctxPop.classList.toggle('on'); ctxBtn.setAttribute('aria-expanded', String(on)); });
+document.addEventListener('click', (e) => { if (!ctxPop.contains(e.target)) { ctxPop.classList.remove('on'); ctxBtn.setAttribute('aria-expanded', 'false'); } });
+// Search palette.
+const pal = document.getElementById('palette');
+function openPalette() {
+  pal.classList.add('on');
+  document.getElementById('paletteList').innerHTML = ['crumb.thread', 'side.t2', 'side.t3'].map((k) => `<li><button class="nav-row" type="button">${t(k)}</button></li>`).join('')
+    + ['chat-turn.ts', 'progress.spec.ts'].map((f) => `<li><button class="nav-row mono" type="button">${f}</button></li>`).join('');
+  document.getElementById('paletteInput').focus();
+}
+document.getElementById('searchBtn').addEventListener('click', openPalette);
+pal.addEventListener('click', (e) => { if (e.target === pal) pal.classList.remove('on'); });
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+  if (e.key === 'Escape') { pal.classList.remove('on'); ctxPop.classList.remove('on'); }
+});
+// Changes and files, filled as the agents edit.
+let changes = [];
+let selChange = 0;
+const DIFFS = {
+  'src/app/features/chat/conversation/chat-turn.ts': ['@@ -24,18 +24,10 @@', ' @if (run().progress; as p) {', '-  <div class="progress">{{ p.step }}</div>', '-  <tg-bridge-line [p]="p" />', '+  @if (run().status === \'running\') {', '+    <div class="progress">{{ p.step }}</div>', '+  }', ' }'],
+  'src/app/features/chat/conversation/chat-turn.spec.ts': ['@@ +88,31 @@', '+it(\'shows progress once\', () => {', '+  const el = render(runWith({ progress: step }));', '+  expect(el.querySelectorAll(\'.progress\').length).toBe(1);', '+});'],
+  'src/i18n/en.json': ['@@ -40,4 +40,4 @@', '-  "progress.title": "Progres",', '+  "progress.title": "Progress",', '-  "progress.done": "Done!",', '+  "progress.done": "Done"'],
+};
+function renderChanges() {
+  document.getElementById('chgCount').textContent = changes.length;
+  const box = document.getElementById('pane-changes');
+  if (!changes.length) { box.innerHTML = `<div class="empty-pane">${t('chg.empty')}</div>`; return; }
+  const cur = changes[Math.min(selChange, changes.length - 1)];
+  box.innerHTML = `<div class="chg-list">${changes.map((c, i) => `<button class="chg" type="button" aria-selected="${i === selChange}" data-i="${i}"><input type="checkbox" checked aria-label="commit" /><span class="p"><b>${c.path.split('/').pop()}</b> <span class="dim">${c.path.split('/').slice(0, -1).join('/')}</span></span><span class="add">+${c.add}</span><span class="del">−${c.del}</span></button>`).join('')}</div>
+    <div class="diff">${(DIFFS[cur.path] || []).map((l) => `<div class="${l[0] === '+' ? 'a' : l[0] === '-' ? 'd' : l[0] === '@' ? 'h' : ''}">${l.replace(/</g, '&lt;')}</div>`).join('')}</div>
+    <div class="commit"><input data-i18n-ph="chg.msg" placeholder="${t('chg.msg')}" /><button class="btn" type="button">${t('chg.revert')}</button><button class="btn primary" type="button">${t('chg.commit')} ${changes.length}</button></div>`;
+  box.querySelectorAll('.chg').forEach((b) => b.addEventListener('click', (e) => { if (e.target.tagName === 'INPUT') return; selChange = +b.dataset.i; renderChanges(); }));
+}
+function addChange(path, add, del) { if (!changes.some((c) => c.path === path)) changes.push({ path, add, del }); renderChanges(); }
+const TREE = [['src/app', ['chat-turn.ts', 'chat-turn.spec.ts', 'agent-panel.ts']], ['src/i18n', ['en.json', 'vi.json']]];
+const CODE = ['export class ChatTurn {', '  readonly run = input.required<Run>();', '', '  protected readonly progress = computed(() => {', '    const r = this.run();', "    return r.status === 'running' ? r.progress : null;", '  });', '}'];
+function renderFiles() {
+  document.getElementById('tree').innerHTML = TREE.map(([d, fs]) => `<div class="dir">${d}</div>` + fs.map((f) => `<button type="button" aria-selected="${f === 'chat-turn.ts'}">${f}</button>`).join('')).join('');
+  document.getElementById('code').innerHTML = CODE.map((l, i) => `<div class="${i >= 3 && i <= 6 ? 'mark' : ''}">${l.replace(/</g, '&lt;') || ' '}</div>`).join('');
+}
+let term = [];
+let logLines = [];
+function renderDrawer() {
+  const lines = drawerTab === 'term' ? term : logLines;
+  const b = document.getElementById('drawerBody');
+  b.innerHTML = lines.map((l) => `<div>${l}</div>`).join('') || `<div class="dim">${t('dr.empty')}</div>`;
+  b.scrollTop = b.scrollHeight;
+}
+function termLine(l) { term.push(l); renderDrawer(); }
+function logLine(l) { logLines.push(l); renderDrawer(); }
 
 // ---------- the pet: sprite sheets when Codex's frames exist, the still poses with motion otherwise ----------
 const POSE = { idle: 'idle', thinking: 'thinking', typing: 'coding', running: 'coding', success: 'success', error: 'thinking', sleep: 'sleep' };
@@ -636,10 +876,8 @@ function renderLanes() {
   renderRunning(); renderBoard();
 }
 function renderRunning() {
-  const live = agents.filter((a) => a.state !== 'idle' && a.state !== 'success');
-  document.getElementById('runCount').textContent = live.length;
-  document.getElementById('runningRows').innerHTML = live.map((a) => `
-    <button class="row ${a.parent ? 'child' : ''}" type="button"><img class="logo" src="${LOGOS[a.agent]}" alt="" /><span class="t">${t(a.task)}</span><span class="state" data-s="${stateKind(a.state)}">${stateWord(a.state)}</span></button>`).join('');
+  const needs = agents.filter((a) => a.state === 'waiting').length;
+  const c = document.getElementById('needsCount'); c.hidden = !needs; c.textContent = needs;
   const main = agents[0];
   const ts = document.getElementById('threadState');
   ts.dataset.s = main ? stateKind(main.state) : 'idle';
@@ -663,7 +901,7 @@ function renderBoard() {
 function close(a) { const last = a.track.at(-1); if (last && last.e === null) last.e = clock(); }
 function setAgent(id, patch) {
   const a = agents.find((x) => x.id === id);
-  if (patch.now && patch.now !== a.now) a.log.push(patch.now);
+  if (patch.now && patch.now !== a.now) { a.log.push(patch.now); logLine(`${NAMES[a.agent]}${a.sub ? ' ~1' : ''}  ${patch.now}`); }
   if (patch.state === 'success' || patch.state === 'idle') close(a);
   Object.assign(a, patch); renderLanes();
 }
@@ -702,6 +940,7 @@ async function sendAnimation(text) {
 
 async function demo() {
   const my = ++runId;
+  changes = []; selChange = 0; term = []; logLines = []; renderChanges(); renderDrawer();
   agents = []; opened.clear(); started = performance.now(); stopped = null; cost = 0; addCost(0); log.innerHTML = ''; renderLanes(); setDock('idle'); setLive('');
   const send = document.getElementById('send');
   const prompt = document.getElementById('prompt');
@@ -725,7 +964,7 @@ async function demo() {
   setAgent('main', { now: '● Read chat-turn.ts', time: '0:05' }); push('main', 'read'); setLive(`Read chat-turn.ts  0:05`);
   await sleep(900); s1.dataset.s = 'done'; s1.querySelector('div').insertAdjacentHTML('beforeend', `<div class="res">└ 212 ${t('lines')}</div>`);
   let s2 = step('<b>Update</b>(chat-turn.ts)'); setAgent('main', { now: '● Update chat-turn.ts', time: '0:08' }); push('main', 'edit'); setLive(`Update chat-turn.ts  0:08  ↓ 640 ${t('tok')}`); addCost(0.04);
-  await sleep(1100); if (my !== runId) return; s2.dataset.s = 'done'; s2.querySelector('div').insertAdjacentHTML('beforeend', '<div class="res">└ <span class="add">+6</span> <span class="del">−14</span></div>');
+  await sleep(1100); if (my !== runId) return; s2.dataset.s = 'done'; s2.querySelector('div').insertAdjacentHTML('beforeend', '<div class="res">└ <span class="add">+6</span> <span class="del">−14</span></div>'); addChange('src/app/features/chat/conversation/chat-turn.ts', 6, 14);
 
   // Needs approval.
   let s3 = step('<b>Bash</b>(npm test -- --watch=false)', 'wait');
@@ -735,6 +974,7 @@ async function demo() {
   if (my !== runId) return; ap.remove();
   s3.dataset.s = 'run';
   setAgent('main', { state: 'running', now: '● Bash npm test', time: '0:13' }); push('main', 'exec'); setDock('running'); setLive(`npm test  0:13`);
+  termLine('$ npm test -- --watch=false'); setTimeout(() => termLine(' ✓ 45 files'), 500); setTimeout(() => termLine(' Tests  421 passed (421)'), 1200);
   await sleep(1600); if (my !== runId) return; s3.dataset.s = 'done'; s3.querySelector('div').insertAdjacentHTML('beforeend', '<div class="res">└ 421 passed</div>');
 
   // Spawn: Codex through tg-bridge, and Claude's own subagent.
@@ -762,6 +1002,8 @@ async function demo() {
   for (const [id, patch, seg] of beats) {
     await sleep(900); if (my !== runId) return;
     if (seg) push(id, seg[0]);
+    if (id === 'codex' && seg && seg[0] === 'edit') addChange('src/app/features/chat/conversation/chat-turn.spec.ts', 31, 0);
+    if (id === 'sub' && seg && seg[0] === 'edit') addChange('src/i18n/en.json', 2, 2);
     setAgent(id, patch); addCost(0.02);
   }
   await sleep(700); if (my !== runId) return;
@@ -776,9 +1018,9 @@ async function demo() {
   renderBoard();
 }
 
-document.getElementById('replay').addEventListener('click', demo);
 document.getElementById('composer').addEventListener('submit', (e) => { e.preventDefault(); demo(); });
 document.getElementById('prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); demo(); } });
+renderFiles();
 applyLang();
 demo();
 </script>
