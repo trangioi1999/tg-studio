@@ -23,7 +23,7 @@ Màn chào mừng có nút **Mở thư mục dự án…** và, ngay dưới, c�
 | Vùng | Nội dung |
 |---|---|
 | Thanh trên | Nút thu gọn thanh bên, tên dự án và nhánh (bấm để gõ đường dẫn), nút **Tệp & thay đổi** |
-| Cột trái | **Trò chuyện mới**, rồi nhóm **Dự án** (nút thư mục bên cạnh để mở thêm dự án) với các cuộc trò chuyện của từng dự án. Trên cùng có nhóm **Đang chạy** liệt kê các lượt đang làm hoặc chờ duyệt ở mọi dự án (bấm để mở). Dưới cùng là **Giám sát**, **Chi phí**, **Cài đặt**. Thu gọn thành dải biểu tượng bằng ⌘B / Ctrl+B; cửa sổ hẹp hơn 1200 px thì tự thu gọn, ⌘B mở danh sách đè lên khung chat |
+| Cột trái | **Trò chuyện mới**, rồi nhóm **Dự án** (nút thư mục bên cạnh để mở thêm dự án) với các cuộc trò chuyện của từng dự án. Trên cùng có nhóm **Đang chạy** liệt kê các lượt đang làm hoặc chờ duyệt ở mọi dự án (bấm để mở). Dưới cùng là **Bảng agent**, **Chi phí**, **Cài đặt**. Thu gọn thành dải biểu tượng bằng ⌘B / Ctrl+B; cửa sổ hẹp hơn 1200 px thì tự thu gọn, ⌘B mở danh sách đè lên khung chat |
 | Giữa | Cuộc trò chuyện và ô chat. Thẻ duyệt luôn ghim ngay trên ô chat |
 | Bên phải | **Tệp & thay đổi**: tab **Thay đổi** (và **So sánh** khi chạy nhiều agent) luôn đứng đầu, sau đó là tệp đang mở; nút thư mục bật/tắt cây tệp, nút × hoặc Esc đóng panel. Mỗi cuộc trò chuyện giữ tab riêng. Tự mở một lần khi có thay đổi đầu tiên; panel nằm cạnh khung chat, không che thẻ duyệt |
 | Thanh dưới | Số agent đang chạy, **hạn mức 5 giờ và 7 ngày** của từng agent, chi phí hôm nay |
@@ -63,7 +63,9 @@ Dưới ô chat có hai nút:
 | **Giao cho nhiều agent** | Cùng một yêu cầu cho nhiều agent, mỗi agent một bản nháp, rồi so sánh |
 | **Theo các bước** | Các bước nối tiếp, mặc định Plan → Build → Review; chọn agent cho từng bước, sửa mẫu prompt bằng **Sửa mẫu** |
 
-Đổi agent hoặc quyền giữa chừng vẫn ở cùng cuộc trò chuyện; agent mới nhận tóm tắt những gì đã nói.
+**Đổi chế độ giữa phiên:** chọn Chỉ hỏi / Hỏi trước / Tự làm ở chip quyền; lựa chọn được áp khi gửi tin tiếp. Phiên đang mở và hỗ trợ đổi quyền sẽ tiếp tục trên cùng phiên, kể cả Claude chuyển từ Chỉ hỏi sang sửa code. Nếu phiên Chỉ hỏi nằm trong bản nháp tạm hoặc không thể đổi tại chỗ, app mở phiên mới trong cùng cuộc trò chuyện, kèm tóm tắt và ghi chú. Đổi agent cũng giữ cuộc trò chuyện và chuyển tóm tắt cho agent mới.
+
+**Bảng context (ngữ cảnh):** bấm chip phần trăm cạnh ô chat để xem mức đã dùng và sức chứa. Khi CLI cung cấp, bảng có phân bổ token, tệp ghi nhớ, công cụ MCP và ngưỡng tự thu gọn. Agent chỉ báo tổng hoặc phần trăm thì bảng chỉ hiện số liệu đó; không có dữ liệu thì chip không hiện. Khi phiên hỗ trợ và đang rảnh, dùng **Thu gọn ngay (/compact)**. Mở bảng sẽ yêu cầu cập nhật số liệu.
 
 ![Danh sách skill khi gõ /](images/skills.png)
 
@@ -90,7 +92,7 @@ Khi agent muốn chạy lệnh hoặc sửa tệp, thẻ **Cần bạn duyệt**
 
 Phiên do app mở luôn xin duyệt, kể cả khi Claude Code trên máy đặt chế độ tự duyệt.
 
-`git push`, merge và `gh pr merge` luôn bị từ chối. Mục **Giám sát** ở cột trái có số thẻ đang chờ.
+`git push`, merge và `gh pr merge` luôn bị từ chối. Mục **Bảng agent** ở cột trái có số thẻ đang chờ.
 
 ## 6. Review và commit
 
@@ -128,9 +130,15 @@ Bấm **⚙** cạnh tên dự án đang mở ở cột trái:
 - Tab **So sánh**: mỗi agent một thẻ (tệp, dòng, token, chi phí, thời gian). **Dùng bản này** áp nguyên một bản (tất cả hoặc không gì), rồi Commit và **Dọn bản nháp của nhóm**.
 - **Ghép thủ công**: chọn từng thay đổi từ các bản khác nhau → **Tạo bản ghép** → nhập lệnh kiểm tra (ví dụ `npm test`) → **Chạy kiểm tra** → **Dùng bản ghép**. Hai thay đổi trùng chỗ sửa không ghép được.
 
-## 8. Giám sát
+## 8. Bảng agent
 
-**Hàng chờ của bạn** đứng đầu (duyệt lệnh → review → commit), rồi timeline các lượt chạy (đoạn sọc vàng là thời gian chờ bạn duyệt) và một cột cho mỗi agent. Số liệu của phiên nằm gọn ở đầu trang, số bằng 0 không hiện.
+Mở **Bảng agent** ở cột trái để xem mọi cuộc trò chuyện có agent đang chạy hoặc chờ duyệt trên các dự án, cùng những cuộc trò chuyện có lượt kết thúc trong 24 giờ qua. Mỗi cuộc trò chuyện có một thẻ cho lượt chính mới nhất; agent con có thẻ riêng ghi **↳ của …**.
+
+Lọc bằng **Tất cả**, **Cần bạn**, **Đang chạy**, **Xong**, **Đang ngủ**. Mỗi thẻ có mèo theo hoạt động, logo agent, tên việc, dự án, ba dòng nhật ký cuối, thời gian của lượt hiện tại, chi phí và mức dùng ngữ cảnh nếu agent có báo. **Xong** là lượt vừa hoàn thành; sau 5 phút không hoạt động hoặc khi nạp lại phiên đã đóng, thẻ thành **Đang ngủ**. Agent lỗi hiện **Lỗi** trong **Tất cả**. Số liệu của phiên nằm gọn ở đầu trang, số bằng 0 không hiện; **Chờ xem** đếm nhóm bản nháp song song một lần.
+
+Thẻ **Cần bạn** cho phép **Từ chối** hoặc **Cho phép lần này** ngay trên bảng. Các nút biến mất khi yêu cầu đã được trả lời ở chat hoặc nơi khác. Bấm phần còn lại của thẻ (hoặc Tab tới thẻ rồi Enter) để mở cửa sổ lớn. Chưa có lượt nào thì có mèo ngủ và lời nhắc; bộ lọc không có kết quả có nút **Xem tất cả**.
+
+**Cửa sổ lớn:** bên trái liệt kê các agent trong cuộc trò chuyện, agent con nằm dưới cha; dùng ↑/↓ để đổi agent. Bên phải có **Trực tiếp**, **Thay đổi**, **Việc được giao**. Có thể nhắn riêng khi phiên hỗ trợ, dừng agent đang chạy hoặc **Ghim xuống khung dưới**. Esc đóng cửa sổ và trả tiêu điểm về thẻ vừa mở.
 
 ## 9. Usage, chi phí, ngân sách
 
@@ -151,9 +159,9 @@ Bấm **⚙** cạnh tên dự án đang mở ở cột trái:
 ## 11. tg-bridge: các agent phối hợp
 
 Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cung cấp. Agent dùng nó để:
-- **báo tiến độ**: hiện thành thanh tiến độ ở cuộc trò chuyện và cột agent trong Giám sát;
+- **báo tiến độ**: hiện thành thanh tiến độ ở cuộc trò chuyện;
 - **ghi chú chung**: agent cùng task (nhóm song song, các bước pipeline) đọc được; xem ở tab **Plan**;
-- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở cuộc trò chuyện và dòng *Chuyển việc* trong hàng chờ. Bấm **Giao cho …** thì agent kia mới chạy (làm tiếp trong cùng bản nháp nếu task trước đã xong);
+- **đề xuất chuyển việc** cho agent khác: hiện thẻ ở cuộc trò chuyện. Bấm nút giao việc trên thẻ thì agent kia mới chạy (làm tiếp trong cùng bản nháp nếu task trước đã xong);
 - **xin duyệt** việc ngoài phạm vi: hiện thẻ duyệt như lệnh thường;
 - **giao một phần việc** cho agent khác chạy song song (xem bên dưới).
 
@@ -162,7 +170,7 @@ Mỗi task Sửa code nhận thêm một MCP server `tg-bridge` do TG Studio cun
 **Agent con.** Khi task có phần làm độc lập được, agent đang làm (ví dụ Claude) có thể tự giao phần đó cho Codex hoặc một Claude khác:
 
 - Ở **Tự làm**, agent tự chia việc, tự giao, tự đợi và tự gộp kết quả, không hỏi gì. Ở **Hỏi trước**, app hiện thẻ "Giao cho Codex: …" để bạn cho phép. Ở **Chỉ hỏi** không giao được.
-- Mỗi agent con là một dòng lồng trong tin nhắn của agent đã giao: avatar, việc được giao, trạng thái, thời gian, chi phí và bước đang làm. Bấm vào dòng để xem nhật ký của nó ngay tại chỗ; có nút **Dừng** khi đang chạy. Dừng agent cha thì các agent con cũng dừng.
+- Mỗi agent con là một dòng lồng trong tin nhắn của agent đã giao: avatar, việc được giao, trạng thái, thời gian, chi phí và bước đang làm. Bấm vào dòng để mở khung nhật ký trực tiếp ngay trong chat; nút **Mở to** mở cửa sổ lớn với danh sách agent, nhật ký, tệp thay đổi và việc được giao. Có nút **Dừng** khi đang chạy. Dừng agent cha thì các agent con cũng dừng.
 - Agent con làm trong bản nháp riêng chụp từ thư mục của agent cha, nên không đè tệp agent cha đang sửa. Xong việc, các tệp của nó được gộp về thư mục của agent cha (gộp từng dòng khi cả hai cùng sửa một tệp) và hiện trong tab Thay đổi như mọi thay đổi khác. Tệp xung đột thì agent cha tự gộp; dòng của agent con ghi rõ tệp nào.
 - Tối đa 3 agent con chạy cùng lúc; agent con không giao tiếp được cho agent khác. Agent chưa cài thì agent cha tự làm phần đó.
 - Subagent có sẵn của Claude Code (khi Claude tự chia việc bằng tool Task/Agent) cũng hiện thành dòng lồng như vậy, thay vì trộn vào nhật ký của Claude.

@@ -7,7 +7,7 @@ import { RunsService } from './services/runs/runs.service';
 import { UiService } from './services/app/ui.service';
 import { WorkspaceService } from './services/workspace.service';
 import { AgentPanel } from './features/chat/agent-panel';
-import { MissionControl } from './features/monitor/mission-control';
+import { AgentBoard } from './features/monitor/agent-board';
 import { Settings } from './features/settings/settings';
 import { SidePanel } from './layout/side-panel';
 import { StatusBar } from './layout/status-bar';
@@ -21,7 +21,7 @@ import { LayoutService } from './services/app/layout';
 
 @Component({
   selector: 'app-root',
-  imports: [TitleBar, ThreadList, SidePanel, AgentPanel, MissionControl, UsageScreen, Settings, StatusBar, Splitter, QuickOpen, AgentWindow],
+  imports: [TitleBar, ThreadList, SidePanel, AgentPanel, AgentBoard, UsageScreen, Settings, StatusBar, Splitter, QuickOpen, AgentWindow],
   templateUrl: './app.html',
 })
 export class App {

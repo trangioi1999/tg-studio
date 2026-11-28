@@ -163,7 +163,7 @@ export class ThreadList {
   protected readonly hidden = signal(new Set<string>());
   protected readonly keys = KEYS;
   protected readonly screens: { id: Screen; label: string; icon: string }[] = [
-    { id: 'mission', label: 'Giám sát', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z' },
+    { id: 'mission', label: 'Bảng agent', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z' },
     { id: 'usage', label: 'Chi phí', icon: 'M4 20V10M10 20V4M16 20v-7M22 20H2' },
     { id: 'settings', label: 'Cài đặt', icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6' },
   ];

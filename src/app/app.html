@@ -5,7 +5,7 @@
     @if (peek()) { <div class="sb-scrim" aria-hidden="true" (click)="ui.closePeek()"></div> }
     @if (!ui.sidebarCollapsed() && !ui.narrow()) { <tg-splitter pane="sidebar" /> }
     @switch (ui.screen()) {
-      @case ('mission') { <tg-mission-control class="center screen" /> }
+      @case ('mission') { <tg-agent-board class="center screen" /> }
       @case ('usage') { <tg-usage-screen class="center screen" /> }
       @case ('settings') { <tg-settings class="center screen" /> }
       @default {
