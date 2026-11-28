@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Run } from '../services/runs/run';
 import { RunsService } from '../services/runs/runs.service';
-import { ThreadsService } from '../services/runs/threads.service';
+import { Thread, ThreadsService } from '../services/runs/threads.service';
 import { UiService } from '../services/app/ui.service';
 import { WorkspaceService } from '../services/workspace.service';
 import { runningRows } from './running-group';
@@ -90,5 +90,33 @@ describe('ThreadList · Đang chạy', () => {
     runs.set([run('nghỉ', { status: 'idle' })]);
     fixture.detectChanges();
     expect(el.querySelector('.rn-group')).toBeNull();
+  });
+});
+
+describe('ThreadList · trạng thái cuộc trò chuyện', () => {
+  const thread = (id: string, status: Thread['status']): Thread => ({
+    id, project: '/a', scope: null, title: id, agents: ['claude'], status, updatedAt: 1, latest: run(id),
+  });
+
+  it('đang chạy là chấm, chờ duyệt là chấm kèm chữ, không spinner', () => {
+    TestBed.configureTestingModule({ providers: [
+      { provide: RunsService, useValue: { runs: signal([]) } },
+      { provide: ThreadsService, useValue: { selectedId: signal(null), projects: signal([{ root: '/a', name: 'a', scopes: [],
+        threads: [thread('chạy', 'running'), thread('duyệt', 'needs_you'), thread('xong', 'waiting')] }]) } },
+      { provide: WorkspaceService, useValue: { folder: signal('/a') } },
+      { provide: UiService, useValue: { sidebarCollapsed: signal(false), screen: signal('chat'), openRun: vi.fn() } },
+    ] });
+    const fixture = TestBed.createComponent(ThreadList);
+    fixture.detectChanges();
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.tl-thread')];
+    expect(rows).toHaveLength(3);
+    expect(rows.some((r) => r.querySelector('.spin'))).toBe(false);
+    expect(rows[0].querySelector('.pill')).toBeNull();
+    expect(rows[0].querySelector('.tl-dot')?.getAttribute('aria-label')).toBe('Đang chạy');
+    expect(rows[0].title).toContain('Đang chạy');
+    expect(rows[1].querySelector('.pill')).toBeNull();
+    expect(rows[1].querySelector('.tl-status')?.textContent?.trim()).toBe('Chờ duyệt');
+    expect(rows[1].querySelector('.tl-dot')?.getAttribute('data-status')).toBe('needs_you');
+    expect(rows[2].querySelector('.pill')?.textContent).toContain('Xong');
   });
 });

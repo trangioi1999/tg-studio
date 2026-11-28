@@ -170,6 +170,39 @@ describe('Delegated agents', () => {
     expect(tasks()).toEqual(['Tìm']);
   });
 
+  it('subagents join the marker block they are given to, and leave the end block then', async () => {
+    const { runs, send } = await setup();
+    send({ kind: 'started', line: 'Claude' });
+    send({ kind: 'bridge', line: '◆ tg-bridge · giao cho Codex: A', data: delegation({ id: 'd1', task: 'A' }) });
+    send({ runId: 'p~1', kind: 'started', line: 'Subagent · Tìm', data: { parent: 'p', subagent: true, title: 'Tìm' } });
+    const fixture = TestBed.createComponent(Delegations);
+    fixture.componentRef.setInput('parent', runs.runs().find((r) => r.id === 'p')!);
+    const tasks = () => [...(fixture.nativeElement as HTMLElement).querySelectorAll('.dlg-task')].map((t) => t.textContent!.trim());
+    fixture.componentRef.setInput('only', ['d1']);
+    fixture.detectChanges();
+    expect(tasks()).toEqual(['A']);
+    fixture.componentRef.setInput('subagents', true);
+    fixture.detectChanges();
+    expect(tasks()).toEqual(['A', 'Tìm']);
+    fixture.componentRef.setInput('only', null);
+    fixture.componentRef.setInput('except', ['d1']);
+    fixture.detectChanges();
+    expect(tasks()).toEqual(['Tìm']);
+    fixture.componentRef.setInput('subagents', false);
+    fixture.detectChanges();
+    expect(tasks()).toEqual([]);
+  });
+
+  it('every row says what its agent is doing with the same › mark', async () => {
+    const { runs, send } = await setup();
+    send({ kind: 'started', line: 'Claude' });
+    send({ runId: 'p~1', kind: 'started', line: 'Subagent · Tìm', data: { parent: 'p', subagent: true, title: 'Tìm' } });
+    send({ runId: 'p~1', kind: 'tool', data: { toolCallId: 's1', title: 'Đọc a.json', kind: 'read', status: 'completed' } });
+    expect(render(runs).querySelector('.dlg-now')!.textContent!.trim()).toBe('› Đọc a.json');
+    send({ runId: 'p~1', kind: 'message', data: { text: 'Thấy ở a.json\nchi tiết' } });
+    expect(render(runs).querySelector('.dlg-now')!.textContent!.trim()).toBe('› Thấy ở a.json');
+  });
+
   it('taskOf strips what TG Studio adds for the agent', () => {
     expect(taskOf('Viết test\n\nTệp liên quan: a.ts, b.ts\n\n(Việc được Claude giao qua TG Studio. Xong thì tóm tắt.)')).toBe('Viết test');
     expect(taskOf('Chỉ một dòng')).toBe('Chỉ một dòng');

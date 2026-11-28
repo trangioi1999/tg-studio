@@ -15,6 +15,8 @@ export interface ConsoleLine {
 }
 
 export const MESSAGE_KEY = 'message';
+/** A live tg-bridge `report_progress` line: the chat shows it as the progress bar, the Log as text. */
+export const PROGRESS_KEY = 'progress';
 
 const BRIDGE = '◆ tg-bridge · ';
 

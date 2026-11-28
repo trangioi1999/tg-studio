@@ -20,7 +20,8 @@ import { AgentAvatar } from '../../../shared/ui/agent-avatar';
         <tg-agent-avatar [agent]="agent()" [size]="16" />
         <span>Cần bạn duyệt</span>
       </div>
-      <div>{{ title() }}</div>
+      <!-- A title that only repeats the command would say it twice. -->
+      @if (title().trim() !== command()?.trim()) { <div class="permission-title">{{ title() }}</div> }
       @if (command(); as c) { <code>{{ c }}</code> }
       <div class="permission-actions">
         @if (reject(); as o) {

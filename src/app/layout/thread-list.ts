@@ -55,13 +55,12 @@ import { runningRows } from './running-group';
                   @for (a of t.agents.slice(0, 3); track a) { <tg-agent-avatar [agent]="a" [size]="20" /> }
                 </span>
                 <span class="tl-title ellipsis">{{ t.title }}</span>
-                <span class="pill" [attr.data-status]="t.status">
-                  @switch (t.status) {
-                    @case ('running') { <span class="spin" aria-hidden="true"></span> }
-                    @default { <span class="pill-dot" aria-hidden="true"></span> }
-                  }
-                  {{ labelOf(t) }}
-                </span>
+                <!-- The turn header owns the spinner; here a dot says the same without moving. -->
+                @switch (t.status) {
+                  @case ('running') { <span class="tl-dot" data-status="running" role="img" [attr.aria-label]="labelOf(t)"></span> }
+                  @case ('needs_you') { <span class="tl-status"><span class="tl-dot" data-status="needs_you" aria-hidden="true"></span>{{ labelOf(t) }}</span> }
+                  @default { <span class="pill" [attr.data-status]="t.status"><span class="pill-dot" aria-hidden="true"></span>{{ labelOf(t) }}</span> }
+                }
               </button>
           <button class="tl-del" [attr.aria-label]="'Xoá ' + t.title"
             [disabled]="t.status === 'running' || t.status === 'needs_you'"

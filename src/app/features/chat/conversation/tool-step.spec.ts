@@ -1,5 +1,6 @@
 import { UserMessage } from './user-message';
-import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { CUSTOM_ELEMENTS_SCHEMA, Component, input } from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { JsonValue } from '../../../core/protocol';
 import { TestBed } from '@angular/core/testing';
 import { toolHead, miniDiff, resultLine, middleTruncate } from './tool-step';
@@ -9,6 +10,14 @@ import { ChatState } from '../chat.state';
 import { Delegations } from './delegations';
 import { Run } from '../../../services/runs/run';
 import { applyEvent } from '../../../services/runs/run-events';
+
+@Component({ selector: 'tg-delegations', template: '' })
+class StubDelegations {
+  readonly parent = input<Run>();
+  readonly only = input<readonly (string | number)[] | null>(null);
+  readonly except = input<readonly (string | number)[]>([]);
+  readonly subagents = input<boolean | null>(null);
+}
 
 const path = 'src/app/features/chat/conversation/very/deep/folder/SiteLayout.astro';
 const change = (oldText = 'x\nPlugins\n', newText = 'x\nMarketplace\n') => ({ content: [{ type: 'diff', path, oldText, newText }] });
@@ -50,7 +59,7 @@ describe('Dòng công cụ CLI', () => {
       expect(run.lines[0].diff).toEqual(miniDiff(data));
     }
   });
-  it('hiện chờ duyệt cho work live, spinner khi chạy và ẩn dòng live khi xong', () => {
+  it('hiện chờ duyệt cho work live, không spinner khi chạy và ẩn dòng live khi xong', () => {
     TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
     TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
     const fixture = TestBed.createComponent(ChatTurn);
@@ -63,11 +72,53 @@ describe('Dòng công cụ CLI', () => {
     fixture.componentRef.setInput('run', { ...run, permissions: [] });
     fixture.detectChanges();
     expect(el.querySelector('.cl-live')?.textContent).toContain('Đọc tệp');
-    expect(el.querySelector('.cl-live .spin')).not.toBeNull();
+    expect(el.querySelector('.cl-live .spin')).toBeNull();
     expect(el.querySelector('.cl-work')?.textContent).not.toContain('Chờ bạn duyệt');
     fixture.componentRef.setInput('run', { ...run, status: 'done' });
     fixture.detectChanges();
     expect(el.querySelector('.cl-live')).toBeNull();
+  });
+  it('tiến độ hiện một lần: thanh tiến độ thay dòng tg-bridge, ẩn khi lượt xong', () => {
+    TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
+    TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(ChatTurn);
+    const run: Run = { ...base(), status: 'running', progress: { step: 'Viết test', pct: 40, note: null, at: 1 },
+      lines: [{ text: '› Đọc tệp ✓', tone: 'tool' }, { text: '◆ tg-bridge · Viết test (40%)', tone: 'tool', key: 'progress' }] };
+    fixture.componentRef.setInput('run', run);
+    fixture.detectChanges();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('.turn-progress')?.textContent).toContain('Viết test');
+    expect(el.querySelector('.cl-work')?.textContent).toContain('Đọc tệp');
+    expect(el.querySelector('.cl-work')?.textContent).not.toContain('tg-bridge');
+    fixture.componentRef.setInput('run', { ...run, status: 'idle' });
+    fixture.detectChanges();
+    expect(el.querySelector('.turn-progress')).toBeNull();
+    expect(el.querySelector('.cl-work')?.textContent).not.toContain('tg-bridge');
+  });
+  it('subagent nằm chung khối giao việc cuối của lượt, không thì ở cuối', () => {
+    TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
+    TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { imports: [StubDelegations], schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(ChatTurn);
+    const blocks = () => fixture.debugElement.queryAll(By.directive(StubDelegations)).map((d) => (d.componentInstance as StubDelegations).subagents());
+    fixture.componentRef.setInput('run', { ...base(), lines: [
+      { text: '◆ tg-bridge · giao cho Codex: A', tone: 'delegate', label: 'd1' }, { text: 'Đã giao.', tone: 'text' },
+      { text: '◆ tg-bridge · giao cho Codex: B', tone: 'delegate', label: 'd2' },
+    ] });
+    fixture.detectChanges();
+    expect(blocks()).toEqual([null, true, false]);
+    fixture.componentRef.setInput('run', { ...base(), lines: [{ text: 'Xong.', tone: 'text' }] });
+    fixture.detectChanges();
+    expect(blocks()).toEqual([null]);
+  });
+  it('trạng thái đang chạy của lượt là "Đang chạy"', () => {
+    TestBed.configureTestingModule({ providers: [{ provide: ChatState, useValue: { runs: { now: () => 1 } } }] });
+    TestBed.overrideComponent(ChatTurn, { remove: { imports: [Delegations, UserMessage] }, add: { schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const fixture = TestBed.createComponent(ChatTurn);
+    fixture.componentRef.setInput('run', { ...base(), status: 'running' });
+    fixture.detectChanges();
+    const pill = (fixture.nativeElement as HTMLElement).querySelector('.turn-who .pill')!;
+    expect(pill.textContent?.trim()).toBe('Đang chạy');
+    expect(pill.querySelector('.spin')).not.toBeNull();
   });
   it('lấy dòng kết quả cuối khác rỗng và giới hạn 120 ký tự', () => {
     expect(resultLine({ content: [{ type: 'content', content: { type: 'text', text: '212 dòng\n' } }] })).toBe('212 dòng');

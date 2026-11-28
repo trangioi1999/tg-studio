@@ -86,6 +86,11 @@ export class Delegations {
   readonly only = input<readonly (string | number)[] | null>(null);
   /** All but these: the ones no marker placed, at the end of the run. */
   readonly except = input<readonly (string | number)[]>([]);
+  /**
+   * The agent's own subagents (`<parent>~n`): no marker places them, so by default they sit in
+   * the end block. True puts them in this block too; false keeps them out of the end block.
+   */
+  readonly subagents = input<boolean | null>(null);
   protected readonly meta = AGENT_META;
   /** Stopping one subagent alone has no command; stopping the parent stops them all. */
   protected readonly subagent = isSubagent;
@@ -99,8 +104,12 @@ export class Delegations {
   protected readonly items = computed<Item[]>(() => {
     const only = this.only();
     const except = this.except();
+    const subagents = this.subagents();
     const hit = (it: Item, refs: readonly (string | number)[]) => refs.some((r) => (typeof r === 'number' ? it.ord === r : it.key === r));
-    return this.all().filter((it) => (only ? hit(it, only) : !hit(it, except)));
+    const sub = (it: Item) => !!it.run && isSubagent(it.run);
+    return this.all().filter((it) => (only
+      ? hit(it, only) || (subagents === true && sub(it))
+      : !hit(it, except) && !(subagents === false && sub(it))));
   });
 
   private readonly all = computed<Item[]>(() => {
@@ -181,8 +190,10 @@ export class Delegations {
     if (d && (d.status === 'refused' || d.status === 'failed') && d.summary) return d.summary;
     if (d?.status === 'done' && d.filesChanged.length) return `Đã gộp ${d.filesChanged.length} tệp: ${d.filesChanged.join(', ')}`;
     if (!run) return d?.status === 'waiting_approval' ? 'Đang chờ bạn cho phép giao việc này.' : '';
+    // What it did last, marked the same way for a delegated agent and a subagent.
     const last = run.lines.filter((l) => l.tone === 'tool' || l.tone === 'text').at(-1);
-    return last?.text.split('\n')[0] ?? '';
+    const text = last?.text.split('\n')[0].replace(/^›\s*/, '').replace(/\s[✓✕]$/, '').trim();
+    return text ? `› ${text}` : '';
   }
 }
 

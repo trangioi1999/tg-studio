@@ -9,7 +9,7 @@ import { TerminalsService } from '../app/terminals.service';
 export type ThreadStatus = 'needs_you' | 'running' | 'failed' | 'waiting' | 'ended';
 
 export const THREAD_STATUS_LABEL: Record<ThreadStatus, string> = {
-  needs_you: 'Chờ duyệt', running: 'Đang làm', failed: 'Lỗi', waiting: 'Xong', ended: 'Xong',
+  needs_you: 'Chờ duyệt', running: 'Đang chạy', failed: 'Lỗi', waiting: 'Xong', ended: 'Xong',
 };
 
 /** What the user sees and chats in. Each of its runs is one agent session. */

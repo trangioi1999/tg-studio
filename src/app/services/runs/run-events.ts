@@ -1,5 +1,5 @@
 import { toolHead, miniDiff, resultLine } from '../../features/chat/conversation/tool-step';
-import { addLine, ConsoleLine, describeLine, MESSAGE_KEY } from '../../features/chat/conversation/describe-line';
+import { addLine, ConsoleLine, describeLine, MESSAGE_KEY, PROGRESS_KEY } from '../../features/chat/conversation/describe-line';
 import { planProposal, toolProposal } from '../../features/chat/dock/proposal';
 import { AgentCommand, AgentEvent, AgentId, ContextUsage, Delegation, PermissionRequest, PlanEntry, RunStatus, StoredRun, Usage } from '../../core/protocol';
 import { AGENT_IDS } from '../agents/agent-meta';
@@ -104,8 +104,10 @@ function reduce(run: Run, e: AgentEvent, ctx: { parent?: Run; stopping: boolean 
     }
     case 'bridge': {
       const d = dataOf(e);
-      const lines = e.line ? addLine(run.lines, { text: e.line, tone: 'tool' }).slice(-MAX_LINES) : run.lines;
-      if (d['tool'] === 'report_progress' && typeof d['step'] === 'string') {
+      const progress = d['tool'] === 'report_progress' && typeof d['step'] === 'string';
+      // A progress report shows in the chat as the bar; its key keeps the line for the Log only.
+      const lines = e.line ? addLine(run.lines, { text: e.line, tone: 'tool', ...(progress ? { key: PROGRESS_KEY } : {}) }).slice(-MAX_LINES) : run.lines;
+      if (progress && typeof d['step'] === 'string') {
         const pct = typeof d['pct'] === 'number' ? d['pct'] : null;
         return { ...run, lines, progress: { step: d['step'], pct, note: typeof d['note'] === 'string' ? d['note'] : null, at: e.atMs } };
       }

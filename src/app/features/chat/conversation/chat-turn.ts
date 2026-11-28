@@ -9,6 +9,7 @@ import { Markdown, plainText } from '../../../shared/ui/markdown';
 import { costOf } from '../../../services/usage/pricing';
 import { turnStart } from '../../../services/runs/run';
 import { Delegations } from './delegations';
+import { PROGRESS_KEY } from './describe-line';
 import { UserMessage } from './user-message';
 import { segmentsOf } from './timeline';
 import { middleTruncate } from './tool-step';
@@ -42,7 +43,7 @@ import { ChatState } from '../chat.state';
         </li>
       } @else {
         <li class="cl-legacy" [attr.data-state]="st.state">
-          <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> } @case ('failed') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg> } @case ('note') { <span class="pill-dot" aria-hidden="true"></span> } @default { <span class="spin"></span> } }</span>
+          <span class="step-mark" aria-hidden="true">@switch (st.state) { @case ('done') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg> } @case ('failed') { <svg class="ic xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg> } @default { <span class="pill-dot" aria-hidden="true"></span> } }</span>
           <span class="mono ellipsis" [title]="st.text">{{ st.text }}</span>
         </li>
       }
@@ -63,7 +64,7 @@ import { ChatState } from '../chat.state';
           {{ turnLabel[turnStatus(tr)] }}
         </span>
       </header>
-      @if (tr.progress; as p) {
+      @if (tr.status === 'running' && tr.progress; as p) {
         <div class="turn-progress" [attr.title]="p.note ?? ''">
           <span class="ellipsis">{{ p.step }}</span>
           @if (p.pct !== null) {
@@ -83,7 +84,7 @@ import { ChatState } from '../chat.state';
                   @if (tr.permissions.length) {
                     <span class="pill-dot wait-dot" aria-hidden="true"></span><span class="ellipsis">Chờ bạn duyệt · {{ seg.steps.at(-1)?.text }}</span>
                   } @else {
-                    <span class="spin" aria-hidden="true"></span><span class="ellipsis">{{ seg.steps.at(-1)?.text }}</span>
+                    <span class="ellipsis">{{ seg.steps.at(-1)?.text }}</span>
                   }
                 </div>
               }
@@ -104,7 +105,7 @@ import { ChatState } from '../chat.state';
               </ol>
             </section>
           }
-          @case ('delegate') { <tg-delegations [parent]="tr" [only]="seg.refs" /> }
+          @case ('delegate') { <tg-delegations [parent]="tr" [only]="seg.refs" [subagents]="$index === lastDelegate() ? true : null" /> }
         }
         @if (answers()[$index]; as answer) {
           <div class="answer-actions">
@@ -117,7 +118,7 @@ import { ChatState } from '../chat.state';
           </div>
         }
       }
-      <tg-delegations [parent]="tr" [except]="placed()" />
+      <tg-delegations [parent]="tr" [except]="placed()" [subagents]="lastDelegate() < 0 ? null : false" />
       @if (turnStatus(tr) === 'failed') { <div class="turn-error" role="alert">{{ failureOf(tr) }}</div> }
     </article>
   `,
@@ -127,11 +128,14 @@ export class ChatTurn {
   protected readonly meta = AGENT_META;
   readonly run = input.required<Run>();
   protected readonly usd = fmtUsd;
-  protected readonly turnLabel: Record<TurnStatus, string> = { running: 'Đang làm', needs_you: 'Chờ duyệt', waiting: 'Xong', failed: 'Lỗi', stopped: 'Đã dừng' };
+  protected readonly turnLabel: Record<TurnStatus, string> = { running: 'Đang chạy', needs_you: 'Chờ duyệt', waiting: 'Xong', failed: 'Lỗi', stopped: 'Đã dừng' };
   protected readonly turnStatus = turnStatus;
-  protected readonly segments = computed(() => segmentsOf(this.run().lines, this.run().status === 'running'));
+  /** A live progress report already shows as the bar above; the Log keeps its line. */
+  protected readonly segments = computed(() => segmentsOf(this.run().lines.filter((l) => l.key !== PROGRESS_KEY), this.run().status === 'running'));
   /** Delegations shown where they were made, so the block at the end of the run skips them. */
   protected readonly placed = computed(() => this.segments().flatMap((s) => (s.kind === 'delegate' ? s.refs : [])));
+  /** The run's last delegation block: the agent's own subagents join it, having no marker of their own. */
+  protected readonly lastDelegate = computed(() => this.segments().map((s) => s.kind).lastIndexOf('delegate'));
   /** Where each finished answer ends (the text since the last user message), by segment. */
   protected readonly answers = computed(() => {
     const segs = this.segments();

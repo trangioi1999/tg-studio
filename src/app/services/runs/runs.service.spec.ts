@@ -497,7 +497,7 @@ describe('RunsService tg-bridge events', () => {
     await flush();
     backend.handler(liveEvent({ kind: 'bridge', line: '◆ tg-bridge · Viết test (40%)', data: { tool: 'report_progress', step: 'Viết test', pct: 40, note: null }, atMs: 10 }));
     expect(service.runs()[0].progress).toEqual({ step: 'Viết test', pct: 40, note: null, at: 10 });
-    expect(service.runs()[0].lines.at(-1)).toEqual({ text: '◆ tg-bridge · Viết test (40%)', tone: 'tool' });
+    expect(service.runs()[0].lines.at(-1)).toEqual({ text: '◆ tg-bridge · Viết test (40%)', tone: 'tool', key: 'progress' });
     const handoff = { tool: 'handoff_to', id: 'h1', agent: 'gemini', task: 'Review', files: ['a.ts', 3] };
     backend.handler(liveEvent({ kind: 'bridge', line: 'x', data: handoff }));
     backend.handler(liveEvent({ kind: 'bridge', line: 'x', data: handoff }));

@@ -329,7 +329,7 @@ export class ChatState {
   });
   readonly placeholder = computed(() => {
     const r = this.run();
-    if (r?.status === 'running') return this.blocked() ? 'Agent đang làm… (Esc để dừng)' : 'Nhắn thêm, agent đọc sau bước này…';
+    if (r?.status === 'running') return this.blocked() ? 'Agent đang chạy' : 'Nhắn thêm, agent đọc sau bước này…';
     if (this.mode() === 'read' && r && isReadRun(r)) return `Hỏi tiếp ${AGENT_META[r.agent].name}`;
     if (this.mode() === 'task' && r?.task) return `Nhắn tiếp cho ${AGENT_META[r.agent].name}`;
     return 'Giao việc hoặc hỏi agent';

@@ -77,7 +77,7 @@ Xoá một cuộc trò chuyện: rê chuột lên nó ở cột trái, bấm bi�
 
 ![Xác nhận xoá ngay tại dòng](images/delete.png)
 
-Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) hiện thành từng dòng kiểu CLI (tên công cụ, đối số, kết quả, thay đổi ngắn); luôn thấy 3 bước gần nhất, các bước trước đó gập lại thành "N bước trước". Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và nhãn trạng thái: **Đang làm** (xanh dương), **Chờ duyệt** (vàng), **Xong** (xanh lá), **Lỗi** (đỏ).
+Trong chat, các bước agent làm (đọc tệp, chạy lệnh…) hiện thành từng dòng kiểu CLI (tên công cụ, đối số, kết quả, thay đổi ngắn); luôn thấy 3 bước gần nhất, các bước trước đó gập lại thành "N bước trước". Câu trả lời hiển thị đúng định dạng (đậm, danh sách, code). Cột trái có logo agent và trạng thái: chấm xanh dương là **Đang chạy**, chấm vàng kèm chữ **Chờ duyệt**, nhãn **Xong** (xanh lá), **Lỗi** (đỏ). Vòng quay chỉ có ở đầu câu trả lời đang chạy.
 
 Sửa code cần thư mục là repo Git có ít nhất một commit; nếu chưa có, app có nút **Khởi tạo Git** hoặc **Tạo commit đầu tiên**, xem trước rồi mới làm. Tệp chưa commit không có trong bản nháp, app sẽ cảnh báo trước.
 

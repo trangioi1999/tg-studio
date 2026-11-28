@@ -422,7 +422,7 @@ describe('AgentPanel composer', () => {
       expect(el.querySelector('.cx-row button[aria-label="Thêm tệp, lệnh hoặc skill"]')).not.toBeNull();
       expect(el.querySelector('.cx-row tg-agent-menu')).not.toBeNull();
       // Task runs block sending mid-turn, so the hint must not promise a queue.
-      expect(el.querySelector('textarea#prompt')?.getAttribute('placeholder')).toBe('Agent đang làm… (Esc để dừng)');
+      expect(el.querySelector('textarea#prompt')?.getAttribute('placeholder')).toBe('Agent đang chạy');
     });
 
     it('promises a follow-up only when sending is open mid-turn', async () => {
